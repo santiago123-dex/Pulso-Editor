@@ -217,6 +217,192 @@ fn diff_sources_sync(root: &str, path: &str, orig: Option<&str>, staged: bool) -
     })
 }
 
+// ---------- Ramas ----------
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub struct Branch {
+    pub name: String,
+    pub current: bool,
+    /// Rama que solo existe en un remoto (por ejemplo `origin/dev`).
+    pub remote: bool,
+    pub upstream: Option<String>,
+}
+
+fn branches_sync(root: &str) -> Result<Vec<Branch>, String> {
+    let top = top_of(root)?;
+    let out = run(&top, &["for-each-ref", "--format=%(refname)%09%(HEAD)%09%(upstream:short)", "refs/heads", "refs/remotes"])?;
+    let mut local: Vec<Branch> = Vec::new();
+    let mut remote: Vec<Branch> = Vec::new();
+    for line in out.lines() {
+        let mut parts = line.split('\t');
+        let (Some(name), Some(head), upstream) = (parts.next(), parts.next(), parts.next()) else { continue };
+        let upstream = upstream.filter(|u| !u.is_empty()).map(|u| u.to_string());
+        if let Some(n) = name.strip_prefix("refs/heads/") {
+            local.push(Branch { name: n.to_string(), current: head.trim() == "*", remote: false, upstream });
+        } else if let Some(n) = name.strip_prefix("refs/remotes/") {
+            if n.ends_with("/HEAD") { continue; }
+            remote.push(Branch { name: n.to_string(), current: false, remote: true, upstream: None });
+        }
+    }
+    // Una rama remota que ya existe en local no se repite.
+    remote.retain(|r| !local.iter().any(|l| r.name.split_once('/').map(|(_, short)| short == l.name).unwrap_or(false)));
+    local.sort_by(|a, b| b.current.cmp(&a.current).then(a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+    remote.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    local.extend(remote);
+    Ok(local)
+}
+
+fn valid_branch_name(name: &str) -> Result<(), String> {
+    if name.trim().is_empty() { return Err("Escribe un nombre para la rama".into()); }
+    if name.starts_with('-') { return Err("El nombre de la rama no puede empezar por «-»".into()); }
+    Ok(())
+}
+
+/// Cambia a una rama existente (creando la local si solo existe en el remoto) o crea una nueva.
+fn switch_sync(root: &str, name: &str, create: bool) -> Result<(), String> {
+    valid_branch_name(name)?;
+    let top = top_of(root)?;
+    if create {
+        if !succeeds(&top, &["check-ref-format", "--branch", name]) {
+            return Err(format!("«{name}» no es un nombre de rama válido"));
+        }
+        return run(&top, &["switch", "-c", name]).map(|_| ());
+    }
+    let is_local = succeeds(&top, &["show-ref", "--verify", "--quiet", &format!("refs/heads/{name}")]);
+    if !is_local && succeeds(&top, &["show-ref", "--verify", "--quiet", &format!("refs/remotes/{name}")]) {
+        let short = name.split_once('/').map(|(_, s)| s).unwrap_or(name);
+        return run(&top, &["switch", "-c", short, "--track", name]).map(|_| ());
+    }
+    run(&top, &["switch", name]).map(|_| ())
+}
+
+// ---------- Descartar cambios ----------
+#[derive(serde::Deserialize, Debug, Clone)]
+pub struct DiscardItem {
+    pub path: String,
+    pub status: String,
+}
+
+/// La ruta debe quedarse dentro del repositorio: nada de `..` ni rutas absolutas.
+fn safe_relative(path: &str) -> bool {
+    let p = std::path::Path::new(path);
+    !path.is_empty()
+        && p.is_relative()
+        && !p.components().any(|c| matches!(c, std::path::Component::ParentDir | std::path::Component::Prefix(_) | std::path::Component::RootDir))
+}
+
+/// Descarta los cambios sin preparar. Los modificados y eliminados vuelven a la versión preparada;
+/// los archivos sin seguimiento se retiran con `remove_untracked` (en la aplicación, a la papelera).
+fn discard_sync(root: &str, items: Vec<DiscardItem>, remove_untracked: &dyn Fn(&std::path::Path) -> Result<(), String>) -> Result<usize, String> {
+    let top = top_of(root)?;
+    if let Some(bad) = items.iter().find(|i| !safe_relative(&i.path)) {
+        return Err(format!("Ruta no válida: {}", bad.path));
+    }
+    let tracked: Vec<String> = items.iter().filter(|i| i.status != "U" && i.status != "!").map(|i| i.path.clone()).collect();
+    let untracked: Vec<&DiscardItem> = items.iter().filter(|i| i.status == "U").collect();
+    if !tracked.is_empty() { with_paths(&top, &["restore"], &tracked)?; }
+    for u in &untracked {
+        remove_untracked(&std::path::Path::new(&top).join(&u.path))?;
+    }
+    Ok(tracked.len() + untracked.len())
+}
+
+// ---------- Sincronización con el remoto ----------
+const NET_TIMEOUT_SECS: u64 = 120;
+
+/// Ejecuta un comando con límite de tiempo: si queda esperando (por ejemplo, un inicio de sesión), se detiene.
+fn run_timeout(mut cmd: Command, secs: u64) -> Result<Output, String> {
+    use std::{io::Read, thread, time::{Duration, Instant}};
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| format!("No se pudo ejecutar git: {e}"))?;
+    let mut out = child.stdout.take().ok_or("sin salida")?;
+    let mut err = child.stderr.take().ok_or("sin salida de error")?;
+    let t_out = thread::spawn(move || { let mut b = Vec::new(); let _ = out.read_to_end(&mut b); b });
+    let t_err = thread::spawn(move || { let mut b = Vec::new(); let _ = err.read_to_end(&mut b); b });
+    let deadline = Instant::now() + Duration::from_secs(secs);
+    let status = loop {
+        match child.try_wait().map_err(|e| e.to_string())? {
+            Some(s) => break s,
+            None if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("La operación tardó más de {secs} s y se canceló. Si Git esperaba un inicio de sesión, inicia sesión desde una terminal y reinténtalo"));
+            }
+            None => thread::sleep(Duration::from_millis(50)),
+        }
+    };
+    Ok(Output { status, stdout: t_out.join().unwrap_or_default(), stderr: t_err.join().unwrap_or_default() })
+}
+
+fn run_net(top: &str, args: &[&str], secs: u64) -> Result<String, String> {
+    let mut c = git_command(top);
+    c.args(args);
+    let o = run_timeout(c, secs)?;
+    if o.status.success() { Ok(text(&o)) } else { Err(text(&o)) }
+}
+
+fn current_branch(top: &str) -> Result<String, String> {
+    let b = run(top, &["rev-parse", "--abbrev-ref", "HEAD"])?.trim().to_string();
+    if b == "HEAD" { return Err("Estás en HEAD desacoplado: cambia a una rama antes de sincronizar".into()); }
+    Ok(b)
+}
+
+fn push_sync(root: &str, secs: u64) -> Result<String, String> {
+    let top = top_of(root)?;
+    let branch = current_branch(&top)?;
+    if succeeds(&top, &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]) {
+        return run_net(&top, &["push"], secs);
+    }
+    if succeeds(&top, &["remote", "get-url", "origin"]) {
+        return run_net(&top, &["push", "--set-upstream", "origin", &branch], secs);
+    }
+    Err("Esta rama no tiene remoto. Añade uno con «git remote add origin <url>» en la terminal".into())
+}
+
+fn pull_sync(root: &str, secs: u64) -> Result<String, String> {
+    let top = top_of(root)?;
+    current_branch(&top)?;
+    match run_net(&top, &["pull", "--ff-only"], secs) {
+        Ok(t) => Ok(t),
+        Err(e) if e.contains("Not possible to fast-forward") || e.contains("divergent") => Err(format!(
+            "{e}\n\nTu rama y la remota tienen cambios distintos. Pulso solo trae cambios que se pueden aplicar sin mezclar; resuélvelo en la terminal (git pull --rebase o git merge)."
+        )),
+        Err(e) if e.contains("no tracking information") => {
+            Err("Esta rama no sigue a ninguna rama remota. Haz push primero para crearla en el remoto".into())
+        }
+        Err(e) => Err(e),
+    }
+}
+
+#[tauri::command]
+pub async fn git_branches(root: String) -> Result<Vec<Branch>, String> {
+    tauri::async_runtime::spawn_blocking(move || branches_sync(&root)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_switch(root: String, name: String, create: bool) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || switch_sync(&root, &name, create)).await.map_err(|e| e.to_string())?
+}
+
+/// Descarta cambios sin preparar. Los archivos sin seguimiento van a la papelera de reciclaje.
+#[tauri::command]
+pub async fn git_discard(root: String, items: Vec<DiscardItem>) -> Result<usize, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        discard_sync(&root, items, &|p| trash::delete(p).map_err(|e| format!("No se pudo enviar a la papelera {}: {e}", p.display())))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_push(root: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || push_sync(&root, NET_TIMEOUT_SECS)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_pull(root: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || pull_sync(&root, NET_TIMEOUT_SECS)).await.map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn git_changes(root: String) -> Result<Changes, String> {
     tauri::async_runtime::spawn_blocking(move || changes_sync(&root)).await.map_err(|e| e.to_string())?
@@ -258,6 +444,8 @@ mod tests {
             r.git(&["config", "user.email", "test@example.com"]);
             r.git(&["config", "user.name", "Prueba"]);
             r.git(&["config", "commit.gpgsign", "false"]);
+            // Los saltos de línea no deben cambiar según la configuración global de cada equipo.
+            r.git(&["config", "core.autocrlf", "false"]);
             r
         }
         fn s(&self) -> String { self.0.to_string_lossy().replace('\\', "/") }
@@ -410,6 +598,199 @@ mod tests {
         let err = changes_sync(&plain.to_string_lossy()).unwrap_err();
         let _ = fs::remove_dir_all(&plain);
         assert!(err.contains("no es un repositorio") || err.contains("repositorio"), "{err}");
+    }
+
+    // ---------- Ramas, descartar y sincronización (con remoto local, sin red) ----------
+    fn with_remote() -> (Repo, Repo) {
+        let remote = Repo::new();
+        remote.git(&["config", "receive.denyCurrentBranch", "ignore"]);
+        let bare = std::env::temp_dir().join(format!("pulso-bare-{}-{}", std::process::id(), remote.0.file_name().unwrap().to_string_lossy()));
+        let _ = fs::remove_dir_all(&bare);
+        run(&remote.s(), &["init", "-q", "--bare", &bare.to_string_lossy()]).unwrap();
+        let local = Repo::new();
+        local.write("a.txt", "uno\n");
+        local.commit_all("base");
+        local.git(&["remote", "add", "origin", &bare.to_string_lossy()]);
+        drop(remote);
+        (local, Repo(bare))
+    }
+
+    #[test]
+    fn branches_list_current_first_and_hide_duplicated_remotes() {
+        let (local, _bare) = with_remote();
+        push_sync(&local.s(), 30).unwrap();
+        local.git(&["switch", "-c", "zeta"]);
+        local.git(&["switch", "-c", "alfa"]);
+        let b = branches_sync(&local.s()).unwrap();
+        assert!(b[0].current && b[0].name == "alfa", "{b:?}");
+        let names: Vec<&str> = b.iter().map(|x| x.name.as_str()).collect();
+        assert!(names.contains(&"zeta") && names.contains(&"master") || names.contains(&"main"));
+        assert!(b.iter().all(|x| !x.name.ends_with("/HEAD")));
+        assert!(!b.iter().any(|x| x.remote), "las ramas remotas que ya existen en local no se repiten: {b:?}");
+    }
+
+    #[test]
+    fn create_and_switch_branches_with_validation() {
+        let r = Repo::new();
+        r.write("a.txt", "uno\n");
+        r.commit_all("base");
+        switch_sync(&r.s(), "nueva", true).unwrap();
+        assert_eq!(r.git(&["rev-parse", "--abbrev-ref", "HEAD"]).trim(), "nueva");
+        assert!(switch_sync(&r.s(), "nueva", true).is_err(), "no se puede crear una rama que ya existe");
+        assert!(switch_sync(&r.s(), "mala..rama", true).unwrap_err().contains("no es un nombre"));
+        assert!(switch_sync(&r.s(), "-f", false).unwrap_err().contains("empezar por"));
+        assert!(switch_sync(&r.s(), "  ", true).is_err());
+        let first = branches_sync(&r.s()).unwrap().into_iter().find(|b| !b.current).unwrap().name;
+        switch_sync(&r.s(), &first, false).unwrap();
+        assert_eq!(r.git(&["rev-parse", "--abbrev-ref", "HEAD"]).trim(), first);
+        assert!(switch_sync(&r.s(), "no-existe", false).is_err());
+    }
+
+    #[test]
+    fn switching_with_conflicting_changes_is_refused_and_keeps_the_work() {
+        let r = Repo::new();
+        r.write("a.txt", "uno\n");
+        r.commit_all("base");
+        switch_sync(&r.s(), "otra", true).unwrap();
+        r.write("a.txt", "en otra\n");
+        r.commit_all("cambio en otra");
+        let main = r.git(&["rev-parse", "--abbrev-ref", "@{-1}"]).trim().to_string();
+        switch_sync(&r.s(), &main, false).unwrap();
+        r.write("a.txt", "trabajo sin guardar en commit\n");
+        let err = switch_sync(&r.s(), "otra", false).unwrap_err();
+        assert!(!err.trim().is_empty());
+        assert_eq!(fs::read_to_string(r.0.join("a.txt")).unwrap(), "trabajo sin guardar en commit\n", "no se pierde el trabajo");
+        assert_eq!(r.git(&["rev-parse", "--abbrev-ref", "HEAD"]).trim(), main);
+    }
+
+    #[test]
+    fn switching_to_a_remote_only_branch_creates_a_tracking_branch() {
+        let (local, bare) = with_remote();
+        local.git(&["switch", "-c", "remota"]);
+        local.write("b.txt", "x\n");
+        local.commit_all("en remota");
+        push_sync(&local.s(), 30).unwrap();
+        local.git(&["switch", "-"]);
+        local.git(&["branch", "-D", "remota"]);
+        local.git(&["fetch", "-q", "origin"]);
+        let b = branches_sync(&local.s()).unwrap();
+        assert!(b.iter().any(|x| x.remote && x.name == "origin/remota"), "{b:?}");
+        switch_sync(&local.s(), "origin/remota", false).unwrap();
+        assert_eq!(local.git(&["rev-parse", "--abbrev-ref", "HEAD"]).trim(), "remota");
+        assert_eq!(local.git(&["rev-parse", "--abbrev-ref", "@{u}"]).trim(), "origin/remota");
+        drop(bare);
+    }
+
+    #[test]
+    fn discard_restores_tracked_files_and_removes_untracked_through_the_given_function() {
+        let r = Repo::new();
+        r.write("a.txt", "v1\n");
+        r.write("b.txt", "b\n");
+        r.commit_all("base");
+        r.write("a.txt", "v2\n");
+        fs::remove_file(r.0.join("b.txt")).unwrap();
+        r.write("nuevo.txt", "n\n");
+        let removed = std::cell::RefCell::new(Vec::new());
+        let items = vec![
+            DiscardItem { path: "a.txt".into(), status: "M".into() },
+            DiscardItem { path: "b.txt".into(), status: "D".into() },
+            DiscardItem { path: "nuevo.txt".into(), status: "U".into() },
+        ];
+        let n = discard_sync(&r.s(), items, &|p| { removed.borrow_mut().push(p.to_path_buf()); fs::remove_file(p).map_err(|e| e.to_string()) }).unwrap();
+        assert_eq!(n, 3);
+        assert_eq!(fs::read_to_string(r.0.join("a.txt")).unwrap(), "v1\n");
+        assert_eq!(fs::read_to_string(r.0.join("b.txt")).unwrap(), "b\n");
+        assert!(!r.0.join("nuevo.txt").exists());
+        assert_eq!(removed.borrow().len(), 1, "solo los archivos sin seguimiento pasan por la función de retirada");
+        assert!(changes_sync(&r.s()).unwrap().unstaged.is_empty());
+    }
+
+    #[test]
+    fn discard_does_not_touch_staged_changes_and_rejects_paths_outside_the_repo() {
+        let r = Repo::new();
+        r.write("a.txt", "v1\n");
+        r.commit_all("base");
+        r.write("a.txt", "preparado\n");
+        stage_sync(&r.s(), vec![]).unwrap();
+        r.write("a.txt", "sin preparar\n");
+        discard_sync(&r.s(), vec![DiscardItem { path: "a.txt".into(), status: "M".into() }], &|_| Ok(())).unwrap();
+        assert_eq!(fs::read_to_string(r.0.join("a.txt")).unwrap(), "preparado\n", "vuelve a lo preparado, no a HEAD");
+        assert_eq!(changes_sync(&r.s()).unwrap().staged.len(), 1);
+        for bad in ["../fuera.txt", "/etc/passwd", "C:/Windows/x", "sub/../../x", ""] {
+            let err = discard_sync(&r.s(), vec![DiscardItem { path: bad.into(), status: "U".into() }], &|_| panic!("no debe borrar nada")).unwrap_err();
+            assert!(err.contains("Ruta no válida"), "{bad}: {err}");
+        }
+    }
+
+    #[test]
+    fn push_sets_upstream_then_pull_fast_forwards_another_clone() {
+        let (a, bare) = with_remote();
+        let bare_s = bare.s();
+        push_sync(&a.s(), 30).unwrap();
+        assert!(a.git(&["rev-parse", "--abbrev-ref", "@{u}"]).trim().starts_with("origin/"));
+        let b = Repo::new();
+        fs::remove_dir_all(&b.0).unwrap();
+        run(&std::env::temp_dir().to_string_lossy(), &["clone", "-q", "-c", "core.autocrlf=false", &bare_s, &b.s()]).unwrap();
+        b.git(&["config", "user.email", "t@e.c"]);
+        b.git(&["config", "user.name", "T"]);
+        assert_eq!(fs::read_to_string(b.0.join("a.txt")).unwrap(), "uno\n");
+        a.write("nuevo.txt", "desde a\n");
+        a.commit_all("segundo");
+        let st = changes_sync(&a.s()).unwrap();
+        assert_eq!((st.ahead, st.behind), (1, 0));
+        push_sync(&a.s(), 30).unwrap();
+        assert_eq!(changes_sync(&a.s()).unwrap().ahead, 0);
+        pull_sync(&b.s(), 30).unwrap();
+        assert_eq!(fs::read_to_string(b.0.join("nuevo.txt")).unwrap(), "desde a\n");
+    }
+
+    #[test]
+    fn pull_refuses_divergent_history_with_a_helpful_message() {
+        let (a, bare) = with_remote();
+        let bare_s = bare.s();
+        push_sync(&a.s(), 30).unwrap();
+        let b = Repo::new();
+        fs::remove_dir_all(&b.0).unwrap();
+        run(&std::env::temp_dir().to_string_lossy(), &["clone", "-q", "-c", "core.autocrlf=false", &bare_s, &b.s()]).unwrap();
+        b.git(&["config", "user.email", "t@e.c"]);
+        b.git(&["config", "user.name", "T"]);
+        a.write("x.txt", "a\n");
+        a.commit_all("de a");
+        push_sync(&a.s(), 30).unwrap();
+        b.write("y.txt", "b\n");
+        b.commit_all("de b");
+        let err = pull_sync(&b.s(), 30).unwrap_err();
+        assert!(err.contains("resuélvelo en la terminal"), "{err}");
+        assert!(!b.0.join("x.txt").exists(), "no se mezcló nada");
+    }
+
+    #[test]
+    fn push_and_pull_report_missing_remote_and_detached_head() {
+        let r = Repo::new();
+        r.write("a.txt", "uno\n");
+        r.commit_all("base");
+        assert!(push_sync(&r.s(), 10).unwrap_err().contains("no tiene remoto"));
+        assert!(pull_sync(&r.s(), 10).is_err());
+        r.git(&["checkout", "-q", "--detach"]);
+        assert!(push_sync(&r.s(), 10).unwrap_err().contains("HEAD desacoplado"));
+    }
+
+    #[test]
+    fn network_operations_are_cancelled_when_they_hang() {
+        let mut cmd = if cfg!(windows) {
+            let mut c = background_command("ping");
+            c.args(["-n", "20", "127.0.0.1"]);
+            c
+        } else {
+            let mut c = background_command("sleep");
+            c.arg("20");
+            c
+        };
+        cmd.stdin(Stdio::null());
+        let started = std::time::Instant::now();
+        let err = run_timeout(cmd, 1).unwrap_err();
+        assert!(err.contains("se canceló"), "{err}");
+        assert!(started.elapsed().as_secs() < 8, "debe cortarse cerca del límite, no esperar a que termine");
     }
 
     #[test]

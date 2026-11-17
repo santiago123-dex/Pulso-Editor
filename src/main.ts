@@ -22,7 +22,7 @@ import { fileIcon, loadIconManifest } from "./icons";
 import { initIssues, loadIssues } from "./issues";
 import { initLsp, setLspWorkspace } from "./lsp";
 import { getLspState, lspDetail, lspLabel, onLspState } from "./lspState";
-import { commitStaged, initScm, refreshScm, stage, unstage } from "./scm";
+import { commitStaged, initScm, pickBranch, pullChanges, pushChanges, refreshScm, stage, unstage } from "./scm";
 import { focusSearch, initSearch, searchInFolder } from "./search";
 import { allThemes, applyTheme, commit, onSettingsChange, setTheme, state, syntaxOptionsFor } from "./settings";
 import { adaptToMyTerminal, applyTerminalSettings, clearTerminal, initTerminal, killActiveTerminal, newTerminal, runInTerminal, toggleTerminal } from "./terminal";
@@ -402,6 +402,9 @@ register(
   { id: "view.search", label: "Ver: Buscar en archivos", key: "Ctrl+Shift+F", run: () => { showView("search"); focusSearch(selectionText()); } },
   { id: "view.git", label: "Ver: Control de código fuente (Git)", key: "Ctrl+Shift+G", keywords: "git source control commit cambios stage preparar", run: () => showView("git") },
   { id: "git.commit", label: "Git: Confirmar los cambios preparados (commit)", keywords: "git commit confirmar", run: () => { showView("git"); void commitStaged(); } },
+  { id: "git.branch", label: "Git: Cambiar de rama o crear una nueva…", keywords: "git branch rama checkout switch crear", run: () => void pickBranch() },
+  { id: "git.pull", label: "Git: Traer cambios del remoto (pull)", keywords: "git pull traer descargar", run: () => void pullChanges() },
+  { id: "git.push", label: "Git: Subir commits al remoto (push)", keywords: "git push subir enviar", run: () => void pushChanges() },
   { id: "git.stageAll", label: "Git: Preparar todos los cambios", keywords: "git stage add preparar todo", run: () => void stage([]) },
   { id: "git.unstageAll", label: "Git: Quitar todo de lo preparado", keywords: "git unstage reset quitar", run: () => void unstage([]) },
   { id: "view.issues", label: "Ver: Issues de GitHub", key: "Ctrl+Shift+I", run: () => showView("issues") },
@@ -615,6 +618,7 @@ function paintBranch(info: GitInfo | null) {
   el.title = info.dirty ? "Hay cambios sin confirmar" : "Sin cambios pendientes";
 }
 onGitChange(paintBranch);
+$("status-branch").onclick = () => void pickBranch();
 paintBranch(gitInfo());
 
 initLsp();

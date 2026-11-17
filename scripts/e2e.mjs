@@ -593,7 +593,7 @@ try {
   const git = (...args) => execFileSync("git", ["-C", GROOT, ...args], { encoding: "utf8" });
   const gitSession = () => ({ root: GROOT, layout: { dir: "row", focus: 0, groups: [{ paths: [], active: null, pinned: [] }] } });
   const scmRows = () => run(`return [...document.querySelectorAll("#scm-list .scm-section")].map(s => ({ title: s.querySelector(".scm-title").textContent, files: [...s.querySelectorAll(".scm-row .scm-name")].map(n => n.textContent) }))`);
-  const clickRowAct = (name) => run(`const r=[...document.querySelectorAll("#scm-list .scm-row")].find(r=>r.querySelector(".scm-name").textContent===${JSON.stringify(name)}); r.querySelector(".scm-act").click(); return 1`);
+  const clickRowAct = (name) => run(`const r=[...document.querySelectorAll("#scm-list .scm-row")].find(r=>r.querySelector(".scm-name").textContent===${JSON.stringify(name)}); r.querySelector(".scm-act:not(.scm-drop)").click(); return 1`);
 
   await test("el panel lista cambios sin preparar y sin seguimiento, y la insignia los cuenta", async () => {
     fs.mkdirSync(GROOT, { recursive: true });
@@ -648,6 +648,99 @@ try {
     eq(await run(`return document.getElementById("scm-badge").hidden`), true);
   });
 
+
+  console.log("\nGit: ramas, descartar y sincronizar (remoto local, sin red)");
+  const refreshPanel = () => run(`window.dispatchEvent(new Event("focus")); return 1`);
+  const BARE = `${ROOT}-bare`;
+  const branchNow = () => git("rev-parse", "--abbrev-ref", "HEAD").trim();
+  const pickLabels = () => run(`return [...document.querySelectorAll("#qo-list li .qo-label")].map(l => l.textContent)`);
+  const clickPick = (label) => run(`const li=[...document.querySelectorAll("#qo-list li")].find(l=>l.querySelector(".qo-label")?.textContent===${JSON.stringify(label)}); if(!li) throw new Error("sin opción ${label}"); li.click(); return 1`);
+
+  await test("el botón de rama lista las ramas y permite crear una nueva y volver", async () => {
+    await bootApp(gitSession());
+    await key("g", { ctrl: true, shift: true });
+    await waitFor(`return !document.getElementById("scm-bar").hidden`, "la barra de ramas");
+    const original = branchNow();
+    eq(await run(`return document.getElementById("scm-branch-btn").textContent`), `⎇ ${original}`);
+    await run(`document.getElementById("scm-branch-btn").click(); return 1`);
+    await waitFor(`return !document.getElementById("quickopen").hidden && document.querySelectorAll("#qo-list li").length > 1`, "el selector de ramas");
+    const labels = await pickLabels();
+    ok(labels.some((l) => l.includes("Crear rama nueva")) && labels.includes(original), `opciones: ${labels}`);
+    await clickPick("＋ Crear rama nueva…");
+    await waitFor(`return !!document.querySelector(".modal-input")`, "el nombre de la rama");
+    await answerPrompt("feature/e2e");
+    await waitFor(`return document.getElementById("scm-branch-btn").textContent === "⎇ feature/e2e"`, "la rama nueva activa");
+    eq(branchNow(), "feature/e2e");
+    await run(`document.getElementById("scm-branch-btn").click(); return 1`);
+    await waitFor(`return document.querySelectorAll("#qo-list li").length > 2`, "el selector otra vez");
+    await clickPick(original);
+    await waitFor(`return document.getElementById("scm-branch-btn").textContent === ${JSON.stringify(`⎇ ${original}`)}`, "volver a la rama original");
+    eq(branchNow(), original);
+  });
+
+  await test("descartar pide confirmación, restaura el archivo y no toca lo demás", async () => {
+    fs.writeFileSync(`${GROOT}/a.txt`, "TRABAJO QUE SE VA A DESCARTAR\n");
+    await refreshPanel();
+    await waitFor(`return !![...document.querySelectorAll("#scm-list .scm-row")].find(r=>r.querySelector(".scm-name").textContent==="a.txt")`, "a.txt en Cambios");
+    await run(`[...document.querySelectorAll("#scm-list .scm-row")].find(r=>r.querySelector(".scm-name").textContent==="a.txt").querySelector(".scm-drop").click(); return 1`);
+    await waitFor(`return !!document.querySelector(".modal")`, "la confirmación");
+    const d = await dialog();
+    ok(d.title.includes("a.txt"), d.title);
+    eq(d.buttons, ["Cancelar", "Descartar"]);
+    await clickBtn("Cancelar");
+    await wait(300);
+    eq(fs.readFileSync(`${GROOT}/a.txt`, "utf8"), "TRABAJO QUE SE VA A DESCARTAR\n", "Cancelar no toca nada");
+    await run(`[...document.querySelectorAll("#scm-list .scm-row")].find(r=>r.querySelector(".scm-name").textContent==="a.txt").querySelector(".scm-drop").click(); return 1`);
+    await waitFor(`return !!document.querySelector(".modal")`, "la confirmación otra vez");
+    await clickBtn("Descartar");
+    await waitFor(`return document.querySelectorAll("#scm-list .scm-row").length === 0`, "lista vacía tras descartar");
+    eq(git("status", "--porcelain").trim(), "");
+    ok(!fs.readFileSync(`${GROOT}/a.txt`, "utf8").includes("DESCARTAR"), "el archivo volvió a su versión");
+  });
+
+  await test("push crea la rama en el remoto local y pull trae lo que otro clon subió", async () => {
+    execFileSync("git", ["init", "-q", "--bare", BARE]);
+    git("remote", "add", "origin", BARE);
+    await refreshPanel();
+    await run(`document.getElementById("scm-push").click(); return 1`);
+    await waitFor(`return /origin|branch|rama|up-to-date|new branch|set up/i.test(document.getElementById("status-left").textContent)`, "el resultado del push", 20000);
+    const original = branchNow();
+    eq(execFileSync("git", ["--git-dir", BARE, "log", "-1", "--format=%s", original], { encoding: "utf8" }).trim(), "añade cambios de e2e");
+    eq(git("rev-parse", "--abbrev-ref", "@{u}").trim(), `origin/${original}`, "quedó con rama remota asociada");
+    // Un commit local pendiente de subir se refleja en el botón.
+    fs.writeFileSync(`${GROOT}/local.txt`, "x\n");
+    git("add", "-A"); git("commit", "-q", "-m", "local pendiente");
+    await refreshPanel();
+    await waitFor(`return document.getElementById("scm-push-n").textContent === "1"`, "el contador de push");
+    await run(`document.getElementById("scm-push").click(); return 1`);
+    await waitFor(`return document.getElementById("scm-push-n").textContent === ""`, "contador de push a cero", 20000);
+    // Otro clon sube un cambio; pull lo trae sin mezclar.
+    const CLONE = `${ROOT}-clone`;
+    execFileSync("git", ["clone", "-q", "-c", "core.autocrlf=false", BARE, CLONE]);
+    const cg = (...a) => execFileSync("git", ["-C", CLONE, ...a], { encoding: "utf8" });
+    cg("config", "user.email", "o@e.c"); cg("config", "user.name", "Otro"); cg("config", "commit.gpgsign", "false");
+    fs.writeFileSync(`${CLONE}/del-otro.txt`, "hola\n");
+    cg("add", "-A"); cg("commit", "-q", "-m", "del otro clon"); cg("push", "-q");
+    fs.rmSync(CLONE, { recursive: true, force: true });
+    git("fetch", "-q");
+    await refreshPanel();
+    await waitFor(`return document.getElementById("scm-pull-n").textContent === "1"`, "el contador de pull");
+    await run(`document.getElementById("scm-pull").click(); return 1`);
+    await waitFor(`return document.getElementById("scm-pull-n").textContent === ""`, "contador de pull a cero", 20000);
+    ok(fs.existsSync(`${GROOT}/del-otro.txt`), "el archivo del otro clon llegó");
+  });
+
+  await test("un fallo de git se muestra con su mensaje en vez de pasar en silencio", async () => {
+    git("remote", "set-url", "origin", `${ROOT}-no-existe`);
+    await run(`document.getElementById("scm-push").click(); return 1`);
+    await waitFor(`return !!document.querySelector(".modal")`, "el diálogo de error", 20000);
+    const d = await dialog();
+    eq(d.title, "No se pudo subir los commits");
+    const msg = await run(`return document.querySelector(".modal-msg")?.textContent`);
+    ok(msg && msg.trim().length > 5, `mensaje de git: ${msg}`);
+    await clickBtn("Entendido");
+  });
+
   await test("fuera de un repositorio el panel lo explica en vez de fallar", async () => {
     await bootApp(session([["a.txt"]]));
     await key("g", { ctrl: true, shift: true });
@@ -665,7 +758,7 @@ try {
   await invoke("term_kill_all").catch(() => {});
   ws.close();
   for (let i = 0; i < 10; i++) {
-    try { fs.rmSync(ROOT, { recursive: true, force: true }); fs.rmSync(`${ROOT}-git`, { recursive: true, force: true }); break; } catch (e) {
+    try { fs.rmSync(ROOT, { recursive: true, force: true }); fs.rmSync(`${ROOT}-git`, { recursive: true, force: true }); fs.rmSync(`${ROOT}-bare`, { recursive: true, force: true }); fs.rmSync(`${ROOT}-clone`, { recursive: true, force: true }); break; } catch (e) {
       if (i === 9) console.log("  (no se pudo borrar la carpeta temporal: " + e.code + ")");
       await wait(500);
     }

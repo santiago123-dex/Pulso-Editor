@@ -660,7 +660,12 @@ pub fn run() {
             gitops::git_stage,
             gitops::git_unstage,
             gitops::git_commit,
-            gitops::git_diff_sources
+            gitops::git_diff_sources,
+            gitops::git_branches,
+            gitops::git_switch,
+            gitops::git_discard,
+            gitops::git_push,
+            gitops::git_pull
         ])
         .build(tauri::generate_context!())
         .expect("error al iniciar Pulso Editor")

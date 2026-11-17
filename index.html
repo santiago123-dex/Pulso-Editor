@@ -139,11 +139,15 @@
         <section id="view-git" class="view" hidden>
           <header>
             <span class="title">Control de código</span>
-            <span id="scm-branch"></span>
             <button class="icon-btn" id="scm-refresh" title="Recargar">
               <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg>
             </button>
           </header>
+          <div id="scm-bar" hidden>
+            <button id="scm-branch-btn" class="scm-branch-btn" title="Cambiar de rama"></button>
+            <button class="scm-sync" id="scm-pull" title="Traer cambios del remoto (pull)"><svg viewBox="0 0 24 24"><path d="M12 4v13M6 12l6 6 6-6"/></svg><span id="scm-pull-n"></span></button>
+            <button class="scm-sync" id="scm-push" title="Subir commits al remoto (push)"><svg viewBox="0 0 24 24"><path d="M12 20V7M6 12l6-6 6 6"/></svg><span id="scm-push-n"></span></button>
+          </div>
           <div id="scm-compose" hidden>
             <textarea id="scm-msg" rows="3" placeholder="Mensaje del commit (Ctrl+Enter para confirmar)" spellcheck="false"></textarea>
             <button class="primary" id="scm-commit" disabled>Confirmar</button>
@@ -198,7 +202,7 @@
       </main>
 
       <footer id="statusbar">
-        <span id="status-branch" hidden></span>
+        <span id="status-branch" class="clickable" title="Cambiar de rama" hidden></span>
         <span id="status-left">Listo</span>
         <span class="grow"></span>
         <span id="status-pos"></span>
