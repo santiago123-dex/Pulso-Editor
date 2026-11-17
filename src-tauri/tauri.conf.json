@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Pulso Editor",
+  "version": "0.1.0",
+  "identifier": "dev.pulso.editor",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Pulso Editor",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 500,
+        "decorations": false,
+        "shadow": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "resources": {
+      "../scripts/lsp-no-console.cjs": "lsp/no-console.cjs",
+      "../node_modules/typescript-language-server/lib/cli.mjs": "lsp/node_modules/typescript-language-server/lib/cli.mjs",
+      "../node_modules/typescript/lib/": "lsp/node_modules/typescript/lib/",
+      "../node_modules/typescript/package.json": "lsp/node_modules/typescript/package.json"
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

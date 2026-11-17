@@ -1,0 +1,36 @@
+{
+  "name": "pulso-editor",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "tauri": "tauri",
+    "postinstall": "node scripts/material-icons.mjs",
+    "predev": "node scripts/material-icons.mjs",
+    "prebuild": "node scripts/material-icons.mjs",
+    "test": "vitest run",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "test:windows": "node --test scripts/lsp-preload.test.cjs",
+    "e2e": "node scripts/e2e.mjs",
+    "test:lsp": "node scripts/lsp-smoke.mjs",
+    "test:lsp:ui": "node scripts/lsp-ui-e2e.mjs",
+    "perf": "node scripts/perf.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "material-icon-theme": "^5.40.0",
+    "monaco-editor": "^0.52.0",
+    "typescript": "^5.6.0",
+    "typescript-language-server": "^6.1.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "vite": "^6.0.0",
+    "vitest": "^5.1.0"
+  }
+}

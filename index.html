@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pulso Editor</title>
+    <link rel="icon" href="/logo.png" />
+    <script>
+      // Pinta con los colores del último tema desde el primer cuadro y avisa si el arranque falla.
+      try {
+        var v = JSON.parse(localStorage.getItem("pulso.themeVars") || "null");
+        if (v) for (var k in v) document.documentElement.style.setProperty("--" + k, v[k]);
+      } catch (e) {}
+      function showStartError(msg) {
+        var el = document.getElementById("sp-msg");
+        if (el && document.getElementById("splash")) el.textContent = "Pulso no pudo iniciar: " + msg;
+      }
+      window.addEventListener("error", function (e) { showStartError(e.message); });
+      window.addEventListener("unhandledrejection", function (e) { showStartError(String(e.reason)); });
+    </script>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div id="splash">
+      <img src="/logo.png" alt="Pulso" draggable="false" />
+      <div class="sp-bar"><span></span></div>
+      <p id="sp-msg"></p>
+    </div>
+    <div id="app">
+      <header id="titlebar" data-tauri-drag-region>
+        <div class="tb-left" data-tauri-drag-region>
+          <button id="tb-burger" class="tb-icon" title="Menú">
+            <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+          </button>
+          <img id="tb-logo" src="/logo.png" alt="Pulso" draggable="false" data-tauri-drag-region />
+        </div>
+        <div class="tb-center" data-tauri-drag-region>
+          <button id="nav-back" class="nav-btn" title="Atrás (Alt+←)">
+            <svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>
+          </button>
+          <button id="tb-title" title="Ir a archivo (Ctrl+P)">
+            <span id="tb-label">Pulso</span>
+            <span id="tb-dirty" hidden>●</span>
+          </button>
+          <button id="nav-fwd" class="nav-btn" title="Adelante (Alt+→)">
+            <svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+        <div class="tb-right" data-tauri-drag-region>
+          <div id="win-controls">
+            <button class="win-dot min" id="win-min" title="Minimizar">
+              <svg viewBox="0 0 12 12"><path d="M3 6h6"/></svg>
+            </button>
+            <button class="win-dot max" id="win-max" title="Maximizar">
+              <svg class="i-max" viewBox="0 0 12 12"><rect x="3" y="3" width="6" height="6" rx="1"/></svg>
+              <svg class="i-restore" viewBox="0 0 12 12"><path d="M4.6 4.6V3.4a.8.8 0 0 1 .8-.8h3.2a.8.8 0 0 1 .8.8v3.2a.8.8 0 0 1-.8.8H7.4"/><rect x="2.6" y="4.6" width="4.8" height="4.8" rx=".8"/></svg>
+            </button>
+            <button class="win-dot close" id="win-close" title="Cerrar">
+              <svg viewBox="0 0 12 12"><path d="M3.4 3.4l5.2 5.2M8.6 3.4L3.4 8.6"/></svg>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <nav id="activitybar">
+        <button class="act active" data-view="explorer" title="Explorador (Ctrl+Shift+E)">
+          <svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>
+        </button>
+        <button class="act" data-view="search" title="Buscar (Ctrl+Shift+F)">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l5 5"/></svg>
+        </button>
+        <button class="act" data-view="git" title="Control de código fuente (Ctrl+Shift+G)">
+          <svg viewBox="0 0 24 24"><circle cx="6" cy="5" r="2.2"/><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="8" r="2.2"/><path d="M6 7.2v9.6M18 10.2c0 4-6 3-11 7"/></svg>
+          <span id="scm-badge" class="act-badge" hidden></span>
+        </button>
+        <button class="act" data-view="issues" title="Issues de GitHub (Ctrl+Shift+I)">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg>
+        </button>
+        <div class="spacer"></div>
+        <button class="act" data-view="settings" title="Configuración (Ctrl+,)">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        </button>
+      </nav>
+
+      <aside id="sidebar">
+        <section id="view-explorer" class="view">
+          <header>
+            <span class="title">Explorador</span>
+            <button class="icon-btn" id="ex-new-file" title="Nuevo archivo (Ctrl+N)">
+              <svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M12 11v6M9 14h6"/></svg>
+            </button>
+            <button class="icon-btn" id="ex-new-folder" title="Nueva carpeta">
+              <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10v5M9.5 12.5h5"/></svg>
+            </button>
+            <button class="icon-btn" id="ex-refresh" title="Actualizar">
+              <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg>
+            </button>
+            <button class="icon-btn" id="ex-collapse" title="Contraer todo">
+              <svg viewBox="0 0 24 24"><path d="M5 8l7-4 7 4M5 16l7 4 7-4M5 12h14"/></svg>
+            </button>
+            <button class="icon-btn" id="open-folder" title="Abrir carpeta (Ctrl+O)">
+              <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+            </button>
+          </header>
+          <div id="folder-name"></div>
+          <div id="tree"></div>
+          <div id="tree-empty">
+            <p>No hay ninguna carpeta abierta.</p>
+            <button class="primary" id="open-folder-2">Abrir carpeta</button>
+          </div>
+        </section>
+
+        <section id="view-search" class="view" hidden>
+          <header>
+            <span class="title">Buscar</span>
+            <button class="icon-btn" id="search-clear" title="Limpiar">
+              <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            </button>
+          </header>
+          <div class="search-box">
+            <div class="srow">
+              <input id="sq" type="text" placeholder="Buscar" spellcheck="false" autocomplete="off" />
+              <button class="tgl" id="sq-case" title="Coincidir mayúsculas y minúsculas">Aa</button>
+              <button class="tgl" id="sq-word" title="Palabra completa">ab</button>
+              <button class="tgl" id="sq-re" title="Expresión regular">.*</button>
+            </div>
+            <div class="srow">
+              <input id="sr" type="text" placeholder="Reemplazar" spellcheck="false" autocomplete="off" />
+              <button class="icon-btn" id="sr-all" title="Reemplazar todo">
+                <svg viewBox="0 0 24 24"><path d="M4 7h12l-3-3M20 17H8l3 3"/></svg>
+              </button>
+            </div>
+            <input id="sinc" type="text" placeholder="Archivos a incluir (*.ts, src/components)" spellcheck="false" autocomplete="off" />
+          </div>
+          <div id="search-summary"></div>
+          <div id="search-results"></div>
+        </section>
+
+        <section id="view-git" class="view" hidden>
+          <header>
+            <span class="title">Control de código</span>
+            <span id="scm-branch"></span>
+            <button class="icon-btn" id="scm-refresh" title="Recargar">
+              <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg>
+            </button>
+          </header>
+          <div id="scm-compose" hidden>
+            <textarea id="scm-msg" rows="3" placeholder="Mensaje del commit (Ctrl+Enter para confirmar)" spellcheck="false"></textarea>
+            <button class="primary" id="scm-commit" disabled>Confirmar</button>
+          </div>
+          <div id="scm-list"></div>
+        </section>
+
+        <section id="view-issues" class="view" hidden>
+          <header>
+            <span class="title">Issues</span>
+            <select id="issue-state">
+              <option value="open">Abiertas</option>
+              <option value="closed">Cerradas</option>
+              <option value="all">Todas</option>
+            </select>
+            <button class="icon-btn" id="refresh-issues" title="Recargar">
+              <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg>
+            </button>
+          </header>
+          <div id="repo-label"></div>
+          <ul id="issues"></ul>
+        </section>
+
+      </aside>
+      <div id="resizer"></div>
+
+      <main>
+        <div id="groups" data-dir="row"></div>
+        <div id="diff-view" hidden></div>
+        <section id="panel" hidden>
+          <div id="panel-sash"></div>
+          <div class="panel-head">
+            <span class="panel-title">Terminal</span>
+            <div id="term-tabs"></div>
+            <div class="panel-actions">
+              <button class="icon-btn" id="term-new" title="Nueva terminal (Ctrl+Shift+J)">
+                <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+              </button>
+              <button class="icon-btn" id="term-shells" title="Elegir el tipo de terminal">
+                <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+              </button>
+              <button class="icon-btn" id="term-max" title="Agrandar o restaurar el panel">
+                <svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg>
+              </button>
+              <button class="icon-btn" id="term-hide" title="Ocultar el panel (Ctrl+J)">
+                <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+              </button>
+            </div>
+          </div>
+          <div id="term-body"></div>
+        </section>
+      </main>
+
+      <footer id="statusbar">
+        <span id="status-branch" hidden></span>
+        <span id="status-left">Listo</span>
+        <span class="grow"></span>
+        <span id="status-pos"></span>
+        <span id="status-indent"></span>
+        <span id="status-enc"></span>
+        <span id="status-wrap" class="clickable" title="Alternar ajuste de línea (Alt+Z)"></span>
+        <span id="status-eol" class="clickable" title="Cambiar el fin de línea"></span>
+        <span id="status-lsp" class="clickable" title="Estado del servidor de lenguaje" hidden></span>
+        <span id="status-lang"></span>
+      </footer>
+    </div>
+
+    <div id="settings-page" hidden></div>
+
+    <div id="quickopen" hidden>
+      <div class="qo-box">
+        <input id="qo-input" type="text" placeholder="" spellcheck="false" autocomplete="off" />
+        <ul id="qo-list"></ul>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

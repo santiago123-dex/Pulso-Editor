@@ -1,0 +1,70 @@
+/** Carpeta abierta, carpetas recientes y persistencia de la sesión. */
+export const ws = { root: null as string | null };
+
+/** Ruta relativa a la carpeta abierta. */
+export const rel = (p: string) =>
+  ws.root && p.startsWith(ws.root + "/") ? p.slice(ws.root.length + 1) : p;
+
+const RECENT = "pulso.recent";
+const SESSION = "pulso.session";
+
+export function getRecent(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(RECENT) ?? "[]");
+  } catch {
+    return [];
+  }
+}
+
+export function addRecent(path: string) {
+  const list = [path, ...getRecent().filter((p) => p !== path)].slice(0, 10);
+  localStorage.setItem(RECENT, JSON.stringify(list));
+}
+
+export function removeRecent(path: string) {
+  localStorage.setItem(RECENT, JSON.stringify(getRecent().filter((p) => p !== path)));
+}
+
+export const saveSession = (data: unknown) => localStorage.setItem(SESSION, JSON.stringify(data));
+export const clearSession = () => localStorage.removeItem(SESSION);
+
+export function loadSession(): { root: string | null; layout: unknown } | null {
+  try {
+    return JSON.parse(localStorage.getItem(SESSION) ?? "null");
+  } catch {
+    return null;
+  }
+}
+
+const LAST = "pulso.lastRoot";
+export const getLastRoot = (): string | null => localStorage.getItem(LAST);
+export const setLastRoot = (p: string) => localStorage.setItem(LAST, p);
+export const clearLastRoot = () => localStorage.removeItem(LAST);
+
+/**
+ * Guardado de la sesión con retraso (para no escribir en cada tecla) y protegido: no escribe nada
+ * hasta que se haya leído y restaurado la sesión anterior. Si guardara antes, el estado vacío de un
+ * arranque lento pisaría la carpeta y las pestañas del usuario.
+ */
+export function createSessionPersister(save: () => void, delay = 500) {
+  let ready = false;
+  let timer = 0;
+  return {
+    schedule() {
+      if (!ready) return;
+      clearTimeout(timer);
+      timer = window.setTimeout(save, delay);
+    },
+    /** Guarda ya (al cerrar la ventana). */
+    flush() {
+      clearTimeout(timer);
+      if (ready) save();
+    },
+    /** A partir de aquí se puede guardar. */
+    markReady() {
+      ready = true;
+      this.schedule();
+    },
+    isReady: () => ready,
+  };
+}
