@@ -35,3 +35,7 @@ Condiciones: compilación **de depuración** (sin optimizar), servidor de desarr
 - Proyecto sintético: no se parece a un proyecto real (dependencias, historial de Git, archivos de tipos).
 - Un solo equipo y pocas repeticiones; los rangos de la tabla son de varias pasadas, no estadística.
 - No se midió consumo de CPU en reposo, batería ni arranque en frío tras reiniciar el sistema.
+
+## Compilación de producción (versión instalada)
+
+Misma medición contra la aplicación instalada, sin servidor de desarrollo: arranque 0,9–1,2 s; abrir 5 MB en 0,36 s; escribir en 5 MB 35 ms de mediana (p95 ≈ 185 ms, peor ≈ 370 ms, así que los picos no vienen del modo de depuración); pegado de 20.000 líneas 40 ms; buscar con un solo resultado 1,2 s (limitado por la lectura de disco, el análisis antivirus de Windows puede influir); memoria total ≈ 3,5 GB, con WebView2 ≈ 1,6 GB y el servidor de lenguaje ≈ 1,8 GB.

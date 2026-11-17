@@ -72,6 +72,8 @@ npm run test:lsp:ui      # Ctrl+clic y hover en una ventana de prueba de Windows
 npm run build            # Comprobación TypeScript y compilación web
 ```
 
+El instalador y su prueba están en [docs/DISTRIBUCION.md](docs/DISTRIBUCION.md).
+
 `npm run perf` mide arranque, apertura, escritura, búsqueda y memoria con la aplicación abierta en las mismas condiciones; los resultados y sus límites están en [docs/RENDIMIENTO.md](docs/RENDIMIENTO.md).
 
 `npm run e2e` necesita la aplicación abierta con el puerto de depuración WebView2 configurado; los pasos están al comienzo de `scripts/e2e.mjs`.

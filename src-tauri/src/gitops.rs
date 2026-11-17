@@ -53,8 +53,17 @@ fn succeeds(dir: &str, args: &[&str]) -> bool {
     git_command(dir).args(args).stdout(Stdio::null()).stderr(Stdio::null()).status().map(|s| s.success()).unwrap_or(false)
 }
 
+/// Distingue «git no está instalado» de «esta carpeta no es un repositorio»: piden cosas distintas a la persona.
+fn explain_top_error(err: &str) -> String {
+    if err.starts_with("No se pudo ejecutar git") {
+        "No se encontró Git. Instálalo (git-scm.com) y reinicia Pulso para usar el control de código fuente".to_string()
+    } else {
+        "Esta carpeta no es un repositorio de Git".to_string()
+    }
+}
+
 fn top_of(root: &str) -> Result<String, String> {
-    let t = run(root, &["rev-parse", "--show-toplevel"]).map_err(|_| "Esta carpeta no es un repositorio de Git".to_string())?;
+    let t = run(root, &["rev-parse", "--show-toplevel"]).map_err(|e| explain_top_error(&e))?;
     Ok(t.trim().replace('\\', "/"))
 }
 
@@ -270,6 +279,12 @@ mod tests {
         assert_eq!(names(&c.unstaged), ["Mb.ts", "Mc.ts", "De.ts", "Uf.ts"]);
         assert_eq!(names(&c.conflicted), ["!g.ts"]);
         assert_eq!((c.branch.as_str(), c.ahead, c.behind), ("main", 1, 0));
+    }
+
+    #[test]
+    fn missing_git_is_not_reported_as_a_missing_repository() {
+        assert!(explain_top_error("No se pudo ejecutar git: program not found").contains("No se encontró Git"));
+        assert!(explain_top_error("fatal: not a git repository").contains("no es un repositorio"));
     }
 
     #[test]

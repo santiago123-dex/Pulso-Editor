@@ -9,7 +9,8 @@ const root = await mkdtemp(join(parent, "pulso-lsp-ui-"));
 const workspace = join(root, "project");
 const profile = join(root, "webview");
 const port = 19337;
-const executable = resolve("src-tauri/target/debug/pulso-editor.exe");
+// PULSO_EXE permite probar la versión instalada: PULSO_EXE="%LOCALAPPDATA%\Pulso Editor\pulso-editor.exe" npm run test:lsp:ui
+const executable = process.env.PULSO_EXE ? resolve(process.env.PULSO_EXE) : resolve("src-tauri/target/debug/pulso-editor.exe");
 let app, socket;
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 const waitFor = async (fn, label, timeout = 30000) => {

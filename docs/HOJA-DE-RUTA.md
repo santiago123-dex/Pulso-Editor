@@ -4,7 +4,7 @@ Estas son propuestas, no funciones ya implementadas. El orden es una recomendaci
 
 ## Prioridad 1: confianza y pruebas en Windows
 
-1. Probar el instalador y la aplicación instalada en un Windows limpio, con y sin Node, Git y WebView2 disponibles.
+1. Probar el instalador y la aplicación instalada en un Windows limpio, con y sin Node, Git y WebView2 disponibles. Ya se probó en el equipo de desarrollo, con y sin Node y Git en el `PATH` (ver [Distribución](DISTRIBUCION.md)); falta un Windows limpio, el MSI, la firma y acotar la CSP.
 2. Ampliar pruebas de recuperación y guardado ante cierres inesperados, permisos, disco lleno, archivos grandes, enlaces y operaciones simultáneas.
 3. Reducir la ventana sin copia de recuperación, avisar de fallos de manera persistente y evaluar límites de almacenamiento y privacidad de las copias.
 4. Mejorar la detección de conflictos más allá de la fecha, y estudiar mecanismos que reduzcan la carrera entre comprobar y reemplazar. No prometer protección absoluta sin pruebas por plataforma.
