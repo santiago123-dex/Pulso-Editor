@@ -69,7 +69,7 @@ export function parseRemote(url: string): { owner: string; repo: string } | null
  */
 export const apiBase = () => (localStorage.getItem("pulso.githubApi") || "https://api.github.com").replace(/\/+$/, "");
 
-function authHeaders(json = false): Record<string, string> {
+export function authHeaders(json = false): Record<string, string> {
   const headers: Record<string, string> = { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
   const t = getToken();
   if (t) headers.Authorization = `Bearer ${t}`;
@@ -184,7 +184,7 @@ async function request(method: string, path: string, body?: unknown): Promise<Re
 const etagCache = new Map<string, { etag: string; data: unknown }>();
 
 /** GET con ETag: si GitHub responde 304 se devuelve lo guardado; así se puede consultar a menudo sin coste. */
-async function getJson<T>(path: string): Promise<T> {
+export async function getJson<T>(path: string): Promise<T> {
   const url = `${apiBase()}${path}`;
   const known = etagCache.get(url);
   const headers = authHeaders();
