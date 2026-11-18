@@ -29,8 +29,8 @@ function T(label: string, base: Theme["base"], u: Ui, syntax: SyntaxColors): The
 
 export const THEMES: Record<string, Theme> = {
   "pulso-dark": T("Pulso Oscuro", "vs-dark",
-    ["#14131a", "#1a1922", "#1f1e28", "#121118", "#2b2a36", "#2a2935", "#35344a", "#d9d8e4", "#8a89a0", "#7c3aed"],
-    S("6e6d85", "b794f6", "9ad77b", "f2b36b", "5ec4ff", "e6c07b", "d9d8e4", "ff8a8a", "e6c07b", "f2b36b", "9aa0b4", "4ec9b0")),
+    ["#0e0e0f", "#151515", "#191919", "#111111", "#2a2a2a", "#232323", "#2d2d2d", "#e8e8e8", "#8a8a8a", "#5b9cf5"],
+    S("6b7280", "b794f6", "9ad77b", "f2b36b", "5ec4ff", "e6c07b", "d9d8e4", "ff8a8a", "e6c07b", "f2b36b", "9aa0b4", "4ec9b0")),
   dracula: T("Drácula", "vs-dark",
     ["#191a21", "#282a36", "#21222c", "#191a21", "#343746", "#2f3140", "#44475a", "#f8f8f2", "#8c93b8", "#bd93f9"],
     S("6272a4", "ff79c6", "f1fa8c", "bd93f9", "8be9fd", "50fa7b", "f8f8f2", "ff79c6", "50fa7b", "bd93f9", "ff79c6", "ffb86c")),

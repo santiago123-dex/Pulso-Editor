@@ -48,6 +48,8 @@ export function terminalFontStack(custom: string, editorFont: string, preferred:
   preferred.forEach((p) => { if (p.trim()) add(p); });
   installedNerd.forEach((f) => add(`"${f}"`));
   if (!custom.trim()) NERD_FONTS.forEach((f) => add(`"${f}"`));
+  // Pulso incluye esta fuente de símbolos (ver styles.css): siempre hay iconos de respaldo para los prompts con Nerd Fonts.
+  add('"Symbols Nerd Font Mono"');
   add(editorFont);
   return out.join(", ");
 }

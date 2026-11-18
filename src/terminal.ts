@@ -173,19 +173,32 @@ export async function adaptToMyTerminal(): Promise<boolean> {
   return true;
 }
 
-/** La primera vez que se abre una terminal se ofrece adaptarla (una sola vez). */
-async function offerAdaptationOnce() {
-  if (state.settings.terminalAdapted) return;
-  detected = await detectPrefs();
-  const list = await listShells();
-  if (hasAnythingToAdapt(detected, list)) await adaptToMyTerminal();
+/**
+ * La primera vez se adopta, sin preguntar, la terminal de la persona (su shell, fuente y colores de VS Code o Windows Terminal).
+ * Antes se preguntaba y, si se respondía que no, la terminal salía con otra fuente (cuadros en lugar de iconos en los
+ * prompts con Nerd Fonts). Solo se respeta lo que la persona ya haya fijado a mano en la configuración.
+ */
+const AUTO_KEY = "pulso.terminalAutoAdapt";
+async function adaptOnce() {
+  if (localStorage.getItem(AUTO_KEY)) return;
+  localStorage.setItem(AUTO_KEY, "1");
+  const s = state.settings;
+  const custom = !!(s.terminalFont || s.terminalShell || s.terminalScheme || s.terminalFontSize);
+  if (custom) return;
+  try {
+    detected = await detectPrefs();
+    const plan = planAdaptation(detected, await listShells());
+    if (plan.summary.length) { applyAdaptation(plan); setStatus("Terminal adaptada a la tuya: " + plan.summary.join(" · "), 6000); return; }
+  } catch { /* sin configuración que leer: se usa la shell predeterminada */ }
   state.settings.terminalAdapted = true;
   commit();
 }
 
 export async function newTerminal(opts: { shell?: ShellInfo; cwd?: string } = {}): Promise<boolean> {
   if (!inTauri) { setStatus("La terminal solo funciona en la ventana de Pulso Editor."); return false; }
-  await offerAdaptationOnce();
+  await adaptOnce();
+  // xterm mide las celdas al abrirse: la fuente de símbolos debe estar cargada antes, o los iconos salen como cuadros.
+  await document.fonts.load('14px "Symbols Nerd Font Mono"', "").catch(() => {});
   const shell = opts.shell ?? (await preferredShell());
   if (!shell) { setStatus("No se encontró ninguna shell instalada."); return false; }
   await ensureListening();
