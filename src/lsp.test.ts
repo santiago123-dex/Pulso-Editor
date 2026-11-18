@@ -35,6 +35,8 @@ vi.mock("monaco-editor", () => ({
     registerDefinitionProvider: (_: string, p: unknown) => { h.providers.definition = p; },
     registerReferenceProvider: (_: string, p: unknown) => { h.providers.references = p; },
     registerCompletionItemProvider: (_: string, p: unknown) => { h.providers.completion = p; },
+    registerRenameProvider: (_: unknown, p: unknown) => { h.providers.rename = p; },
+    registerDocumentFormattingEditProvider: (_: string, p: unknown) => { h.providers.formatting = p; },
   },
 }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: async (name: string, callback: (event: any) => void) => { h.handlers.set(name, callback); return () => {}; } }));
@@ -48,7 +50,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: async (command: string, args: a
     }
   }
 } }));
-vi.mock("./docs", () => ({ onDocSaved: vi.fn(), findOpenDoc: vi.fn() }));
+vi.mock("./docs", () => ({ onDocSaved: vi.fn(), findOpenDoc: vi.fn(), setBeforeSave: vi.fn() }));
 vi.mock("./groups", () => ({ config: {}, openFile: vi.fn() }));
 vi.mock("./ui", () => ({ setStatus: vi.fn() }));
 

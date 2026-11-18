@@ -75,7 +75,7 @@ vi.mock("./ui", () => ({
 }));
 
 import {
-  checkExternal, cloneDoc, disposeDoc, docs, isDirty, loadDoc, offerRecovery, reloadDoc, restoreFromBackup, saveDoc,
+  checkExternal, cloneDoc, disposeDoc, docs, flushBackups, isDirty, loadDoc, offerRecovery, onDocsChange, reloadDoc, removeBackup, restoreFromBackup, saveDoc, setBeforeSave,
 } from "./docs";
 
 const P = "C:/proyecto/a.ts";
@@ -98,6 +98,26 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("guardar", () => {
+  it("avisa a la interfaz solo cuando cambia el estado de guardado, sin perder la recuperación", async () => {
+    const changed = vi.fn(); onDocsChange(changed);
+    const d = await loadDoc(P);
+    edit(P, "dos"); edit(P, "tres"); edit(P, "cuatro");
+    expect(changed).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.backups.get(P)?.contents).toBe("cuatro");
+    await saveDoc(d);
+    expect(changed).toHaveBeenCalledTimes(2);
+    edit(P, "cinco");
+    expect(changed).toHaveBeenCalledTimes(3);
+  });
+  it("actualiza la interfaz cuando deshacer vuelve a la versión guardada", async () => {
+    const changed = vi.fn(); onDocsChange(changed);
+    const d = await loadDoc(P);
+    edit(P, "dos");
+    const fake = model(P); fake.text = "uno"; fake.alt = 1; fake.listeners.forEach(f => f());
+    expect(isDirty(d)).toBe(false);
+    expect(changed).toHaveBeenCalledTimes(2);
+  });
   it("reutiliza el documento cuando Windows devuelve otra capitalización o barras", async () => {
     const first = await loadDoc(P);
     const second = await loadDoc("c:\\PROYECTO\\A.ts");
@@ -159,6 +179,36 @@ describe("guardar", () => {
     expect(isDirty(d)).toBe(false);
   });
 
+  it("si solo cambió la fecha (mismo contenido) guarda sin preguntar", async () => {
+    const d = await loadDoc(P);
+    const original = disk(P).text;
+    edit(P, "mio");
+    externalWrite(P, original);
+    expect(await saveDoc(d)).toBe(true);
+    expect(h.dialog.shown.length).toBe(0);
+    expect(disk(P).text).toBe("mio");
+  });
+
+  it("si el contenido del disco cambió de verdad sigue avisando aunque tenga la misma longitud", async () => {
+    const d = await loadDoc(P);
+    const original = disk(P).text;
+    edit(P, "mio");
+    externalWrite(P, original.replace(/./, (c) => (c === "x" ? "y" : "x")));
+    h.dialog.answers = ["cancel"];
+    expect(await saveDoc(d)).toBe(false);
+    expect(h.dialog.shown.length).toBe(1);
+  });
+
+  it("después de guardar, un cambio de fecha con el mismo contenido tampoco molesta", async () => {
+    const d = await loadDoc(P);
+    edit(P, "guardado");
+    await saveDoc(d);
+    externalWrite(P, "guardado");
+    edit(P, "guardado y más");
+    expect(await saveDoc(d)).toBe(true);
+    expect(h.dialog.shown.length).toBe(0);
+  });
+
   it("no apila diálogos si se guarda varias veces durante un mismo conflicto", async () => {
     const d = await loadDoc(P);
     edit(P, "mio");
@@ -186,6 +236,49 @@ describe("guardar", () => {
   });
 });
 
+describe("formatear al guardar", () => {
+  afterEach(() => { setBeforeSave(null); });
+
+  it("con la opción activa formatea antes de escribir y guarda el texto formateado", async () => {
+    const { state } = await import("./settings");
+    (state.settings as any).formatOnSave = true;
+    try {
+      const d = await loadDoc(P);
+      edit(P, "sin   formato");
+      setBeforeSave(async (doc) => { (doc.model as any).pushEditOperations([], [{ text: "con formato" }], () => null); });
+      expect(await saveDoc(d)).toBe(true);
+      expect(disk(P).text).toBe("con formato");
+    } finally { (state.settings as any).formatOnSave = false; }
+  });
+
+  it("no formatea en el autoguardado ni con la opción apagada", async () => {
+    const { state } = await import("./settings");
+    const d = await loadDoc(P);
+    let calls = 0;
+    setBeforeSave(async () => { calls++; });
+    edit(P, "uno");
+    await saveDoc(d);
+    (state.settings as any).formatOnSave = true;
+    try {
+      edit(P, "dos");
+      await saveDoc(d, false, false, true);
+    } finally { (state.settings as any).formatOnSave = false; }
+    expect(calls).toBe(0);
+  });
+
+  it("si el formateo falla igualmente guarda lo escrito", async () => {
+    const { state } = await import("./settings");
+    (state.settings as any).formatOnSave = true;
+    try {
+      const d = await loadDoc(P);
+      edit(P, "texto propio");
+      setBeforeSave(async () => { throw new Error("servidor caído"); });
+      expect(await saveDoc(d)).toBe(true);
+      expect(disk(P).text).toBe("texto propio");
+    } finally { (state.settings as any).formatOnSave = false; }
+  });
+});
+
 describe("copias de recuperación", () => {
   it("guarda una copia del texto sucio tras una pausa, no en cada tecla", async () => {
     await loadDoc(P);
@@ -197,6 +290,17 @@ describe("copias de recuperación", () => {
     expect(h.backups.get(P)?.contents).toBe("abc");
     expect(h.calls.filter(([c]) => c === "backup_write").length).toBe(1);
     expect(h.backups.get(P)?.base_mtime).toBe(1000);
+  });
+
+  it("al perder el foco escribe la copia pendiente sin esperar la pausa", async () => {
+    await loadDoc(P);
+    edit(P, "recién escrito");
+    expect(h.backups.has(P)).toBe(false);
+    flushBackups();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.backups.get(P)?.contents).toBe("recién escrito");
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(h.calls.filter(([c]) => c === "backup_write").length).toBe(1);
   });
 
   it("guardar el archivo borra su copia", async () => {
@@ -251,6 +355,52 @@ describe("copias de recuperación", () => {
     edit(P, "segundo");
     await vi.advanceTimersByTimeAsync(250);
     expect(h.backups.get(P)?.contents).toBe("segundo");
+  });
+
+  it("agrupa copias pendientes durante escritura lenta y conserva el contenido más reciente", async () => {
+    await loadDoc(P);
+    const snapshot = vi.spyOn(model(P), "getValue");
+    const orig = h.invoke;
+    let release!: () => void, started!: () => void;
+    const pending = new Promise<void>(r => { release = r; });
+    const ready = new Promise<void>(r => { started = r; });
+    let writes = 0;
+    (h as any).invoke = async (c: string, a: any) => {
+      if (c === "backup_write" && ++writes === 1) { started(); await pending; }
+      return orig(c, a);
+    };
+    try {
+      edit(P, "primero"); vi.advanceTimersByTime(1000); await ready;
+      for (const text of ["dos", "tres", "cuatro"]) { edit(P, text); vi.advanceTimersByTime(1000); await Promise.resolve(); }
+      expect(writes).toBe(1);
+      release();
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+      expect(h.backups.get(P)?.contents).toBe("cuatro");
+      expect(writes).toBe(2);
+      expect(snapshot).toHaveBeenCalledTimes(2);
+    } finally { release(); (h as any).invoke = orig; }
+  });
+
+  it("conserva una edición posterior al borrado aunque haya copias anteriores en cola", async () => {
+    await loadDoc(P);
+    const orig = h.invoke;
+    let release!: () => void, started!: () => void;
+    const pending = new Promise<void>(r => { release = r; });
+    const ready = new Promise<void>(r => { started = r; });
+    let writes = 0;
+    (h as any).invoke = async (c: string, a: any) => {
+      if (c === "backup_write" && ++writes === 1) { started(); await pending; }
+      return orig(c, a);
+    };
+    try {
+      edit(P, "primero"); vi.advanceTimersByTime(1000); await ready;
+      edit(P, "segundo"); vi.advanceTimersByTime(1000);
+      const removed = removeBackup(P);
+      edit(P, "tercero"); vi.advanceTimersByTime(1000);
+      release(); await removed;
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+      expect(h.backups.get(P)?.contents).toBe("tercero");
+    } finally { release(); (h as any).invoke = orig; }
   });
 
   it("informa si falla una copia de recuperación", async () => {
@@ -381,6 +531,15 @@ describe("recuperar tras un cierre inesperado", () => {
 });
 
 describe("cambios externos y renombrado", () => {
+  it("un archivo con cambios propios cuya fecha cambió sin cambiar el contenido no pregunta", async () => {
+    await loadDoc(P);
+    edit(P, "mio");
+    externalWrite(P, disk(P).text);
+    await checkExternal();
+    expect(h.dialog.shown.length).toBe(0);
+    expect(model(P).getValue()).toBe("mio");
+  });
+
   it("recarga en silencio un archivo limpio que cambió en el disco", async () => {
     await loadDoc(P);
     externalWrite(P, "nuevo en disco");

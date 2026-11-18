@@ -1,10 +1,11 @@
 import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { findOpenDoc, onDocSaved } from "./docs";
+import { findOpenDoc, onDocSaved, setBeforeSave } from "./docs";
 import { config, openFile } from "./groups";
 import { setLspState } from "./lspState";
 import { setStatus } from "./ui";
+import { applyTextEdits, collectEdits } from "./lspEdits";
 import { fileKey } from "./util";
 
 type Json = any; // LSP messages are validated at the boundary where they are used.
@@ -19,7 +20,7 @@ const owner = "pulso-lsp";
 const defaults = [monaco.languages.typescript.typescriptDefaults, monaco.languages.typescript.javascriptDefaults];
 
 function builtIn(enabled: boolean) {
-  for (const d of defaults) d.setModeConfiguration({ completionItems: enabled, hovers: enabled, definitions: enabled, references: enabled, diagnostics: enabled, rename: true, documentSymbols: true, documentHighlights: true, documentRangeFormattingEdits: true, signatureHelp: true, onTypeFormattingEdits: true, codeActions: true, inlayHints: true });
+  for (const d of defaults) d.setModeConfiguration({ completionItems: enabled, hovers: enabled, definitions: enabled, references: enabled, diagnostics: enabled, rename: enabled, documentSymbols: true, documentHighlights: true, documentRangeFormattingEdits: true, signatureHelp: true, onTypeFormattingEdits: true, codeActions: true, inlayHints: true });
 }
 function language(model: monaco.editor.ITextModel): string | null {
   const p = model.uri.path.toLowerCase();
@@ -133,7 +134,7 @@ export function setLspWorkspace(root: string | null) {
     session = s;
     try {
       const rootUri = monaco.Uri.file(root).toString();
-      const result = await request(s, "initialize", { processId: null, rootUri, workspaceFolders: [{ uri: rootUri, name: root.split(/[\\/]/).pop() || root }], capabilities: { workspace: { configuration: true }, textDocument: { publishDiagnostics: { versionSupport: true }, completion: { completionItem: { snippetSupport: true } }, hover: { contentFormat: ["markdown", "plaintext"] }, definition: { linkSupport: true } } }, initializationOptions: { hostInfo: "Pulso", disableAutomaticTypingAcquisition: true } });
+      const result = await request(s, "initialize", { processId: null, rootUri, workspaceFolders: [{ uri: rootUri, name: root.split(/[\\/]/).pop() || root }], capabilities: { workspace: { configuration: true, workspaceEdit: { documentChanges: false } }, textDocument: { publishDiagnostics: { versionSupport: true }, completion: { completionItem: { snippetSupport: true } }, hover: { contentFormat: ["markdown", "plaintext"] }, definition: { linkSupport: true }, rename: { prepareSupport: true }, formatting: {} } }, initializationOptions: { hostInfo: "Pulso", disableAutomaticTypingAcquisition: true } });
       if (session !== s || current !== generation) return;
       const sync = result?.capabilities?.textDocumentSync;
       s.incremental = (typeof sync === "number" ? sync : sync?.change) === 2;
@@ -196,6 +197,51 @@ async function definition(model: monaco.editor.ITextModel, position: monaco.Posi
   return promise;
 }
 
+const slash = (p: string) => p.replace(/\\/g, "/");
+
+/**
+ * Pide el renombrado al servidor. Los archivos abiertos se editan en el editor (quedan sin guardar y se pueden deshacer);
+ * los cerrados se escriben en el disco, y solo si todos se pueden calcular antes de escribir ninguno.
+ */
+async function renameEdits(s: Session, model: monaco.editor.ITextModel, position: monaco.Position, newName: string, token: monaco.CancellationToken): Promise<monaco.languages.WorkspaceEdit & monaco.languages.Rejection> {
+  const result = await request(s, "textDocument/rename", { ...params(model, position), newName }, token);
+  const byUri = collectEdits(result);
+  const edits: monaco.languages.IWorkspaceTextEdit[] = [];
+  const closed: { path: string; text: string; mtime: number }[] = [];
+  for (const [u, list] of byUri) {
+    const target = monaco.Uri.parse(u);
+    if (target.scheme !== "file") throw new Error(`El servidor pidió editar un recurso que no es un archivo (${u})`);
+    const path = slash(target.fsPath);
+    const open = findOpenDoc(path);
+    if (open) {
+      for (const e of list) edits.push({ resource: open.model.uri, textEdit: { range: range(e.range), text: e.newText }, versionId: undefined });
+    } else {
+      const mtime = await invoke<number>("file_mtime", { path });
+      const text = applyTextEdits(await invoke<string>("read_file", { path }), list);
+      closed.push({ path, text, mtime });
+    }
+  }
+  if (token.isCancellationRequested) return { edits: [] };
+  const written: string[] = [];
+  for (const f of closed) {
+    try { await invoke("write_file", { path: f.path, contents: f.text, expectedMtime: f.mtime }); written.push(f.path); }
+    catch (e) {
+      const done = written.length ? ` Ya se escribieron: ${written.map((w) => w.split("/").pop()).join(", ")}.` : "";
+      throw new Error(`No se pudo escribir ${f.path.split("/").pop()}: ${String(e).replace(/^CONFLICT$/, "cambió en el disco")}.${done}`);
+    }
+  }
+  const files = byUri.size;
+  setStatus(`Renombrado en ${files} archivo${files === 1 ? "" : "s"}${closed.length ? ` (${closed.length} guardado${closed.length === 1 ? "" : "s"} en disco)` : ""}${edits.length ? ". Los archivos abiertos quedan sin guardar" : ""}`, 6000);
+  return { edits };
+}
+
+/** Ediciones de formato que propone el servidor para todo el documento. */
+async function formatEdits(s: Session, model: monaco.editor.ITextModel, token?: monaco.CancellationToken): Promise<monaco.languages.TextEdit[]> {
+  const o = model.getOptions();
+  const edits = await request(s, "textDocument/formatting", { textDocument: { uri: uri(model) }, options: { tabSize: o.tabSize, insertSpaces: o.insertSpaces } }, token);
+  return (Array.isArray(edits) ? edits : []).map((e: Json) => ({ range: range(e.range), text: e.newText }));
+}
+
 export function initLsp() {
   if (!("__TAURI_INTERNALS__" in window)) return;
   config.probeDefinition = async (model, position) => !!(await definition(model, position, false))?.length;
@@ -213,6 +259,15 @@ export function initLsp() {
     return true;
   };
   monaco.editor.onDidCreateModel((model) => { if (session) openModel(session, model); });
+  // «Formatear al guardar»: si el texto cambió mientras el servidor respondía, las ediciones ya no encajan y se descartan.
+  setBeforeSave(async (d) => {
+    const s = session;
+    if (!s || !active(d.model)) return;
+    const version = d.model.getVersionId();
+    const edits = await Promise.race([formatEdits(s, d.model), new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error("el servidor tardó demasiado")), 4000))]);
+    if (!edits.length || d.model.getVersionId() !== version) return;
+    d.model.pushEditOperations([], edits, () => null);
+  });
   onDocSaved((path) => { const s = session, model = monaco.editor.getModel(monaco.Uri.file(path)); if (s && model && active(model)) notify(s, "textDocument/didSave", { textDocument: { uri: uri(model) } }); });
   monaco.editor.registerEditorOpener({ openCodeEditor: async (_source, resource, selection) => {
     if (resource.scheme !== "file") return false;
@@ -227,6 +282,25 @@ export function initLsp() {
     } });
     monaco.languages.registerDefinitionProvider(lang, { provideDefinition: (model, position, token) => { const s = active(model); return s ? safe(request(s, "textDocument/definition", params(model, position), token).then(locations), []) : null; } });
     monaco.languages.registerReferenceProvider(lang, { provideReferences: (model, position, context, token) => { const s = active(model); return s ? safe(request(s, "textDocument/references", { ...params(model, position), context }, token).then(locations), []) : null; } });
+    // Con esquema además de lenguaje, este proveedor puntúa más que el de Monaco y siempre se prefiere.
+    monaco.languages.registerRenameProvider({ language: lang, scheme: "file", exclusive: true }, {
+      resolveRenameLocation: async (model, position, token) => {
+        const s = active(model);
+        if (!s) return { range: model.getWordAtPosition(position) ? { startLineNumber: position.lineNumber, endLineNumber: position.lineNumber, startColumn: model.getWordAtPosition(position)!.startColumn, endColumn: model.getWordAtPosition(position)!.endColumn } : new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column), text: "", rejectReason: "La inteligencia de lenguaje no está activa" };
+        const r = await safe(request(s, "textDocument/prepareRename", params(model, position), token), null);
+        const target = r && (r.range ?? (r.start ? r : null));
+        if (!target) return { range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column), text: "", rejectReason: "No se puede renombrar lo que hay bajo el cursor" };
+        const rg = range(target);
+        return { range: rg, text: r.placeholder ?? model.getValueInRange(rg) };
+      },
+      provideRenameEdits: async (model, position, newName, token) => {
+        const s = active(model);
+        if (!s) return { edits: [], rejectReason: "La inteligencia de lenguaje no está activa" };
+        try { return await renameEdits(s, model, position, newName, token); }
+        catch (e) { return { edits: [], rejectReason: e instanceof Error ? e.message : String(e) }; }
+      },
+    });
+    monaco.languages.registerDocumentFormattingEditProvider(lang, { displayName: "Servidor de lenguaje", provideDocumentFormattingEdits: (model, _options, token) => { const s = active(model); return s ? safe(formatEdits(s, model, token), []) : []; } });
     monaco.languages.registerCompletionItemProvider(lang, { triggerCharacters: [".", "\"", "'", "/", "@"], provideCompletionItems: (model, position, _context, token) => {
       const s = active(model); if (!s) return null;
       const word = model.getWordUntilPosition(position);
