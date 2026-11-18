@@ -1,0 +1,4 @@
+/* El árbol conserva el foco mientras cambia su descendiente activo. */
+#tree:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+#tree:focus-visible .node.sel { outline: 2px solid var(--accent); outline-offset: -2px; }
+#folder-name:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }

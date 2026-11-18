@@ -2,6 +2,10 @@
 
 Pulso es un editor de código de escritorio construido con Tauri, Rust, TypeScript y Monaco. Incluye explorador de archivos, terminal, búsqueda, integración inicial con Git y GitHub, y un servidor de lenguaje para proyectos TypeScript y JavaScript.
 
+
+LSP = Language server protocol
+
+
 ## Probar Pulso en Windows
 
 ### Opción 1: ejecutable ya compilado
