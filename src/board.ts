@@ -1,9 +1,14 @@
-import { applyMove, COLUMNS, columnOf, groupIssues, labelsForNew, labelsText, parseLabels, planMove, refreshDue, sameIssues, upsertIssue, type Column } from "./boardModel";
-import { addLabel, createIssue, fetchAllIssues, getToken, removeLabel, setIssueState, updateIssue, type Issue } from "./github";
+import { applyMove, COLUMNS, columnOf, groupIssues, labelsForNew, labelsText, parseLabels, planMove, refreshDue, REVIEW_LABEL, sameIssues, upsertIssue, type Column } from "./boardModel";
+import { ensureBoardLabel } from "./boardLabels";
+import { isChatRoom } from "./chatModel";
+import { addLabel, createIssue, deleteIssue, fetchAllIssues, getToken, isAuthProblem, removeLabel, setIssueState, updateIssue, type Issue } from "./github";
+import { openExternal } from "./external";
+import { connectButton } from "./githubConnect";
 import { currentRepo } from "./issues";
 import { state } from "./settings";
 import { setStatus, showDialog, showForm } from "./ui";
 import { $, h } from "./util";
+import "./board.css";
 
 interface Repo { owner: string; repo: string }
 
@@ -14,10 +19,15 @@ let busy = false;
 let token = 0;
 let lastLoad = 0;
 let timer = 0;
+let boardSession = 0;
+/** Última lectura de cada repositorio en esta sesión: al reabrir el tablero se pinta al instante y se actualiza detrás. */
+const cache = new Map<string, { issues: Issue[]; truncated: boolean; at: number }>();
+const cacheKey = (r: Repo) => `${r.owner}/${r.repo}`.toLowerCase();
 
-/** Recarga automática: al volver a la ventana (si pasaron 5 s) y, con token, cada minuto. Ver `refreshDue`. */
+/** Recarga automática: al volver a la ventana (si pasaron 5 s) y, con token, cada 15 s (las consultas sin cambios usan ETag y no gastan cuota). Ver `refreshDue`. */
 const MIN_GAP_MS = 5_000;
-const INTERVAL_MS = 60_000;
+const INTERVAL_MS = 15_000;
+const intervalMs = () => Number(localStorage.getItem("pulso.boardInterval")) || INTERVAL_MS;
 const minGap = () => Number(localStorage.getItem("pulso.boardMinGap")) || MIN_GAP_MS;
 
 const progressLabel = () => state.settings.boardProgressLabel;
@@ -26,6 +36,8 @@ const confirmKey = (r: Repo) => `pulso.boardWriteOk:${r.owner}/${r.repo}`;
 export const isBoardOpen = () => !$("board-view").hidden;
 
 export function closeBoard() {
+  if (repo && issues.length) cache.set(cacheKey(repo), { issues, truncated, at: lastLoad });
+  boardSession++;
   token++;
   clearInterval(timer);
   window.removeEventListener("focus", onFocus);
@@ -46,7 +58,8 @@ async function load() {
     fetchAllIssues(repo.owner, repo.repo, "closed", 100),
   ]);
   if (mine !== token) return;
-  issues = [...open.issues, ...closed.issues];
+  // La issue que guarda el chat no es trabajo: no sale en el tablero.
+  issues = [...open.issues, ...closed.issues].filter((i) => !isChatRoom(i));
   truncated = open.truncated || closed.truncated;
   lastLoad = Date.now();
 }
@@ -56,7 +69,7 @@ const interacting = () => !!document.querySelector(".modal, .board-card.dragging
 
 async function autoRefresh(trigger: "focus" | "timer") {
   if (!isBoardOpen() || !repo) return;
-  if (!refreshDue({ now: Date.now(), last: lastLoad, minGap: minGap(), interval: INTERVAL_MS, trigger, hasToken: !!getToken(), visible: document.visibilityState === "visible", busy, blocked: interacting() })) return;
+  if (!refreshDue({ now: Date.now(), last: lastLoad, minGap: minGap(), interval: intervalMs(), trigger, hasToken: !!getToken(), visible: document.visibilityState === "visible", busy, blocked: interacting() })) return;
   const before = issues;
   try { await load(); } catch { return; }
   if (!isBoardOpen()) return;
@@ -67,24 +80,45 @@ async function autoRefresh(trigger: "focus" | "timer") {
 }
 
 const onFocus = () => void autoRefresh("focus");
+// Abrir otra superficie grande (el chat) cierra el tablero.
+window.addEventListener("pulso-overlay", (e) => { if ((e as CustomEvent).detail !== "board" && isBoardOpen()) closeBoard(); });
 
-export async function openBoard() {
+export async function openBoard(): Promise<boolean> {
+  window.dispatchEvent(new CustomEvent("pulso-overlay", { detail: "board" }));
   const root = $("board-view");
   closeBoard();
+  const session = boardSession;
+  repo = null;
   root.hidden = false;
   window.addEventListener("keydown", onKey, true);
   root.replaceChildren(shell("Cargando issues…"));
   const found = await currentRepo();
-  if (!found) { root.replaceChildren(shell("Esta carpeta no tiene un remoto de GitHub, así que no hay issues que mostrar.")); return; }
+  if (session !== boardSession) return false;
+  if (!found) { root.replaceChildren(shell("Esta carpeta no tiene un remoto de GitHub, así que no hay issues que mostrar.")); return false; }
   repo = found;
+  const cached = cache.get(cacheKey(found));
+  if (cached) { issues = cached.issues; truncated = cached.truncated; lastLoad = cached.at; paint(); }
+  else { issues = []; truncated = false; paint(true); }
+  const before = issues;
   try { await load(); }
-  catch (e) { root.replaceChildren(shell(String(e instanceof Error ? e.message : e))); return; }
-  paint();
+  catch (e) {
+    if (session !== boardSession) return false;
+    // Con una copia ya pintada se conserva y solo se avisa; sin ella se explica el fallo.
+    if (cached) { setStatus(`No se pudo actualizar el tablero: ${e instanceof Error ? e.message : e}`, 8000); }
+    else { root.replaceChildren(shell(String(e instanceof Error ? e.message : e), isAuthProblem(e) ? () => void openBoard() : undefined)); return false; }
+  }
+  if (session !== boardSession) return false;
+  if (!cached || !sameIssues(before, issues)) paint();
   window.addEventListener("focus", onFocus);
-  timer = window.setInterval(() => void autoRefresh("timer"), INTERVAL_MS / 4);
+  timer = window.setInterval(() => void autoRefresh("timer"), intervalMs() / 4);
+  return true;
 }
 
-function shell(message: string): HTMLElement {
+export async function createIssueFromSidebar() {
+  if (await openBoard()) await newIssue("todo");
+}
+
+function shell(message: string, reconnect?: () => void): HTMLElement {
   const wrap = h("div", "board-shell");
   const head = h("div", "board-head");
   head.append(h("span", "board-title", "Tablero de issues"), h("span", "grow"));
@@ -93,48 +127,147 @@ function shell(message: string): HTMLElement {
   close.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
   close.onclick = closeBoard;
   head.append(close);
-  wrap.append(head, h("div", "board-msg", message));
+  const msg = h("div", "board-msg", message);
+  if (reconnect) { msg.append(h("br"), connectButton(reconnect)); }
+  wrap.append(head, msg);
   return wrap;
+}
+
+let justDragged = false;
+
+/**
+ * Arrastre con el puntero (no con el arrastrar y soltar de HTML5, que dentro de la ventana de la aplicación no es fiable).
+ * Hasta moverse 6 px es un clic normal; al soltar sobre una columna, la tarjeta se mueve.
+ */
+function startDrag(down: PointerEvent, el: HTMLElement, number: number) {
+  if (down.button !== 0 || (down.target as HTMLElement).closest(".board-open")) return;
+  const sx = down.clientX, sy = down.clientY;
+  let ghost: HTMLElement | null = null;
+  let over: HTMLElement | null = null;
+  const colAt = (x: number, y: number) => (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>(".board-col") ?? null;
+  const setOver = (c: HTMLElement | null) => { if (c !== over) { over?.classList.remove("over"); c?.classList.add("over"); over = c; } };
+  const onMove = (e: PointerEvent) => {
+    if (!ghost) {
+      if (Math.hypot(e.clientX - sx, e.clientY - sy) < 6) return;
+      const r = el.getBoundingClientRect();
+      ghost = el.cloneNode(true) as HTMLElement;
+      ghost.classList.add("board-ghost");
+      ghost.style.width = `${r.width}px`;
+      // Dentro del tablero para heredar sus estilos (avatares, etiquetas…); fuera, la foto saldría a tamaño real.
+      $("board-view").append(ghost);
+      el.classList.add("dragging");
+      document.body.classList.add("board-dragging");
+    }
+    ghost.style.transform = `translate(${e.clientX - 20}px, ${e.clientY - 16}px)`;
+    setOver(colAt(e.clientX, e.clientY));
+  };
+  const finish = (e: PointerEvent | null, commit: boolean) => {
+    window.removeEventListener("pointermove", onMove, true);
+    window.removeEventListener("pointerup", onUp, true);
+    window.removeEventListener("pointercancel", onCancel, true);
+    window.removeEventListener("keydown", onEsc, true);
+    const dragged = !!ghost;
+    ghost?.remove();
+    el.classList.remove("dragging");
+    document.body.classList.remove("board-dragging");
+    const target = commit && e ? colAt(e.clientX, e.clientY) : null;
+    setOver(null);
+    if (dragged) {
+      justDragged = true;
+      window.setTimeout(() => { justDragged = false; }, 0);
+      if (target) void move(number, target.dataset.col as Column);
+    }
+  };
+  const onUp = (e: PointerEvent) => finish(e, true);
+  const onCancel = () => finish(null, false);
+  const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); finish(null, false); } };
+  window.addEventListener("pointermove", onMove, true);
+  window.addEventListener("pointerup", onUp, true);
+  window.addEventListener("pointercancel", onCancel, true);
+  window.addEventListener("keydown", onEsc, true);
 }
 
 function card(i: Issue): HTMLElement {
   const el = h("div", "board-card");
-  el.draggable = true;
+  el.tabIndex = 0;
+  el.setAttribute("role", "button");
+  el.setAttribute("aria-label", `Editar issue #${i.number}: ${i.title}`);
+  // Sin `draggable`: el arrastre nativo del navegador cancelaría los eventos de puntero con los que se mueve la tarjeta.
+  el.draggable = false;
+  el.ondragstart = (e) => e.preventDefault();
   el.dataset.number = String(i.number);
   el.title = "Haz clic para editarla; arrástrala a otra columna para cambiar su estado en GitHub";
   const top = h("div", "board-card-top");
   top.append(h("span", "issue-num", `#${i.number}`));
+  const assigned = h("div", "board-avatars");
+  for (const person of (i.assignees ?? []).slice(0, 3)) {
+    const avatarUrl = (person as { avatar_url?: string }).avatar_url;
+    if (!avatarUrl) continue;
+    try {
+      const url = new URL(avatarUrl);
+      if (url.protocol !== "https:" || url.hostname !== "avatars.githubusercontent.com") continue;
+      const img = document.createElement("img"); img.draggable = false; img.src = url.href; img.alt = person.login; img.title = person.login; img.loading = "lazy"; assigned.append(img);
+    } catch { /* El avatar es opcional. */ }
+  }
+  top.append(assigned);
   const open = h("button", "icon-btn board-open");
   open.title = "Abrir en GitHub";
   open.innerHTML = '<svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5H5V6h5"/></svg>';
-  open.onclick = (e) => { e.stopPropagation(); window.open(i.html_url, "_blank"); };
-  top.append(open);
+  open.onclick = (e) => { e.stopPropagation(); void openExternal(i.html_url); };
+  const done = columnOf(i, progressLabel()) === "done";
+  const toggle = h("button", "icon-btn board-open");
+  toggle.title = done ? "Reabrir la issue" : "Cerrar la issue";
+  toggle.innerHTML = done
+    ? '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 1 2.3 5.7M4 18v-5h5"/></svg>'
+    : '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></svg>';
+  toggle.onclick = (e) => { e.stopPropagation(); void move(i.number, done ? "todo" : "done"); };
+  const del = h("button", "icon-btn board-open board-del");
+  del.title = "Eliminar la issue";
+  del.innerHTML = '<svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12M10 11v5M14 11v5"/></svg>';
+  del.onclick = (e) => { e.stopPropagation(); void deleteCard(i.number); };
+  const actions = h("div", "board-card-actions");
+  actions.append(toggle, del, open);
+  top.append(actions);
   const meta = h("div", "board-card-meta");
   for (const l of i.labels) {
     const s = h("span", "label", l.name);
-    s.style.background = `#${l.color}`;
+    if (/^[0-9a-f]{6}$/i.test(l.color)) s.style.setProperty("--label-color", `#${l.color}`);
     meta.append(s);
   }
   const who = i.assignees?.length ? i.assignees.map((a) => a.login).join(", ") : i.user.login;
-  const foot = h("div", "board-card-foot", `${who}${i.comments ? ` · ${i.comments} 💬` : ""}`);
+  const foot = h("div", "board-card-foot", `${who}${i.comments ? ` · ${i.comments} comentarios` : ""}`);
   el.append(top, h("div", "board-card-title", i.title), meta, foot);
-  el.onclick = () => void editCard(i.number);
-  el.ondragstart = (e) => { e.dataTransfer?.setData("text/plain", String(i.number)); el.classList.add("dragging"); };
-  el.ondragend = () => el.classList.remove("dragging");
+  el.onclick = () => { if (justDragged) { justDragged = false; return; } void editCard(i.number); };
+  el.onkeydown = (e) => {
+    if (e.target !== el) return;
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void editCard(i.number); return; }
+    // Alt+←/→ mueve la tarjeta a la columna vecina (alternativa al arrastre).
+    if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+      e.preventDefault();
+      const here = columnOf(i, progressLabel());
+      const at = COLUMNS.findIndex((c) => c.id === here) + (e.key === "ArrowRight" ? 1 : -1);
+      if (at >= 0 && at < COLUMNS.length) void move(i.number, COLUMNS[at].id);
+    }
+  };
+  el.onpointerdown = (e) => startDrag(e, el, i.number);
   return el;
 }
 
-function paint() {
+function paint(loading = false) {
   if (!repo) return;
   const root = $("board-view");
   const wrap = h("div", "board-shell");
   const head = h("div", "board-head");
-  head.append(h("span", "board-title", "Tablero de issues"), h("span", "board-repo", `${repo.owner}/${repo.repo}`), h("span", "grow"));
-  head.append(h("span", "board-hint", `«En curso» = etiqueta «${progressLabel()}»`));
-  const fresh = h("button", "diff-btn primary", "Nueva issue");
+  const title = h("span", "board-title", "Tablero de issues");
+  // Cómo se decide la columna: útil al configurar, ruido el resto del tiempo.
+  title.title = `Columnas: «En curso» = etiqueta ${progressLabel()} · «En revisión» = etiqueta ${REVIEW_LABEL} · «Hecho» = issue cerrada`;
+  head.append(title, h("span", "board-repo", `${repo.owner}/${repo.repo}`), h("span", "grow"));
+  const fresh = h("button", "diff-btn primary", "+ Nueva issue");
+  fresh.title = "Crear una issue en «Por hacer»";
+  fresh.disabled = loading;
   fresh.onclick = () => void newIssue("todo");
   const reload = h("button", "diff-btn", "Recargar");
-  reload.title = `Última lectura: ${new Date(lastLoad).toLocaleTimeString()}`;
+  reload.title = lastLoad ? `Última lectura: ${new Date(lastLoad).toLocaleTimeString()}` : "Recargar";
   reload.onclick = () => void refresh();
   const close = h("button", "icon-btn board-close");
   close.title = "Cerrar (Esc)";
@@ -148,26 +281,23 @@ function paint() {
     const col = h("div", "board-col");
     col.dataset.col = c.id;
     const ch = h("div", "board-col-head");
+    ch.append(h("span", `board-dot board-dot-${c.id}`));
     ch.append(h("span", "board-col-title", c.title), h("span", "board-col-count", String(groups[c.id].length)));
-    if (c.id !== "done") {
-      const add = h("button", "icon-btn board-col-add");
-      add.title = `Nueva issue en «${c.title}»`;
-      add.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>';
-      add.onclick = () => void newIssue(c.id);
-      ch.append(add);
-    }
     const body = h("div", "board-col-body");
-    if (!groups[c.id].length) body.append(h("div", "board-empty", c.id === "done" ? "Sin issues cerradas." : "Nada por aquí."));
+    if (loading) {
+      body.append(h("div", "board-skeleton"), h("div", "board-skeleton board-skeleton-short"));
+    } else if (!groups[c.id].length) {
+      body.append(h("div", "board-empty", c.id === "done" ? "Sin issues cerradas" : "Arrastra una tarjeta aquí"));
+    }
     for (const i of groups[c.id]) body.append(card(i));
-    col.ondragover = (e) => { e.preventDefault(); col.classList.add("over"); };
-    col.ondragleave = (e) => { if (!col.contains(e.relatedTarget as Node | null)) col.classList.remove("over"); };
-    col.ondrop = (e) => {
-      e.preventDefault();
-      col.classList.remove("over");
-      const n = Number(e.dataTransfer?.getData("text/plain"));
-      if (n) void move(n, c.id);
-    };
     col.append(ch, body);
+    // El botón de añadir va fijo al pie de cada columna: siempre a la vista y en el mismo sitio, aunque haya muchas tarjetas.
+    if (c.id !== "done" && !loading) {
+      const add = h("button", "board-add", "+ Nueva issue");
+      add.title = `Crear una issue en «${c.title}»`;
+      add.onclick = () => void newIssue(c.id);
+      col.append(add);
+    }
     cols.append(col);
   }
   wrap.append(head, cols);
@@ -185,21 +315,62 @@ async function ensureCanWrite(): Promise<boolean> {
   if (!getToken()) {
     await showDialog({
       title: "Falta el token de GitHub",
-      message: "Para mover tarjetas hace falta un token con permiso de escritura en las issues. Configúralo en Configuración → GitHub.",
+      message: "Para crear o modificar issues hace falta un token con permiso de escritura en las issues. Configúralo en Configuración → GitHub.",
       buttons: [{ label: "Entendido", value: "ok" }],
     });
     return false;
   }
   if (localStorage.getItem(confirmKey(repo))) return true;
   const r = await showDialog({
-    title: "Mover tarjetas modifica GitHub",
-    message: `Arrastrar una tarjeta cambia las etiquetas o cierra y reabre la issue en ${repo.owner}/${repo.repo}, usando tu token. Los cambios se ven de inmediato en GitHub.`,
+    title: "El tablero modifica GitHub",
+    message: `Crear o editar una issue, y mover tarjetas entre columnas, modifica ${repo.owner}/${repo.repo} con tu token. El tablero puede crear etiquetas para los estados si no existen.`,
     buttons: [{ label: "Cancelar", value: "cancel" }, { label: "Entendido, continuar", value: "ok", primary: true }],
   });
   if (r !== "ok") return false;
   localStorage.setItem(confirmKey(repo), "1");
   return true;
 }
+
+/** Avisa al resto de la interfaz (la lista lateral de issues) de que algo cambió en GitHub. */
+function announceChange() { window.dispatchEvent(new Event("pulso-issues-changed")); }
+
+async function deleteCard(number: number) {
+  const current = issues.find((i) => i.number === number);
+  if (!current || !repo || busy) return;
+  const choice = await showDialog({
+    title: `Eliminar #${number}`,
+    message: `«${current.title}» se borrará para siempre de GitHub, con sus comentarios. No se puede deshacer.\n\nSi solo quieres sacarla del tablero, ciérrala: se conserva en «Hecho».`,
+    buttons: [
+      { label: "Cancelar", value: "cancel" },
+      { label: "Cerrar en su lugar", value: "close" },
+      { label: "Eliminar para siempre", value: "delete", danger: true },
+    ],
+  });
+  if (choice === "close") { void move(number, "done"); return; }
+  if (choice !== "delete") return;
+  if (!(await ensureCanWrite())) return;
+  if (!current.node_id) {
+    await showDialog({ title: `No se pudo eliminar #${number}`, message: "Falta el identificador de la issue. Pulsa «Recargar» e inténtalo de nuevo.", buttons: [{ label: "Entendido", value: "ok" }] });
+    return;
+  }
+  busy = true;
+  setStatus(`Eliminando #${number} en GitHub…`, 30000);
+  try {
+    await deleteIssue(current.node_id);
+    issues = issues.filter((i) => i.number !== number);
+    paint();
+    setStatus(`#${number} eliminada de GitHub`);
+    announceChange();
+  } catch (e) {
+    await showDialog({ title: `No se pudo eliminar #${number}`, message: e instanceof Error ? e.message : String(e), buttons: [{ label: "Entendido", value: "ok" }] });
+  } finally {
+    busy = false;
+  }
+}
+
+/** Editar o eliminar una issue desde la lista lateral: se abre el tablero y se continúa allí. */
+export async function editIssueNumber(number: number) { if (await openBoard()) await editCard(number); }
+export async function deleteIssueNumber(number: number) { if (await openBoard()) await deleteCard(number); }
 
 async function newIssue(col: Column) {
   if (!repo || busy) return;
@@ -211,18 +382,21 @@ async function newIssue(col: Column) {
       { key: "body", label: "Descripción (opcional)", multiline: true },
       { key: "labels", label: "Etiquetas (separadas por comas)", placeholder: "bug, ui" },
     ],
-    hint: col === "doing" ? `Se creará con la etiqueta «${progressLabel()}» para que quede en curso.` : undefined,
+    hint: col === "doing" || col === "review" ? `Se usará la etiqueta «${col === "review" ? REVIEW_LABEL : progressLabel()}»; si no existe se creará en GitHub.` : undefined,
   });
   if (!values) return;
   if (!(await ensureCanWrite())) return;
   busy = true;
   setStatus("Creando la issue en GitHub…", 30000);
   try {
+    if (progressLabel().trim().toLowerCase() === REVIEW_LABEL && (col === "doing" || col === "review")) throw new Error(`La etiqueta de progreso coincide con «${REVIEW_LABEL}». Cambia la etiqueta de progreso en Configuración.`);
+    if (col === "doing" || col === "review") await ensureBoardLabel(repo.owner, repo.repo, col === "review" ? REVIEW_LABEL : progressLabel());
     const labels = parseLabels([values.labels, ...labelsForNew(col, progressLabel())].filter(Boolean).join(","));
     const created = await createIssue(repo.owner, repo.repo, { title: values.title, body: values.body, labels });
     issues = upsertIssue(issues, created);
     paint();
     setStatus(`Issue #${created.number} creada en GitHub`);
+    announceChange();
   } catch (e) {
     await showDialog({ title: "No se pudo crear la issue", message: e instanceof Error ? e.message : String(e), buttons: [{ label: "Entendido", value: "ok" }] });
   } finally {
@@ -258,6 +432,7 @@ async function editCard(number: number) {
     issues = upsertIssue(issues, { ...current, ...updated, labels: updated.labels ?? current.labels });
     paint();
     setStatus(`#${number} actualizada en GitHub`);
+    announceChange();
   } catch (e) {
     await showDialog({ title: `No se pudo guardar #${number}`, message: e instanceof Error ? e.message : String(e), buttons: [{ label: "Entendido", value: "ok" }] });
   } finally {
@@ -277,12 +452,15 @@ async function move(number: number, to: Column) {
   paint();
   setStatus(`Moviendo #${number} a «${COLUMNS.find((c) => c.id === to)!.title}»…`, 30000);
   try {
+    if (progressLabel().trim().toLowerCase() === REVIEW_LABEL) throw new Error(`La etiqueta de progreso coincide con «${REVIEW_LABEL}». Cambia la etiqueta de progreso en Configuración.`);
+    for (const step of steps) if (step.op === "addLabel") await ensureBoardLabel(repo.owner, repo.repo, step.label!);
     for (const s of steps) {
       if (s.op === "addLabel") await addLabel(repo.owner, repo.repo, number, s.label!);
       else if (s.op === "removeLabel") await removeLabel(repo.owner, repo.repo, number, s.label!);
       else await setIssueState(repo.owner, repo.repo, number, s.op === "close" ? "closed" : "open");
     }
     setStatus(`#${number} ahora está en «${COLUMNS.find((c) => columnOf(issues.find((i) => i.number === number)!, progressLabel()) === c.id)!.title}»`);
+    announceChange();
   } catch (e) {
     await showDialog({
       title: `No se pudo mover #${number}`,

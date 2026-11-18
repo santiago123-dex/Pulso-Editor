@@ -4,7 +4,7 @@ const h = vi.hoisted(() => {
   const secrets = new Map<string, string>();
   const calls: string[] = [];
   const store = new Map<string, string>();
-  return { secrets, calls, store, failSet: false, failGet: false };
+  return { secrets, calls, store, failSet: false, failGet: false, cred: null as null | { username: string; token: string }, credAsked: [] as boolean[] };
 });
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -20,6 +20,11 @@ vi.mock("@tauri-apps/api/core", () => ({
       return;
     }
     if (cmd === "secret_delete") { h.secrets.delete(args.name); return; }
+    if (cmd === "github_credential") {
+      h.credAsked.push((args as unknown as { interactive: boolean }).interactive);
+      if (!h.cred) throw "Git no tiene una sesión de GitHub guardada";
+      return h.cred;
+    }
     throw new Error("comando no simulado " + cmd);
   },
 }));
@@ -35,7 +40,7 @@ async function fresh(inTauri = true) {
 
 beforeEach(() => {
   h.secrets.clear(); h.calls.length = 0; h.store.clear();
-  h.failSet = false; h.failGet = false;
+  h.failSet = false; h.failGet = false; h.cred = null; h.credAsked.length = 0;
 });
 
 describe("parseRemote", () => {
@@ -155,7 +160,116 @@ describe("fetchIssues", () => {
   it("un error HTTP se reporta con el código", async () => {
     const g = await fresh();
     vi.stubGlobal("fetch", async () => ({ ok: false, status: 404 }));
-    await expect(g.fetchIssues("a", "b", "open")).rejects.toThrow("404");
+    const err = await g.fetchIssues("a", "b", "open").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(g.GithubError);
+    expect((err as { status: number }).status).toBe(404);
+    expect((err as Error).message).toMatch(/no encontró el repositorio/);
+    expect(g.isAuthProblem(err)).toBe(true);
+    expect(g.isAuthProblem(new Error("otro"))).toBe(false);
+  });
+});
+
+describe("consultas de issues sin caché del navegador y con ETag", () => {
+  it("nunca usa la caché del navegador y, al repetir, manda If-None-Match y reutiliza lo guardado con un 304", async () => {
+    const seen: { url: string; cache?: string; inm?: string }[] = [];
+    let n = 0;
+    vi.stubGlobal("fetch", async (url: string, init: { cache?: string; headers: Record<string, string> }) => {
+      seen.push({ url: String(url), cache: init.cache, inm: init.headers["If-None-Match"] });
+      n++;
+      if (n === 1) return { ok: true, status: 200, headers: { get: () => '"v1"' }, json: async () => [{ number: 1, title: "a", state: "open", labels: [], user: { login: "x" }, comments: 0, html_url: "u" }] };
+      return { ok: false, status: 304, headers: { get: () => null }, json: async () => [] };
+    });
+    const g = await fresh();
+    const first = await g.fetchAllIssues("o", "r", "open");
+    const second = await g.fetchAllIssues("o", "r", "open");
+    expect(second.issues).toEqual(first.issues);
+    expect(seen.every((s) => s.cache === "no-store")).toBe(true);
+    expect(seen[0].inm).toBeUndefined();
+    expect(seen[1].inm).toBe('"v1"');
+  });
+  it("si cambia el token se olvidan las respuestas guardadas (eran de otra cuenta)", async () => {
+    const seen: (string | undefined)[] = [];
+    vi.stubGlobal("fetch", async (_u: string, init: { headers: Record<string, string> }) => { seen.push(init.headers["If-None-Match"]); return { ok: true, status: 200, headers: { get: () => '"v1"' }, json: async () => [] }; });
+    const g = await fresh();
+    await g.fetchAllIssues("o", "r", "open");
+    await g.setToken("otro");
+    await g.fetchAllIssues("o", "r", "open");
+    expect(seen).toEqual([undefined, undefined]);
+  });
+});
+
+describe("eliminar issues", () => {
+  it("usa GraphQL con el identificador global y el token", async () => {
+    const calls: { url: string; body: string; auth: string }[] = [];
+    vi.stubGlobal("fetch", async (url: string, init: { body: string; headers: Record<string, string> }) => { calls.push({ url: String(url), body: init.body, auth: init.headers.Authorization }); return { ok: true, status: 200, json: async () => ({ data: { deleteIssue: {} } }) }; });
+    const g = await fresh();
+    await g.setToken("ghp_x");
+    await g.deleteIssue("I_abc");
+    expect(calls[0].url).toMatch(/\/graphql$/);
+    expect(calls[0].auth).toBe("Bearer ghp_x");
+    expect(JSON.parse(calls[0].body).variables).toEqual({ id: "I_abc" });
+    expect(JSON.parse(calls[0].body).query).toContain("deleteIssue");
+  });
+  it("explica que solo quienes administran pueden eliminar", async () => {
+    vi.stubGlobal("fetch", async () => ({ ok: true, status: 200, json: async () => ({ errors: [{ message: "ana does not have the correct permissions to execute `DeleteIssue`" }] }) }));
+    const g = await fresh();
+    await expect(g.deleteIssue("I_abc")).rejects.toThrow(/administran el repositorio/);
+    expect(g.explainDeleteError("algo raro")).toContain("algo raro");
+  });
+  it("un fallo HTTP se reporta con su código", async () => {
+    vi.stubGlobal("fetch", async () => ({ ok: false, status: 401 }));
+    const g = await fresh();
+    await expect(g.deleteIssue("I_abc")).rejects.toMatchObject({ status: 401 });
+  });
+});
+
+describe("conectar con la cuenta de GitHub de Git", () => {
+  const userFetch = (status = 200) => vi.stubGlobal("fetch", async (url: string, init: { headers: Record<string, string> }) => {
+    expect(String(url)).toMatch(/\/user$/);
+    expect(init.headers.Authorization).toBe("Bearer gho_git");
+    return { ok: status === 200, status, json: async () => ({ login: "ana" }) };
+  });
+
+  it("al iniciar adopta en silencio la sesión de Git si no hay token y la guarda", async () => {
+    h.cred = { username: "ana-git", token: "gho_git" };
+    userFetch();
+    const g = await fresh();
+    await g.initToken();
+    expect(await g.autoConnect()).toBe("ana");
+    expect(h.credAsked).toEqual([false]);
+    expect(g.getToken()).toBe("gho_git");
+    expect(h.secrets.get("github-token")).toBe("gho_git");
+    expect(g.getAccount()).toBe("ana");
+  });
+  it("no toca un token que ya existe ni abre nada si Git no tiene sesión", async () => {
+    const g = await fresh();
+    await g.setToken("ghp_propio");
+    expect(await g.autoConnect()).toBeNull();
+    expect(h.credAsked).toEqual([]);
+    await g.disconnectGithub();
+    expect(await g.autoConnect()).toBeNull();
+    expect(g.getToken()).toBe("");
+  });
+  it("con interactive lo pide al gestor y devuelve el usuario", async () => {
+    h.cred = { username: "x", token: "gho_git" };
+    userFetch();
+    const g = await fresh();
+    expect(await g.connectGithub(true)).toBe("ana");
+    expect(h.credAsked).toEqual([true]);
+  });
+  it("si GitHub rechaza la sesión de Git lo explica y no guarda nada", async () => {
+    h.cred = { username: "x", token: "gho_git" };
+    userFetch(401);
+    const g = await fresh();
+    await expect(g.connectGithub(true)).rejects.toThrow(/caducó o se revocó/);
+    expect(g.getToken()).toBe("");
+    expect(h.secrets.size).toBe(0);
+  });
+  it("desconectar borra el token del almacén", async () => {
+    const g = await fresh();
+    await g.setToken("ghp_x");
+    await g.disconnectGithub();
+    expect(h.secrets.has("github-token")).toBe(false);
   });
 });
 

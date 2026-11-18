@@ -1,0 +1,73 @@
+/* Superficie independiente para no alterar los estilos compartidos del editor. */
+#board-view .board-head { height: auto; min-height: 52px; padding: 8px 18px; flex-wrap: wrap; gap: 9px; }
+#board-view .board-title { font-size: 14px; }
+#board-view .board-repo { font-family: var(--ui); }
+#board-view .board-hint { font-size: 11px; }
+#board-view .board-cols { display: grid; grid-template-columns: repeat(4, minmax(230px, 1fr)); align-items: stretch; gap: 24px; padding: 20px; }
+#board-view .board-col { min-width: 230px; background: transparent; border: 0; border-radius: 0; }
+#board-view .board-col.over { background: color-mix(in srgb, var(--accent) 6%, transparent); outline: 1px dashed var(--accent); outline-offset: 4px; }
+#board-view .board-col-head { min-height: 30px; padding: 0 3px 12px; gap: 7px; font-size: 12px; }
+#board-view .board-col-count { color: var(--muted); background: var(--hover); padding: 2px 7px; }
+#board-view .board-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: #85878a; }
+#board-view .board-dot-doing { background: #609cff; }
+#board-view .board-dot-review { background: #e9bc43; }
+#board-view .board-dot-done { background: #b27bf1; }
+#board-view .board-col-body { padding: 0 0 15px; gap: 9px; }
+#board-view .board-empty { box-sizing: border-box; min-height: 88px; width: 100%; border: 1px dashed var(--border); border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+#board-view .board-empty:hover { border-color: var(--accent); color: var(--fg); }
+#board-view .board-empty-done { display: grid; place-items: center; cursor: default; }
+#board-view .board-card { padding: 11px; gap: 9px; background: var(--hover); border-color: transparent; border-radius: 7px; }
+#board-view .board-card:hover, #board-view .board-card:focus-visible { border-color: var(--accent); outline: none; }
+#board-view .board-card-top { min-height: 20px; }
+#board-view .board-card-top .issue-num { font-family: var(--ui); font-size: 11px; }
+#board-view .board-avatars { display: flex; margin-left: auto; }
+#board-view .board-avatars img { width: 20px; height: 20px; border-radius: 50%; margin-left: -4px; border: 1px solid var(--hover); }
+#board-view .board-card-top .board-open { margin-left: 4px; }
+#board-view .board-card:focus-within .board-open, #board-view .board-card:focus-visible .board-open { opacity: 1; }
+#board-view .board-card-title { line-height: 1.45; overflow-wrap: anywhere; }
+#board-view .board-card-meta:empty { display: none; }
+#board-view .board-card-meta .label { color: var(--fg); background: color-mix(in srgb, var(--label-color, var(--accent)) 23%, var(--hover)); border: 1px solid color-mix(in srgb, var(--label-color, var(--accent)) 45%, transparent); border-radius: 999px; font-size: 10px; padding: 1px 7px; }
+#board-view .board-card-foot { font-size: 10px; }
+#board-view .board-col-add:focus-visible, #board-view .board-empty:focus-visible, #board-view .board-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 900px) { #board-view .board-hint { display: none; } #board-view .board-cols { grid-template-columns: repeat(4, 250px); } }
+.modal-form { padding: 22px; gap: 12px; }
+.modal-form .modal-title { font-size: 16px; margin-bottom: 4px; }
+.modal-form .form-field { gap: 7px; margin: 0; }
+.modal-form .form-label { color: var(--fg); font-weight: 600; }
+.modal-form .modal-input { box-sizing: border-box; padding: 9px 10px; }
+.modal-form .modal-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.modal-form .form-area { font-family: var(--ui); }
+.modal-form .form-hint { padding: 9px 10px; background: var(--hover); border-radius: 6px; margin: 0; }
+.modal-form .modal-btns { margin-top: 4px; }
+/* Arrastre con puntero, botón de añadir al pie y estado de carga */
+#board-view .board-card { touch-action: none; user-select: none; -webkit-user-select: none; }
+#board-view .board-card.dragging { opacity: .35; }
+.board-ghost { position: fixed; left: 0; top: 0; z-index: 90; pointer-events: none; opacity: .92; box-shadow: 0 10px 30px #000a; transform-origin: top left; border: 1px solid var(--accent) !important; background: var(--hover); border-radius: 7px; padding: 11px; display: flex; flex-direction: column; gap: 9px; }
+body.board-dragging, body.board-dragging * { cursor: grabbing !important; }
+#board-view .board-empty { min-height: 88px; display: grid; place-items: center; border: 1px dashed var(--border); border-radius: 8px; color: var(--muted); font-size: 12px; padding: 0 8px; text-align: center; }
+#board-view .board-col.over .board-empty { border-color: var(--accent); color: var(--fg); }
+#board-view .board-add { margin: 0 0 4px; padding: 8px 10px; background: transparent; color: var(--muted); border: 1px solid transparent; border-radius: 7px; font: 12px var(--ui, inherit); text-align: left; cursor: pointer; }
+#board-view .board-add:hover, #board-view .board-add:focus-visible { background: var(--hover); color: var(--fg); border-color: var(--border); outline: none; }
+#board-view .board-skeleton { height: 92px; border-radius: 7px; background: linear-gradient(90deg, var(--hover) 0%, color-mix(in srgb, var(--hover) 60%, var(--border)) 50%, var(--hover) 100%); background-size: 200% 100%; animation: board-shimmer 1.2s ease-in-out infinite; }
+#board-view .board-skeleton-short { height: 64px; }
+@keyframes board-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+#board-view .board-card, #board-view .board-card * { -webkit-user-drag: none; }
+#board-view .board-ghost { position: fixed; left: 0; top: 0; z-index: 90; pointer-events: none; width: auto; max-width: 320px; overflow: hidden; }
+#board-view .board-ghost img { width: 20px; height: 20px; max-width: 20px; }
+#board-view .board-ghost .board-open { display: none; }
+#board-view .board-col.over .board-col-body::before { content: "↓ Soltar aquí"; order: -1; display: grid; place-items: center; min-height: 64px; border: 2px dashed var(--accent); border-radius: 8px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--fg); font-size: 12px; flex: none; }
+#board-view .board-col.over .board-empty { display: none; }
+#board-view .board-card-actions { display: flex; align-items: center; gap: 2px; margin-left: 4px; }
+#board-view .board-card-actions .board-open { margin-left: 0; width: 22px; height: 22px; }
+#board-view .board-card:hover .board-open, #board-view .board-card:focus-within .board-open { opacity: 1; }
+#board-view .board-del:hover { color: #ff6b6b; }
+/* Refinado según DESIGN.md: más compacto y con las acciones fuera del flujo de la tarjeta */
+#board-view .board-cols { grid-template-columns: repeat(4, minmax(200px, 1fr)); gap: 16px; padding: 18px 20px; }
+#board-view .board-col { min-width: 200px; }
+#board-view .board-card { position: relative; padding: 10px 11px; gap: 7px; }
+#board-view .board-card-title { font-size: 13px; line-height: 1.4; }
+#board-view .board-card-actions { position: absolute; top: 6px; right: 6px; margin: 0; padding: 2px; gap: 1px; background: var(--hover); border: 1px solid var(--border); border-radius: 6px; opacity: 0; transition: opacity .12s; }
+#board-view .board-card:hover .board-card-actions, #board-view .board-card:focus-within .board-card-actions { opacity: 1; }
+#board-view .board-card-actions .board-open { opacity: 1; }
+#board-view .board-avatars { margin-left: auto; }
+@media (max-width: 900px) { #board-view .board-cols { grid-template-columns: repeat(4, 220px); } }

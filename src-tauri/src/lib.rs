@@ -14,6 +14,7 @@ mod term;
 mod userconf;
 mod lsp;
 mod gitops;
+mod githubauth;
 
 /// Los procesos auxiliares no deben abrir ventanas de consola en Windows.
 fn background_command(program: &str) -> Command {
@@ -665,7 +666,9 @@ pub fn run() {
             gitops::git_switch,
             gitops::git_discard,
             gitops::git_push,
-            gitops::git_pull
+            gitops::git_pull,
+            githubauth::github_credential,
+            githubauth::open_external
         ])
         .build(tauri::generate_context!())
         .expect("error al iniciar Pulso Editor")

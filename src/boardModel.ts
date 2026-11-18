@@ -1,14 +1,16 @@
 import type { Issue } from "./github";
 
-export type Column = "todo" | "doing" | "done";
+export type Column = "todo" | "doing" | "review" | "done";
 
 export const COLUMNS: { id: Column; title: string }[] = [
   { id: "todo", title: "Por hacer" },
   { id: "doing", title: "En curso" },
+  { id: "review", title: "En revisión" },
   { id: "done", title: "Hecho" },
 ];
 
 export const DEFAULT_PROGRESS_LABEL = "in progress";
+export const REVIEW_LABEL = "pulso: in review";
 
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
@@ -17,11 +19,12 @@ export const hasLabel = (issue: Issue, label: string) => !!label.trim() && issue
 /** Una issue cerrada está hecha; una abierta está en curso si lleva la etiqueta elegida y, si no, por hacer. */
 export function columnOf(issue: Issue, progressLabel: string): Column {
   if (issue.state === "closed") return "done";
+  if (hasLabel(issue, REVIEW_LABEL)) return "review";
   return hasLabel(issue, progressLabel) ? "doing" : "todo";
 }
 
 export function groupIssues(issues: Issue[], progressLabel: string): Record<Column, Issue[]> {
-  const out: Record<Column, Issue[]> = { todo: [], doing: [], done: [] };
+  const out: Record<Column, Issue[]> = { todo: [], doing: [], review: [], done: [] };
   for (const i of issues) out[columnOf(i, progressLabel)].push(i);
   return out;
 }
@@ -37,15 +40,19 @@ export function planMove(issue: Issue, to: Column, progressLabel: string): Step[
   if (from === to) return [];
   const label = progressLabel.trim();
   const labeled = hasLabel(issue, progressLabel);
+  const reviewing = hasLabel(issue, REVIEW_LABEL);
   const steps: Step[] = [];
   if (to === "done") {
     if (labeled) steps.push({ op: "removeLabel", label });
+    if (reviewing && !same(label, REVIEW_LABEL)) steps.push({ op: "removeLabel", label: REVIEW_LABEL });
     steps.push({ op: "close" });
     return steps;
   }
   if (issue.state === "closed") steps.push({ op: "open" });
+  if (reviewing && to !== "review" && !same(label, REVIEW_LABEL)) steps.push({ op: "removeLabel", label: REVIEW_LABEL });
   if (to === "doing") { if (!labeled) steps.push({ op: "addLabel", label }); }
   else if (labeled) steps.push({ op: "removeLabel", label });
+  if (to === "review" && !reviewing) steps.push({ op: "addLabel", label: REVIEW_LABEL });
   return steps;
 }
 
@@ -78,7 +85,7 @@ export function parseLabels(text: string): string[] {
 export const labelsText = (issue: Issue) => issue.labels.map((l) => l.name).join(", ");
 
 /** Etiquetas con las que nace una issue creada en una columna: «En curso» lleva la de progreso. */
-export const labelsForNew = (col: Column, progressLabel: string): string[] => (col === "doing" && progressLabel.trim() ? [progressLabel.trim()] : []);
+export const labelsForNew = (col: Column, progressLabel: string): string[] => col === "review" ? [REVIEW_LABEL] : (col === "doing" && progressLabel.trim() ? [progressLabel.trim()] : []);
 
 /** Sustituye la issue con el mismo número o, si es nueva, la pone la primera. */
 export function upsertIssue(list: Issue[], issue: Issue): Issue[] {

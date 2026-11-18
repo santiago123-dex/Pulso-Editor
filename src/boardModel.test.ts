@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyMove, columnOf, groupIssues, hasLabel, planMove } from "./boardModel";
+import { applyMove, columnOf, groupIssues, hasLabel, planMove, REVIEW_LABEL } from "./boardModel";
 import type { Issue } from "./github";
 
 const issue = (n: number, state = "open", labels: string[] = []): Issue => ({
@@ -16,6 +16,10 @@ describe("tablero: columnas", () => {
   });
   it("una cerrada con la etiqueta de en curso sigue siendo hecho", () => {
     expect(columnOf(issue(4, "closed", [L]), L)).toBe("done");
+  });
+  it("prioriza revisión sobre progreso y hecho sobre ambas etiquetas", () => {
+    expect(columnOf(issue(1, "open", [L, REVIEW_LABEL]), L)).toBe("review");
+    expect(columnOf(issue(2, "closed", [REVIEW_LABEL]), L)).toBe("done");
   });
   it("sin etiqueta configurada nada está en curso", () => {
     expect(hasLabel(issue(5, "open", ["x"]), "")).toBe(false);
@@ -52,6 +56,12 @@ describe("tablero: qué se pide a GitHub al mover una tarjeta", () => {
     // Ya lleva la etiqueta: no se añade dos veces.
     expect(planMove(issue(1, "closed", [L]), "doing", L)).toEqual([{ op: "open" }]);
   });
+  it("mueve entre revisión y los demás estados sin dejar etiquetas de estado obsoletas", () => {
+    expect(planMove(issue(1, "open", [L]), "review", L)).toEqual([{ op: "removeLabel", label: L }, { op: "addLabel", label: REVIEW_LABEL }]);
+    expect(planMove(issue(1, "open", [REVIEW_LABEL]), "doing", L)).toEqual([{ op: "removeLabel", label: REVIEW_LABEL }, { op: "addLabel", label: L }]);
+    expect(planMove(issue(1, "open", [REVIEW_LABEL]), "done", L)).toEqual([{ op: "removeLabel", label: REVIEW_LABEL }, { op: "close" }]);
+    expect(planMove(issue(1, "closed"), "review", L)).toEqual([{ op: "open" }, { op: "addLabel", label: REVIEW_LABEL }]);
+  });
 });
 
 describe("tablero: vista previa del movimiento", () => {
@@ -85,6 +95,7 @@ describe("tablero: crear, editar y recargar", () => {
     expect(labelsForNew("doing", " in progress ")).toEqual(["in progress"]);
     expect(labelsForNew("todo", "in progress")).toEqual([]);
     expect(labelsForNew("doing", "")).toEqual([]);
+    expect(labelsForNew("review", L)).toEqual([REVIEW_LABEL]);
   });
   it("upsert reemplaza por número o añade la nueva al principio", () => {
     const list = [issue(1), issue(2)];
