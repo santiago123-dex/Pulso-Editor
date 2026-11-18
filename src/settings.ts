@@ -19,6 +19,8 @@ export interface Settings {
   /** "auto" = los colores de código del propio tema; o el id de otro tema para mezclar. */
   syntaxTheme: string;
   autoSave: boolean;
+  /** Formatea el documento con el servidor de lenguaje al guardar a mano (no en el autoguardado). */
+  formatOnSave: boolean;
   /** Shell de la terminal integrada (id); vacío = la recomendada. */
   terminalShell: string;
   /** Fuente de la terminal; vacío = Nerd Fonts habituales y luego la del editor. */
@@ -53,6 +55,7 @@ export const DEFAULTS: Settings = {
   smoothCaret: true,
   syntaxTheme: "auto",
   autoSave: false,
+  formatOnSave: false,
   terminalShell: "",
   terminalFont: "",
   terminalFontSize: 0,
@@ -72,7 +75,7 @@ export const FONTS: Record<string, string> = {
   "Courier New": '"Courier New", monospace',
 };
 
-export const ACCENTS = ["#7c3aed", "#4c9aff", "#3ddc97", "#ff5a3c", "#ffcc33", "#ff6ac1"];
+export const ACCENTS = ["#5b9cf5", "#7c3aed", "#4c9aff", "#3ddc97", "#ff5a3c", "#ffcc33", "#ff6ac1"];
 
 const KEY = "pulso.settings";
 
@@ -83,6 +86,8 @@ export function loadSettings(): Settings {
       // Antes el tema y el acento eran independientes; ahora cada tema define su acento.
       delete saved.theme; delete saved.accent; delete saved.syntaxTheme;
     }
+    // El acento morado era el de fábrica del tema Pulso; quien no lo cambió pasa al nuevo (azul). Uno elegido a propósito se respeta.
+    if ((saved.theme ?? DEFAULTS.theme) === "pulso-dark" && String(saved.accent).toLowerCase() === "#7c3aed") delete saved.accent;
     return {
       ...DEFAULTS, ...saved, v: DEFAULTS.v,
       keybindings: { ...(saved.keybindings ?? {}) },
@@ -135,11 +140,17 @@ export function setTheme(id: string) {
   commit();
 }
 
-/** Texto blanco o negro según la luminancia del color. */
-function readableOn(hex: string): string {
+/** Luminancia relativa WCAG de un color #rrggbb. */
+function luminance(hex: string): number {
   const n = parseInt(hex.slice(1), 16);
-  const lum = (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
-  return lum > 0.6 ? "#111111" : "#ffffff";
+  const lin = (c: number) => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+  return 0.2126 * lin(n >> 16) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+}
+
+/** Texto blanco o negro, el que tenga más contraste sobre el color (así un acento claro lleva texto oscuro). */
+export function readableOn(hex: string): string {
+  const L = luminance(hex);
+  return (1.05 / (L + 0.05)) >= ((L + 0.05) / 0.05) ? "#ffffff" : "#111111";
 }
 
 export function applyTheme(s: Settings, previewId?: string) {

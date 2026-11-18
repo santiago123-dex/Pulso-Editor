@@ -95,6 +95,7 @@ const leftoverTmp = () => fs.readdirSync(ROOT, { recursive: true }).filter((f) =
 // El token real del usuario se conserva: algunas pruebas lo reemplazan y siempre se restaura al terminar.
 const savedToken = await run(`return await window.__TAURI_INTERNALS__.invoke("secret_get", { name: "github-token" })`).catch(() => null);
 const saved = await run(`return { session: localStorage.getItem("pulso.session"), settings: localStorage.getItem("pulso.settings"), recent: localStorage.getItem("pulso.recent"), lastRoot: localStorage.getItem("pulso.lastRoot") }`);
+await run(`localStorage.setItem("pulso.noAutoConnect", "1"); return 1`);
 fs.rmSync(ROOT, { recursive: true, force: true });
 write("a.txt", "hola mundo\nsegunda hola linea\n");
 write("sub/b.ts", "export const x = 1;\n// hola\n");
@@ -379,23 +380,14 @@ try {
   });
 
   console.log("\nTerminal: adaptación a la del usuario");
-  await test("la primera vez ofrece adaptar la terminal y 'No, gracias' no cambia nada", async () => {
-    await run(`const s=JSON.parse(localStorage.getItem("pulso.settings")); s.terminalAdapted=false; s.terminalScheme=""; s.terminalFont=""; localStorage.setItem("pulso.settings", JSON.stringify(s)); location.reload(); return 1`);
+  await test("la primera vez adopta la terminal de la persona sin preguntar nada", async () => {
+    await run(`const s=JSON.parse(localStorage.getItem("pulso.settings")); s.terminalAdapted=false; s.terminalScheme=""; s.terminalFont=""; s.terminalShell=""; s.terminalFontSize=0; localStorage.setItem("pulso.settings", JSON.stringify(s)); localStorage.removeItem("pulso.terminalAutoAdapt"); location.reload(); return 1`);
     await wait(1500);
     await waitFor(`return document.body.classList.contains("ready")`, "el arranque", 20000);
     await key("j", { ctrl: true });
-    // En un equipo sin VS Code ni Windows Terminal no hay nada que ofrecer: el panel se abre directamente.
-    await waitFor(`return !!document.querySelector(".modal-title") || !document.getElementById("panel").hidden`, "el aviso o el panel", 20000);
-    const asked = await run(`return document.querySelector(".modal-title")?.textContent`);
-    if (asked) {
-      eq(asked, "Adaptar la terminal a la tuya");
-      ok((await run(`return document.querySelector(".modal-msg").textContent`)).includes("Colores"), "enumera lo que encontró");
-      await clickBtn("No, gracias");
-    }
     await waitFor(`return !document.getElementById("panel").hidden`, "el panel de la terminal", 20000);
-    const s = JSON.parse(await run(`return localStorage.getItem("pulso.settings")`));
-    eq(s.terminalAdapted, true, "no vuelve a preguntar");
-    eq(s.terminalScheme, "", "no se cambió el esquema");
+    eq(await run(`return !!document.querySelector(".modal")`), false, "no hay ninguna pregunta");
+    eq(await run(`return localStorage.getItem("pulso.terminalAutoAdapt")`), "1", "queda hecho para no repetirlo");
     await invoke("term_kill_all");
     await run(`document.getElementById("term-hide").click(); return 1`);
   });
@@ -752,10 +744,16 @@ try {
     { number: 3, title: "Ya hecha", state: "closed", labels: [], user: { login: "ana" }, comments: 1, html_url: "https://example.test/3", assignees: [] },
     { number: 4, title: "Una PR que no debe salir", state: "open", labels: [], user: { login: "bo" }, comments: 0, html_url: "https://example.test/4", pull_request: {} },
   ];
+  for (const i of mockIssues) i.node_id = `I_${i.number}`;
   const writes = [];
   let failNext = null;
+  // Chat: comentarios de la issue-sala, personas del repositorio y si la etiqueta ya existe.
+  const chatComments = [];
+  const people = [{ login: "yo", avatar_url: "" }, { login: "ana", avatar_url: "" }, { login: "bruno", avatar_url: "" }];
+  let chatLabel = false;
+  const say = (login, body, minutesAgo = 0) => chatComments.push({ id: 100 + chatComments.length, body, user: { login, avatar_url: "" }, created_at: new Date(Date.now() - minutesAgo * 60000).toISOString() });
   const server = http.createServer((req, res) => {
-    const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, content-type, x-github-api-version, accept", "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS" };
+    const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, content-type, x-github-api-version, accept, if-none-match", "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS", "Access-Control-Expose-Headers": "etag, link" };
     if (req.method === "OPTIONS") { res.writeHead(204, cors); res.end(); return; }
     let body = "";
     req.on("data", (c) => (body += c));
@@ -764,6 +762,36 @@ try {
       const send = (code, data) => { res.writeHead(code, { ...cors, "Content-Type": "application/json" }); res.end(JSON.stringify(data ?? {})); };
       if (req.headers.authorization !== "Bearer e2e-token") { send(401, { message: "Bad credentials" }); return; }
       let m;
+      if (req.method === "GET" && (m = url.pathname.match(/^\/repos\/e2e\/demo\/labels\/(.+)$/))) {
+        const name = decodeURIComponent(m[1]);
+        if (["in progress", "pulso: in review"].includes(name)) send(200, { name }); else send(404, {});
+        return;
+      }
+      if (req.method === "POST" && url.pathname === "/graphql") {
+        writes.push(`POST /graphql ${body}`);
+        const id = JSON.parse(body).variables?.id;
+        const at = mockIssues.findIndex((x) => x.node_id === id);
+        if (at < 0) { send(200, { errors: [{ message: "Could not resolve to a node" }] }); return; }
+        mockIssues.splice(at, 1); send(200, { data: { deleteIssue: { clientMutationId: null } } }); return;
+      }
+      if (req.method === "GET" && (m = url.pathname.match(/^\/repos\/e2e\/demo\/issues\/(\d+)$/))) {
+        const found = mockIssues.find((x) => x.number === Number(m[1]));
+        if (!found) { send(404, {}); return; }
+        send(200, found); return;
+      }
+      if (req.method === "GET" && url.pathname === "/user") { send(200, { login: "yo", avatar_url: "" }); return; }
+      if (req.method === "GET" && url.pathname === "/repos/e2e/demo/collaborators") { send(200, people); return; }
+      if (req.method === "GET" && url.pathname === "/repos/e2e/demo/labels/pulso-chat") { send(chatLabel ? 200 : 404, { name: "pulso-chat" }); return; }
+      if (req.method === "GET" && url.pathname === "/repos/e2e/demo/issues" && url.searchParams.get("labels") === "pulso-chat") {
+        send(200, mockIssues.filter((i) => i.state === "open" && i.labels.some((l) => l.name === "pulso-chat"))); return;
+      }
+      if (req.method === "GET" && (m = url.pathname.match(/^\/repos\/e2e\/demo\/issues\/(\d+)\/comments$/))) {
+        const since = url.searchParams.get("since");
+        const list = chatComments.filter((c) => !since || Date.parse(c.created_at) >= Date.parse(since));
+        const etag = `"c${chatComments.length}-${since ?? ""}"`;
+        if (req.headers["if-none-match"] === etag) { res.writeHead(304, { ...cors, ETag: etag }); res.end(); return; }
+        res.writeHead(200, { ...cors, ETag: etag, "Content-Type": "application/json" }); res.end(JSON.stringify(list)); return;
+      }
       if (req.method === "GET" && (m = url.pathname.match(/^\/repos\/e2e\/demo\/issues$/))) {
         const state = url.searchParams.get("state");
         send(200, mockIssues.filter((i) => i.state === state));
@@ -773,10 +801,15 @@ try {
         writes.push(`${req.method} ${url.pathname}${body ? " " + body : ""}`);
         if (failNext) { const code = failNext; failNext = null; send(code, { message: "falló a propósito" }); return; }
       }
+      if (req.method === "POST" && url.pathname === "/repos/e2e/demo/labels") { chatLabel = true; send(201, JSON.parse(body)); return; }
+      if (req.method === "POST" && (m = url.pathname.match(/^\/repos\/e2e\/demo\/issues\/(\d+)\/comments$/))) {
+        const made = { id: 100 + chatComments.length, body: JSON.parse(body).body, user: { login: "yo", avatar_url: "" }, created_at: new Date().toISOString() };
+        chatComments.push(made); send(201, made); return;
+      }
       if (req.method === "POST" && url.pathname === "/repos/e2e/demo/issues") {
         const d = JSON.parse(body);
         const n = 10 + mockIssues.length;
-        const created = { number: n, title: d.title, body: d.body, state: "open", labels: (d.labels || []).map((name) => ({ name, color: "ededed" })), user: { login: "yo" }, comments: 0, html_url: "https://example.test/" + n, assignees: [] };
+        const created = { node_id: `I_${n}`, number: n, title: d.title, body: d.body, state: "open", labels: (d.labels || []).map((name) => ({ name, color: "ededed" })), user: { login: "yo" }, comments: 0, html_url: "https://example.test/" + n, assignees: [] };
         mockIssues.push(created);
         send(201, created); return;
       }
@@ -807,21 +840,23 @@ try {
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   const API = `http://127.0.0.1:${server.address().port}`;
   const colOf = (n) => run(`return document.querySelector('.board-card[data-number="${n}"]')?.closest(".board-col")?.dataset.col ?? null`);
-  const dropOn = (n, col) => run(`
-    const card = document.querySelector('.board-card[data-number="${n}"]');
-    const dt = new DataTransfer();
-    card.dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: dt }));
-    const target = document.querySelector('.board-col[data-col="${col}"]');
-    target.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: dt }));
-    target.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
-    return 1`);
+  // Arrastre real con el ratón (el tablero usa eventos de puntero, no arrastrar y soltar de HTML5).
+  const dropOn = async (n, col) => {
+    const p = await run(`const c = document.querySelector('.board-card[data-number="${n}"]'); const r = c.getBoundingClientRect(); const d = document.querySelector('.board-col[data-col="${col}"]').getBoundingClientRect(); return { f: [r.x + r.width / 2, r.y + 15], t: [d.x + d.width / 2, d.y + Math.min(d.height - 10, 140)] }`);
+    const [fx, fy] = p.f, [tx, ty] = p.t;
+    await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: fx, y: fy });
+    await send("Input.dispatchMouseEvent", { type: "mousePressed", x: fx, y: fy, button: "left", buttons: 1, clickCount: 1 });
+    for (let k = 1; k <= 8; k++) { await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: fx + ((tx - fx) * k) / 8, y: fy + ((ty - fy) * k) / 8, buttons: 1 }); await wait(15); }
+    await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: tx, y: ty, button: "left", buttons: 0, clickCount: 1 });
+    return 1;
+  };
   const openBoard = async () => {
     await run(`document.getElementById("open-board").click(); return 1`);
     await waitFor(`return !document.getElementById("board-view").hidden && document.querySelectorAll("#board-view .board-card").length > 0`, "las tarjetas del tablero");
   };
 
   try {
-    await test("el tablero agrupa las issues en Por hacer / En curso / Hecho y ignora las PR", async () => {
+    await test("el tablero agrupa las issues en Por hacer / En curso / En revisión / Hecho y ignora las PR", async () => {
       git("remote", "set-url", "origin", "https://github.com/e2e/demo.git");
       await invoke("secret_set", { name: "github-token", value: "e2e-token" });
       await run(`localStorage.setItem("pulso.githubApi", ${JSON.stringify(API)}); localStorage.removeItem("pulso.boardWriteOk:e2e/demo"); return 1`);
@@ -832,14 +867,16 @@ try {
       eq(await colOf(2), "doing");
       eq(await colOf(3), "done");
       eq(await colOf(4), null, "las PR no son issues");
-      eq(await run(`return [...document.querySelectorAll(".board-col-count")].map(c => c.textContent)`), ["1", "1", "1"]);
+      eq(await run(`return [...document.querySelectorAll(".board-col-count")].map(c => c.textContent)`), ["1", "1", "0", "1"]);
       eq(await run(`return document.querySelector('.board-card[data-number="2"] .board-card-foot').textContent`), "carla", "muestra a quien está asignada");
+      // Con `draggable` el navegador inicia su arrastre nativo y cancela el del tablero: con un ratón real la tarjeta no se movería.
+      eq(await run(`const c = document.querySelector('.board-card[data-number="1"]'); const ev = new DragEvent("dragstart", { bubbles: true, cancelable: true }); c.dispatchEvent(ev); return { draggable: c.draggable, prevented: ev.defaultPrevented }`), { draggable: false, prevented: true });
     });
 
     await test("arrastrar a «En curso» pide confirmar la primera vez, añade la etiqueta y mueve la tarjeta", async () => {
       await dropOn(1, "doing");
       await waitFor(`return !!document.querySelector(".modal")`, "la confirmación de escritura");
-      eq((await dialog()).title, "Mover tarjetas modifica GitHub");
+      eq((await dialog()).title, "El tablero modifica GitHub");
       await clickBtn("Cancelar");
       await wait(300);
       eq(writes.length, 0, "cancelar no escribe nada");
@@ -848,7 +885,7 @@ try {
       await waitFor(`return !!document.querySelector(".modal")`, "la confirmación otra vez");
       await clickBtn("Entendido, continuar");
       await waitFor(`return document.querySelector('.board-card[data-number="1"]')?.closest(".board-col")?.dataset.col === "doing"`, "la tarjeta en curso");
-      await waitFor(`return true`, "");
+      for (let k = 0; k < 60 && writes.length < 1; k++) await wait(50);
       eq(writes, ['POST /repos/e2e/demo/issues/1/labels {"labels":["in progress"]}']);
       ok(mockIssues[0].labels.some((l) => l.name === "in progress"), "GitHub (falso) recibió la etiqueta");
     });
@@ -892,7 +929,7 @@ try {
 
     await test("«Nueva issue» crea la issue en GitHub y la tarjeta aparece en la columna", async () => {
       writes.length = 0;
-      await run(`document.querySelector('.board-col[data-col="todo"] .board-col-add').click(); return 1`);
+      await run(`document.querySelector('.board-col[data-col="todo"] .board-add').click(); return 1`);
       await waitFor(`return !!document.querySelector(".modal-form")`, "el formulario");
       eq((await dialog()).title, "Nueva issue en «Por hacer»");
       await clickBtn("Crear");
@@ -909,7 +946,7 @@ try {
 
     await test("crear desde «En curso» añade la etiqueta de progreso", async () => {
       writes.length = 0;
-      await run(`document.querySelector('.board-col[data-col="doing"] .board-col-add').click(); return 1`);
+      await run(`document.querySelector('.board-col[data-col="doing"] .board-add').click(); return 1`);
       await waitFor(`return !!document.querySelector(".modal-form")`, "el formulario");
       await fillForm({ title: "Ya empezada", labels: "ui" });
       await clickBtn("Crear");
@@ -945,7 +982,7 @@ try {
 
     await test("al volver a la ventana el tablero trae lo creado en GitHub y no repinta si nada cambió", async () => {
       await run(`localStorage.setItem("pulso.boardMinGap", "300"); return 1`);
-      mockIssues.push({ number: 99, title: "Creada directamente en GitHub", state: "open", labels: [], user: { login: "otra" }, comments: 0, html_url: "https://example.test/99", assignees: [] });
+      mockIssues.push({ node_id: "I_99", number: 99, title: "Creada directamente en GitHub", state: "open", labels: [], user: { login: "otra" }, comments: 0, html_url: "https://example.test/99", assignees: [] });
       await wait(500);
       await run(`window.dispatchEvent(new Event("focus")); return 1`);
       await waitFor(`return [...document.querySelectorAll(".board-card-title")].some(t => t.textContent === "Creada directamente en GitHub")`, "la issue creada en GitHub", 15000);
@@ -964,6 +1001,169 @@ try {
       await run(`localStorage.removeItem("pulso.boardMinGap"); return 1`);
     });
 
+    await test("cada tarjeta tiene botones para cerrar/reabrir y eliminar, y eliminar pide confirmar con la opción de cerrar en su lugar", async () => {
+      await bootApp(gitSession());
+      await key("i", { ctrl: true, shift: true });
+      await openBoard();
+      writes.length = 0;
+      await run(`document.querySelector('.board-card[data-number="1"] .board-card-actions .board-open').click(); return 1`);
+      await waitFor(`return document.querySelector('.board-card[data-number="1"]')?.closest(".board-col")?.dataset.col === "done"`, "la tarjeta cerrada con su botón");
+      for (let k = 0; k < 60 && !writes.some((w) => w.includes('"state":"closed"')); k++) await wait(50);
+      ok(writes.some((w) => w.startsWith("PATCH /repos/e2e/demo/issues/1 ") && w.includes('"state":"closed"')), `se cerró en GitHub: ${writes}`);
+      writes.length = 0;
+      await run(`document.querySelector('.board-card[data-number="99"] .board-del').click(); return 1`);
+      await waitFor(`return !!document.querySelector(".modal")`, "la confirmación de eliminar");
+      const d = await dialog();
+      eq(d.title, "Eliminar #99");
+      eq(d.buttons, ["Cancelar", "Cerrar en su lugar", "Eliminar para siempre"]);
+      await clickBtn("Cancelar");
+      await wait(300);
+      eq(writes.length, 0, "cancelar no borra nada");
+      await run(`document.querySelector('.board-card[data-number="99"] .board-del').click(); return 1`);
+      await waitFor(`return !!document.querySelector(".modal")`, "la confirmación otra vez");
+      await clickBtn("Eliminar para siempre");
+      await waitFor(`return !document.querySelector('.board-card[data-number="99"]')`, "la tarjeta eliminada");
+      ok(writes.some((w) => w.startsWith("POST /graphql ") && w.includes("deleteIssue") && w.includes("I_99")), `se eliminó en GitHub: ${writes}`);
+      ok(!mockIssues.some((i) => i.number === 99), "GitHub (falso) la borró");
+    });
+
+    await test("sin permisos de administración, eliminar lo explica y la tarjeta se queda", async () => {
+      writes.length = 0;
+      mockIssues.find((i) => i.number === 3).node_id = "I_desconocida";
+      await run(`document.querySelector('.board-card[data-number="3"] .board-del').click(); return 1`);
+      await waitFor(`return !!document.querySelector(".modal")`, "la confirmación");
+      await clickBtn("Eliminar para siempre");
+      await waitFor(`return document.querySelector(".modal-title")?.textContent.startsWith("No se pudo eliminar")`, "el error");
+      await clickBtn("Entendido");
+      ok(await run(`return !!document.querySelector('.board-card[data-number="3"]')`), "la tarjeta sigue");
+      mockIssues.find((i) => i.number === 3).node_id = "I_3";
+    });
+
+    // ---------- Chat de grupo ----------
+    const chatRows = () => run(`return [...document.querySelectorAll("#view-chat .chat-row")].map(r => ({ mine: r.classList.contains("mine"), who: r.querySelector(".chat-who")?.textContent ?? null, text: r.querySelector(".chat-bubble")?.textContent, pings: !!r.querySelector(".chat-bubble.pings-me") }))`);
+    await test("el chat no existe todavía: ofrece crearlo, y al crearlo usa la etiqueta «pulso-chat»", async () => {
+      await run(`localStorage.setItem("pulso.chatBackgroundMs", "500"); localStorage.removeItem("pulso.chatSeen:e2e/demo"); return 1`);
+      await bootApp(gitSession());
+      writes.length = 0;
+      await run(`document.querySelector('.act[data-view="chat"]').click(); return 1`);
+      await waitFor(`return document.querySelector("#view-chat .chat-msg")?.textContent.includes("Todavía no hay chat")`, "el aviso de que no hay chat", 15000);
+      await run(`[...document.querySelectorAll("#view-chat button")].find(b => b.textContent === "Crear el chat del equipo").click(); return 1`);
+      await waitFor(`return !!document.querySelector(".modal")`, "la confirmación");
+      eq((await dialog()).title, "Crear el chat del equipo");
+      await clickBtn("Crear");
+      await waitFor(`return !!document.querySelector("#view-chat .chat-input")`, "la conversación abierta", 15000);
+      ok(writes.some((w) => w.startsWith("POST /repos/e2e/demo/labels ")), "creó la etiqueta");
+      ok(writes.some((w) => w.startsWith("POST /repos/e2e/demo/issues ") && w.includes('"pulso-chat"')), `creó la issue con la etiqueta: ${writes}`);
+      ok((await run(`return document.querySelector("#view-chat .chat-empty")?.textContent`)).includes("Escribe el primero"));
+    });
+
+    await test("escribir un mensaje: aparece como propio y se publica como comentario", async () => {
+      writes.length = 0;
+      await run(`const b = document.querySelector("#view-chat .chat-input"); b.value = "Hola equipo"; b.dispatchEvent(new Event("input", { bubbles: true })); b.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); return 1`);
+      await waitFor(`return [...document.querySelectorAll("#view-chat .chat-row.mine")].some(r => r.textContent.includes("Hola equipo") && !r.classList.contains("pending"))`, "el mensaje enviado");
+      ok(writes.some((w) => /^POST \/repos\/e2e\/demo\/issues\/\d+\/comments \{"body":"Hola equipo"\}$/.test(w)), `comentario publicado: ${writes}`);
+      eq(await run(`return document.querySelector("#view-chat .chat-input").value`), "", "el cuadro queda vacío");
+    });
+
+    await test("Mayús+Enter no envía y los mensajes de otras personas llegan solos, agrupados y con su nombre", async () => {
+      writes.length = 0;
+      await run(`const b = document.querySelector("#view-chat .chat-input"); b.value = "no enviar"; b.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", shiftKey: true, bubbles: true, cancelable: true })); return 1`);
+      await wait(300);
+      eq(writes.length, 0, "Mayús+Enter no envía");
+      await run(`document.querySelector("#view-chat .chat-input").value = ""; return 1`);
+      say("ana", "Buenas, ¿alguien revisa el PR?");
+      say("ana", "Es el de @yo, ojo");
+      say("bruno", "Yo lo miro: https://github.com/e2e/demo/pull/7.");
+      await waitFor(`return document.querySelectorAll("#view-chat .chat-row:not(.mine)").length >= 3`, "los mensajes de las otras personas", 15000);
+      const rows = await chatRows();
+      eq(rows.filter((r) => !r.mine).map((r) => r.who), ["ana", null, "bruno"], "el nombre solo en el primer mensaje de cada grupo");
+      eq(rows.filter((r) => !r.mine).map((r) => r.pings), [false, true, false], "resalta el que te menciona");
+      eq(await run(`return document.querySelector("#view-chat .chat-link")?.textContent`), "https://github.com/e2e/demo/pull/7", "el enlace no incluye el punto final");
+      eq(await run(`return document.querySelectorAll("#view-chat .chat-day").length`), 1, "un separador de día");
+    });
+
+    await test("el chat vive en la barra lateral y un botón lo pasa a pantalla completa (Esc vuelve), recordando la elección", async () => {
+      eq(await run(`return document.getElementById("view-chat").classList.contains("chat-docked")`), true, "empieza en la barra lateral");
+      const docked = await run(`const r = document.getElementById("view-chat").getBoundingClientRect(); return r.width`);
+      ok(docked < 500, `ancho en la barra lateral: ${docked}`);
+      await run(`document.querySelector("#view-chat .chat-expand").click(); return 1`);
+      await waitFor(`return document.getElementById("view-chat").classList.contains("chat-full")`, "pantalla completa");
+      const wide = await run(`return document.getElementById("view-chat").getBoundingClientRect().width`);
+      ok(wide > 900, `ancho en pantalla completa: ${wide}`);
+      eq(await run(`return getComputedStyle(document.querySelector("#view-chat .chat-members")).display`), "block", "las personas se ven en pantalla completa");
+      await run(`document.querySelector("#view-chat .chat-input").focus(); return 1`);
+      await key("Escape");
+      await waitFor(`return document.getElementById("view-chat").classList.contains("chat-docked")`, "Esc vuelve a la barra lateral");
+      await run(`document.querySelector("#view-chat .chat-expand").click(); return 1`);
+      await bootApp(gitSession());
+      await run(`document.querySelector('.act[data-view="chat"]').click(); return 1`);
+      await waitFor(`return !!document.querySelector("#view-chat .chat-input")`, "el chat reabierto");
+      eq(await run(`return document.getElementById("view-chat").classList.contains("chat-full")`), true, "recuerda la pantalla completa");
+      await run(`document.querySelector("#view-chat .chat-expand").click(); return 1`);
+      await waitFor(`return document.getElementById("view-chat").classList.contains("chat-docked")`, "de vuelta a la barra lateral");
+    });
+
+    await test("el panel de personas muestra a todo el repositorio y «@» ofrece mencionarlas", async () => {
+      eq(await run(`return document.querySelector("#view-chat .chat-members-title")?.textContent`), "Personas · 3");
+      ok((await run(`return document.querySelector("#view-chat .chat-members").textContent`)).includes("yo (tú)"));
+      await run(`const b = document.querySelector("#view-chat .chat-input"); b.focus(); b.value = "hola @a"; b.setSelectionRange(7, 7); b.dispatchEvent(new Event("input", { bubbles: true })); return 1`);
+      await waitFor(`return [...document.querySelectorAll("#view-chat .chat-mention-opt")].map(o => o.lastChild.textContent).join() === "ana"`, "la sugerencia de mención");
+      await run(`document.querySelector("#view-chat .chat-input").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); return 1`);
+      eq(await run(`return document.querySelector("#view-chat .chat-input").value`), "hola @ana ", "elige la mención sin enviar");
+      await run(`document.querySelector("#view-chat .chat-input").value = ""; return 1`);
+    });
+
+    await test("con el chat cerrado, la insignia cuenta los mensajes nuevos de otras personas y se borra al abrirlo", async () => {
+      await run(`document.querySelector('.act[data-view="explorer"]').click(); return 1`);
+      await waitFor(`return document.getElementById("view-chat").hidden`, "que el chat se oculte al cambiar de vista");
+      eq(await run(`return document.getElementById("chat-badge").hidden`), true, "sin pendientes");
+      say("bruno", "¿Seguimos mañana?");
+      await waitFor(`return !document.getElementById("chat-badge").hidden`, "la insignia", 15000);
+      eq(await run(`return document.getElementById("chat-badge").textContent`), "1");
+      await run(`document.querySelector('.act[data-view="chat"]').click(); return 1`);
+      await waitFor(`return document.querySelectorAll("#view-chat .chat-row").length >= 5`, "el chat reabierto");
+      await wait(600);
+      await waitFor(`return document.getElementById("chat-badge").hidden`, "la insignia se borra al leer", 15000);
+      await run(`localStorage.removeItem("pulso.chatBackgroundMs"); return 1`);
+    });
+
+    await test("la issue del chat no sale en el tablero ni en la lista lateral, y con el chat abierto solo él marca la barra", async () => {
+      await run(`document.querySelector('.act[data-view="chat"]').click(); return 1`);
+      await waitFor(`return !!document.querySelector("#view-chat .chat-input")`, "el chat");
+      eq(await run(`return [...document.querySelectorAll(".act.active")].map(a => a.dataset.view)`), ["chat"], "solo el chat marca la barra");
+      await run(`document.querySelector('.act[data-view="issues"]').click(); document.getElementById("open-board").click(); return 1`);
+      await waitFor(`return document.querySelectorAll("#board-view .board-card").length > 0`, "el tablero");
+      eq(await run(`return [...document.querySelectorAll("#board-view .board-card-title")].some(t => t.textContent.includes("Chat de Pulso"))`), false, "no aparece en el tablero");
+      await key("Escape");
+      await run(`document.getElementById("refresh-issues").click(); return 1`);
+      await wait(1500);
+      eq(await run(`return document.getElementById("issues").textContent.includes("Chat de Pulso")`), false, "no aparece en la lista");
+    });
+
+    await test("si la issue de la sala se cierra en GitHub, el chat lo detecta y ofrece crear otra", async () => {
+      await run(`localStorage.setItem("pulso.chatRoomCheckMs", "500"); document.querySelector('.act[data-view="chat"]').click(); return 1`);
+      await waitFor(`return !!document.querySelector("#view-chat .chat-input")`, "el chat abierto");
+      mockIssues.find((i) => i.labels.some((l) => l.name === "pulso-chat")).state = "closed";
+      await waitFor(`return document.querySelector("#view-chat .chat-msg")?.textContent.includes("Todavía no hay chat")`, "que detecte la sala cerrada", 20000);
+      await run(`localStorage.removeItem("pulso.chatRoomCheckMs"); return 1`);
+    });
+
+    await test("un cambio hecho en GitHub (reabrir y pasar a «En curso») llega solo al tablero, sin recargar ni volver a la ventana", async () => {
+      await run(`localStorage.setItem("pulso.boardInterval", "1000"); return 1`);
+      await bootApp(gitSession());
+      await key("i", { ctrl: true, shift: true });
+      await openBoard();
+      const n = 3;
+      const issue = mockIssues.find((i) => i.number === n);
+      const colIs = (c) => waitFor(`return document.querySelector('.board-card[data-number="${n}"]')?.closest(".board-col")?.dataset.col === "${c}"`, `que la tarjeta pase sola a «${c}»`, 20000);
+      issue.state = "closed"; issue.labels = []; issue.updated_at = new Date().toISOString();
+      await colIs("done");
+      // El caso del fallo: se reabre en GitHub con la etiqueta de «En curso» y el tablero debe seguirla.
+      issue.state = "open"; issue.labels = [{ name: "in progress", color: "fbca04" }]; issue.updated_at = new Date(Date.now() + 1000).toISOString();
+      await colIs("doing");
+      await run(`localStorage.removeItem("pulso.boardInterval"); return 1`);
+    });
+
     await test("sin token no se intenta escribir y Esc cierra el tablero", async () => {
       await invoke("secret_delete", { name: "github-token" });
       await bootApp(gitSession());
@@ -974,12 +1174,17 @@ try {
       await run(`document.getElementById("open-board").click(); return 1`);
       await waitFor(`return document.querySelector("#board-view .board-msg")?.textContent.includes("token")`, "el aviso de token", 15000);
       eq(writes.length, 0);
+      eq(await run(`return document.querySelector("#board-view .board-msg button")?.textContent ?? null`), "Conectar con GitHub", "ofrece conectar la cuenta en vez de pedir configurar nada");
       await key("Escape");
       await waitFor(`return document.getElementById("board-view").hidden`, "cerrar con Esc");
+      // El panel lateral de issues ofrece lo mismo.
+      await run(`document.getElementById("refresh-issues").click(); return 1`);
+      await waitFor(`return !!document.querySelector("#issues .issues-connect button")`, "el botón de conectar en la lista de issues", 15000);
+      eq(await run(`return document.querySelector("#issues .issues-connect button").textContent`), "Conectar con GitHub");
     });
   } finally {
     server.close();
-    await run(`localStorage.removeItem("pulso.githubApi"); localStorage.removeItem("pulso.boardWriteOk:e2e/demo"); return 1`).catch(() => {});
+    await run(`localStorage.removeItem("pulso.githubApi"); localStorage.removeItem("pulso.boardWriteOk:e2e/demo"); localStorage.removeItem("pulso.chatSeen:e2e/demo"); return 1`).catch(() => {});
     if (savedToken) await invoke("secret_set", { name: "github-token", value: savedToken }).catch(() => {});
     else await invoke("secret_delete", { name: "github-token" }).catch(() => {});
   }
@@ -990,11 +1195,39 @@ try {
     await waitFor(`return document.querySelector("#scm-list .scm-empty")?.textContent.includes("repositorio")`, "el mensaje de no-repositorio");
     eq(await run(`return document.getElementById("scm-compose").hidden`), true);
   });
+  console.log("\nTareas: scripts de package.json");
+  const SROOT = `${ROOT}-scripts`;
+  const openScriptPicker = async () => {
+    await key("P", { ctrl: true, shift: true });
+    await waitFor(`return !document.getElementById("quickopen").hidden`, "la paleta de comandos");
+    await run(`const i = document.getElementById("qo-input"); i.value = "script de package"; i.dispatchEvent(new Event("input", { bubbles: true })); return 1`);
+    await waitFor(`return document.querySelector("#qo-list li .qo-label")?.textContent.includes("Ejecutar un script")`, "el comando de scripts");
+    await run(`document.getElementById("qo-input").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); return 1`);
+  };
+  await test("la paleta lista los scripts de package.json con el gestor que usa el proyecto", async () => {
+    fs.rmSync(SROOT, { recursive: true, force: true });
+    fs.mkdirSync(SROOT, { recursive: true });
+    fs.writeFileSync(`${SROOT}/package.json`, JSON.stringify({ scripts: { dev: "vite", "test:unit": "vitest run", "mal; rm -rf x": "boom" } }));
+    fs.writeFileSync(`${SROOT}/yarn.lock`, "");
+    await bootApp({ root: SROOT, layout: { dir: "row", focus: 0, groups: [{ paths: [], active: null, pinned: [] }] } });
+    await openScriptPicker();
+    await waitFor(`return document.querySelector("#qo-input").placeholder === "Ejecutar un script de package.json" && document.querySelectorAll("#qo-list li .qo-label").length >= 2`, "la lista de scripts");
+    eq(await run(`return [...document.querySelectorAll("#qo-list li .qo-label")].map(l => l.textContent)`), ["dev", "test:unit"], "los nombres no seguros se omiten");
+    eq(await run(`return document.querySelector("#qo-list li .qo-hint")?.textContent ?? null`), "yarn");
+    await run(`document.getElementById("qo-input").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); return 1`);
+  });
+  await test("sin package.json la lista lo explica en vez de fallar", async () => {
+    fs.rmSync(`${SROOT}/package.json`);
+    await openScriptPicker();
+    await waitFor(`return document.querySelector("#qo-list li.none")?.textContent.includes("package.json")`, "el mensaje de lista vacía");
+    await run(`document.getElementById("qo-input").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); return 1`);
+  });
 } finally {
   // Deja la app como estaba.
   if (savedToken) await invoke("secret_set", { name: "github-token", value: savedToken }).catch(() => {});
   else await invoke("secret_delete", { name: "github-token" }).catch(() => {});
-  await run(`${saved.session == null ? 'localStorage.removeItem("pulso.session")' : `localStorage.setItem("pulso.session", ${JSON.stringify(saved.session)})`};
+  await run(`localStorage.removeItem("pulso.noAutoConnect");
+             ${saved.session == null ? 'localStorage.removeItem("pulso.session")' : `localStorage.setItem("pulso.session", ${JSON.stringify(saved.session)})`};
              ${saved.settings == null ? 'localStorage.removeItem("pulso.settings")' : `localStorage.setItem("pulso.settings", ${JSON.stringify(saved.settings)})`};
              ${saved.recent == null ? 'localStorage.removeItem("pulso.recent")' : `localStorage.setItem("pulso.recent", ${JSON.stringify(saved.recent)})`};
              ${saved.lastRoot == null ? 'localStorage.removeItem("pulso.lastRoot")' : `localStorage.setItem("pulso.lastRoot", ${JSON.stringify(saved.lastRoot)})`};
@@ -1003,7 +1236,7 @@ try {
   await invoke("term_kill_all").catch(() => {});
   ws.close();
   for (let i = 0; i < 10; i++) {
-    try { fs.rmSync(ROOT, { recursive: true, force: true }); fs.rmSync(`${ROOT}-git`, { recursive: true, force: true }); fs.rmSync(`${ROOT}-bare`, { recursive: true, force: true }); fs.rmSync(`${ROOT}-clone`, { recursive: true, force: true }); break; } catch (e) {
+    try { fs.rmSync(ROOT, { recursive: true, force: true }); fs.rmSync(`${ROOT}-git`, { recursive: true, force: true }); fs.rmSync(`${ROOT}-bare`, { recursive: true, force: true }); fs.rmSync(`${ROOT}-clone`, { recursive: true, force: true }); fs.rmSync(`${ROOT}-scripts`, { recursive: true, force: true }); break; } catch (e) {
       if (i === 9) console.log("  (no se pudo borrar la carpeta temporal: " + e.code + ")");
       await wait(500);
     }

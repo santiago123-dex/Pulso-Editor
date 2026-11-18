@@ -1,18 +1,20 @@
+/* Símbolos de los prompts (oh-my-posh, starship): fuente incluida, MIT, ver src/assets/fonts/LICENSE-NerdFonts.txt. Solo sirve de respaldo: no cambia la fuente del texto. */
+@font-face { font-family: "Symbols Nerd Font Mono"; src: url("./assets/fonts/SymbolsNerdFontMono-Regular.ttf") format("truetype"); font-display: block; }
 :root {
-  --bg: #17171b;
-  --editor: #1b1b20;
-  --sidebar: #1f1f25;
-  --activity: #131316;
-  --border: #2b2b33;
-  --hover: #2a2a32;
-  --selected: #33333d;
-  --fg: #d4d4dc;
-  --muted: #86869a;
-  --accent: #7c3aed;
-  --status: #7c3aed;
-  --on-accent: #ffffff;
+  --bg: #0e0e0f;
+  --editor: #151515;
+  --sidebar: #191919;
+  --activity: #111111;
+  --border: #2a2a2a;
+  --hover: #232323;
+  --selected: #2d2d2d;
+  --fg: #e8e8e8;
+  --muted: #8a8a8a;
+  --accent: #5b9cf5;
+  --status: #5b9cf5;
+  --on-accent: #111111;
   --mono: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
-  --ui: "Segoe UI", system-ui, sans-serif;
+  --ui: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 13px var(--ui); overflow: hidden; }
@@ -83,7 +85,7 @@ main { grid-area: main; display: flex; min-width: 0; min-height: 0; background: 
 .monaco-editor .pulso-definition-link { text-decoration: underline; }
 #groups[data-dir="row"] { flex-direction: row; }
 #groups[data-dir="column"] { flex-direction: column; }
-.group { display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; background: var(--editor); }
+.group { display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; isolation: isolate; background: var(--editor); }
 #groups[data-dir="row"] > .group { min-width: 140px; }
 #groups[data-dir="column"] > .group { min-height: 120px; }
 .sash { flex: 0 0 4px; background: var(--border); z-index: 4; }
@@ -118,7 +120,8 @@ main { grid-area: main; display: flex; min-width: 0; min-height: 0; background: 
 
 .gbody { position: relative; flex: 1; min-height: 0; }
 .gcode { position: absolute; inset: 0; }
-.gempty { position: absolute; inset: 0; background: var(--editor); display: flex; align-items: center; justify-content: center; z-index: 2; }
+/* `safe center`: si el contenido no cabe (panel de terminal abierto) se desplaza en vez de salirse por arriba y por abajo. */
+.gempty { position: absolute; inset: 0; background: var(--editor); display: flex; align-items: safe center; justify-content: safe center; overflow: auto; z-index: 2; }
 .gempty-small { color: var(--muted); text-align: center; padding: 20px; line-height: 1.6; max-width: 280px; }
 .drop-hint { position: absolute; z-index: 6; pointer-events: none; background: color-mix(in srgb, var(--accent) 22%, transparent); border: 2px solid var(--accent); }
 .drop-hint.h-center { inset: 0; }
@@ -176,7 +179,7 @@ kbd { font: 11px var(--mono); background: var(--hover); border: 1px solid var(--
 .issue-title { line-height: 1.35; }
 .issue-num { color: var(--muted); margin-right: 4px; font-family: var(--mono); font-size: 12px; }
 .issue-meta { color: var(--muted); font-size: 11px; margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-.label { padding: 0 7px; border-radius: 10px; font-size: 10px; font-weight: 600; color: #111; }
+.label { padding: 1px 8px; border-radius: 999px; font-size: 10px; font-weight: 500; color: var(--fg); background: color-mix(in srgb, var(--label-color, var(--muted)) 23%, var(--hover)); border: 1px solid color-mix(in srgb, var(--label-color, var(--muted)) 45%, transparent); }
 
 /* ---------- Configuración ---------- */
 #settings-body { overflow: auto; flex: 1; padding: 0 20px 20px; }
@@ -202,7 +205,10 @@ kbd { font: 11px var(--mono); background: var(--hover); border: 1px solid var(--
 .kbtn.rec { border-color: var(--accent); color: var(--accent); }
 
 /* ---------- Barra de estado ---------- */
-#statusbar { grid-area: stat; display: flex; align-items: center; gap: 16px; padding: 0 12px; background: var(--status); color: var(--on-accent); font-size: 12px; }
+/* La barra de estado es parte del marco: neutra, con texto secundario. El acento queda para lo que se puede pulsar o requiere atención. */
+#statusbar { grid-area: stat; display: flex; align-items: center; gap: 16px; padding: 0 12px; background: var(--activity); color: var(--muted); border-top: 1px solid var(--border); font-size: 12px; }
+#statusbar #status-left { color: var(--fg); }
+#statusbar .clickable:hover { color: var(--fg); }
 #statusbar .grow { flex: 1; }
 #statusbar span:empty { display: none; }
 #statusbar .clickable { cursor: pointer; }
@@ -589,3 +595,39 @@ main { position: relative; }
 .diff-btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 .diff-btn.primary:hover { filter: brightness(1.1); }
 .board-col-head { min-height: 40px; box-sizing: border-box; }
+
+#problems-summary { padding: 2px 20px 6px; font-size: 12px; color: var(--muted); flex-shrink: 0; }
+#problems-list { flex: 1; overflow: auto; min-height: 0; padding-bottom: 8px; }
+.problems-empty { padding: 8px 20px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+.problem { display: flex; align-items: baseline; gap: 6px; padding: 2px 8px 2px 24px; font-size: 12px; cursor: pointer; }
+.problem:hover { background: var(--hover); }
+.problem .pdot { flex-shrink: 0; width: 14px; text-align: center; }
+.problem .pdot.error { color: var(--danger, #f14c4c); }
+.problem .pdot.warning { color: #cca700; }
+.problem .pdot.info { color: var(--accent); }
+.problem .pmsg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.problem .pwhere { flex-shrink: 0; color: var(--muted); font: 11px var(--mono); }
+#problems-only-errors.on { background: var(--selected); color: var(--fg); }
+#status-problems.has-errors { color: var(--danger, #f14c4c); }
+.sp-account { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.issues-connect { list-style: none; padding: 4px 16px 12px; }
+/* Acciones sobre cada issue de la lista lateral */
+#issues li { position: relative; }
+#issues .issue-actions { position: absolute; top: 4px; right: 4px; display: none; gap: 2px; background: var(--sidebar); border-radius: 5px; }
+#issues li:hover .issue-actions, #issues li:focus-within .issue-actions { display: flex; }
+#issues .issue-actions .icon-btn { width: 22px; height: 22px; }
+
+/* Panel de issues: cabecera mínima, filtro en pestañas y acciones al pie (según DESIGN.md) */
+#view-issues header { padding: 0 8px 0 20px; }
+#repo-label { padding: 2px 20px 8px; }
+.seg { display: flex; gap: 2px; padding: 0 14px 8px; flex-shrink: 0; }
+.seg button { background: none; border: 0; border-radius: 6px; padding: 4px 9px; font: 12px var(--ui); color: var(--muted); cursor: pointer; }
+.seg button:hover { color: var(--fg); }
+.seg button[aria-selected="true"] { background: var(--hover); color: var(--fg); }
+.seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.issues-foot { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 12px; border-top: 1px solid var(--border); flex-shrink: 0; }
+.foot-btn { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; background: none; border: 1px solid transparent; border-radius: 6px; color: var(--muted); font: 12px var(--ui); text-align: left; cursor: pointer; }
+.foot-btn svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+.foot-btn:hover, .foot-btn:focus-visible { color: var(--fg); background: var(--hover); outline: none; }
+.foot-btn-line { border-color: var(--border); color: var(--fg); }
+.foot-btn-line:hover, .foot-btn-line:focus-visible { border-color: var(--accent); }

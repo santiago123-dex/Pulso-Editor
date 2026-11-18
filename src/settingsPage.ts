@@ -1,5 +1,6 @@
 import { commands } from "./commands";
-import { getToken, setToken } from "./github";
+import { disconnectGithub, getAccount, getToken, refreshAccount, setToken } from "./github";
+import { connectFlow } from "./githubConnect";
 import { buildKeybindings } from "./keybindingsView";
 import { ACCENTS, DEFAULTS, FONTS, commit, currentTheme, setTheme, state, syntaxOptionsFor, type Settings } from "./settings";
 import { adaptToMyTerminal, listShells } from "./terminal";
@@ -9,7 +10,7 @@ import { importFromFile, importInstalled } from "./themeImport";
 import { setStatus, showDialog } from "./ui";
 import { $, h } from "./util";
 
-type BoolKey = "ligatures" | "minimap" | "wordWrap" | "lineNumbers" | "whitespace" | "smoothCaret" | "autoSave";
+type BoolKey = "ligatures" | "minimap" | "wordWrap" | "lineNumbers" | "whitespace" | "smoothCaret" | "autoSave" | "formatOnSave";
 
 interface Section { id: string; title: string; desc: string; icon: string; el: HTMLElement; rows: HTMLElement[] }
 
@@ -174,6 +175,7 @@ function buildEditor() {
     row("Mostrar espacios", "Dibuja los espacios y tabulaciones.", switchCtl("st-whitespace", "whitespace"), "whitespace"),
     row("Cursor suave", "Anima el movimiento del cursor.", switchCtl("st-caret", "smoothCaret")),
     row("Autoguardado", "Guarda solo, poco después de dejar de escribir.", switchCtl("st-autosave", "autoSave"), "autosave guardar"),
+    row("Formatear al guardar", "Da formato al documento con el servidor de lenguaje (TypeScript y JavaScript) al guardar con Ctrl+S.", switchCtl("st-formatsave", "formatOnSave"), "formatear format guardar"),
   ]);
 }
 
@@ -243,6 +245,25 @@ function buildGithub() {
     onTokenChange();
   };
   syncers.push(() => { token.value = getToken(); });
+  const who = h("span", "sp-ver", "");
+  const connect = button("st-gh-connect", "Conectar con GitHub", async () => {
+    if (await connectFlow()) { onTokenChange(); sync(); }
+  });
+  const disconnect = button("st-gh-disconnect", "Desconectar", async () => {
+    await disconnectGithub();
+    onTokenChange();
+    setStatus("Se quitó el token de GitHub de este equipo");
+    sync();
+  }, "mbtn danger");
+  const account = h("div", "sp-account");
+  account.append(who, connect, disconnect);
+  const paintAccount = () => {
+    const has = !!getToken();
+    who.textContent = has ? (getAccount() ? `Conectado como ${getAccount()}` : "Conectado (token guardado)") : "Sin conectar";
+    connect.textContent = has ? "Volver a conectar" : "Conectar con GitHub";
+    disconnect.hidden = !has;
+  };
+  syncers.push(() => { paintAccount(); void refreshAccount().then(paintAccount); });
   const label = h("input", "sp-text");
   label.id = "st-board-label";
   label.type = "text";
@@ -251,7 +272,8 @@ function buildGithub() {
   label.onchange = () => { state.settings.boardProgressLabel = label.value.trim() || "in progress"; commit(); };
   syncers.push(() => { label.value = state.settings.boardProgressLabel; });
   addSection("github", "GitHub", "Conexión con tus repositorios para ver issues y moverlas en el tablero.", [
-    row("Token de acceso", "Necesario para repos privados y para mover tarjetas del tablero (permiso de escritura en issues). Se guarda en el Administrador de credenciales del sistema, no en un archivo.", token, "token github"),
+    row("Cuenta de GitHub", "Pulsa «Conectar» y autoriza el acceso en el navegador; Pulso usa la sesión de GitHub que Git ya tiene en este equipo si existe. Es lo único necesario para repos privados y para mover tarjetas del tablero.", account, "cuenta github conectar iniciar sesión login autorizar"),
+    row("Token manual (avanzado)", "Alternativa si no puedes usar el botón: un token personal. Necesario para repos privados y para mover tarjetas del tablero (permiso de escritura en issues). Se guarda en el Administrador de credenciales del sistema, no en un archivo.", token, "token github"),
     row("Etiqueta de «En curso»", "Una issue abierta con esta etiqueta aparece en la columna «En curso» del tablero. Sin ella está «Por hacer»; cerrada, «Hecho».", label, "tablero kanban etiqueta in progress en curso"),
   ]);
 }

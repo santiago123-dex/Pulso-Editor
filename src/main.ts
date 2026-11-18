@@ -8,8 +8,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { commands, initKeys, keyOf, register } from "./commands";
-import { checkExternal, dirtyDocs, discardDirtyBackups, docs, offerRecovery, onDocSaved, saveDoc } from "./docs";
-import { initToken } from "./github";
+import { checkExternal, dirtyDocs, discardDirtyBackups, docs, flushBackups, offerRecovery, onDocSaved, saveDoc } from "./docs";
+import { autoConnect, initToken } from "./github";
 import { gitInfo, onGitChange, type GitInfo } from "./git";
 import { collapseAll, highlight, initExplorer, newEntry, refreshGitDecorations, refreshTree, resetExplorer, revealInTree } from "./explorer";
 import {
@@ -21,6 +21,9 @@ import {
 import { fileIcon, loadIconManifest } from "./icons";
 import { openBoard } from "./board";
 import { initIssues, loadIssues } from "./issues";
+import { initProblems, setProblemsVisible } from "./problems";
+import { pickScript } from "./scripts";
+import { setChatVisible } from "./repoChat";
 import { initLsp, setLspWorkspace } from "./lsp";
 import { getLspState, lspDetail, lspLabel, onLspState } from "./lspState";
 import { commitStaged, initScm, pickBranch, pullChanges, pushChanges, refreshScm, stage, unstage } from "./scm";
@@ -75,18 +78,20 @@ const inTauri = "__TAURI_INTERNALS__" in window;
 hooks.focusEditor = () => focusedEditor()?.focus();
 
 // ---------- Vistas de la barra lateral ----------
-type View = "explorer" | "search" | "git" | "issues";
+type View = "explorer" | "search" | "git" | "issues" | "problems" | "chat";
 let currentView: View = "explorer";
 
 function showView(view: View | "settings") {
   if (view === "settings") { toggleSettings(); return; }
   closeSettings();
   const app = $("app");
-  if (view === currentView && !app.classList.contains("no-sidebar")) { app.classList.add("no-sidebar"); return; }
+  if (view === currentView && !app.classList.contains("no-sidebar")) { app.classList.add("no-sidebar"); setProblemsVisible(false); setChatVisible(false); return; }
   app.classList.remove("no-sidebar");
   currentView = view;
   document.querySelectorAll<HTMLElement>(".act[data-view]").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
-  for (const v of ["explorer", "search", "git", "issues"] as View[]) $(`view-${v}`).hidden = v !== view;
+  for (const v of ["explorer", "search", "git", "issues", "problems", "chat"] as View[]) $(`view-${v}`).hidden = v !== view;
+  setProblemsVisible(view === "problems");
+  setChatVisible(view === "chat");
   if (view === "issues") void loadIssues();
   if (view === "git") void refreshScm();
 }
@@ -330,7 +335,7 @@ function pickRecent() {
 }
 
 // ---------- Comandos y atajos ----------
-type BoolKey = "minimap" | "wordWrap" | "lineNumbers" | "whitespace" | "ligatures" | "autoSave";
+type BoolKey = "minimap" | "wordWrap" | "lineNumbers" | "whitespace" | "ligatures" | "autoSave" | "formatOnSave";
 const toggle = (key: BoolKey, name: string) => () => {
   state.settings[key] = !state.settings[key];
   commit();
@@ -408,6 +413,9 @@ register(
   { id: "git.push", label: "Git: Subir commits al remoto (push)", keywords: "git push subir enviar", run: () => void pushChanges() },
   { id: "git.stageAll", label: "Git: Preparar todos los cambios", keywords: "git stage add preparar todo", run: () => void stage([]) },
   { id: "git.unstageAll", label: "Git: Quitar todo de lo preparado", keywords: "git unstage reset quitar", run: () => void unstage([]) },
+  { id: "task.script", label: "Tareas: Ejecutar un script de package.json", keywords: "npm run script tarea test build dev pnpm yarn bun", run: () => void pickScript() },
+  { id: "view.chat", label: "Ver: Chat del equipo", keywords: "chat mensajes equipo conversacion", run: () => showView("chat") },
+  { id: "view.problems", label: "Ver: Problemas (errores y avisos)", key: "Ctrl+Shift+M", keywords: "problems errores avisos diagnosticos", run: () => showView("problems") },
   { id: "view.issues", label: "Ver: Issues de GitHub", key: "Ctrl+Shift+I", run: () => showView("issues") },
   { id: "view.board", label: "Issues: Abrir el tablero kanban", keywords: "kanban tablero board issues github", run: () => void openBoard() },
   { id: "view.settings", label: "Ver: Configuración", key: "Ctrl+,", run: () => showView("settings") },
@@ -438,6 +446,7 @@ register(
   { id: "pref.whitespace", label: "Preferencias: Mostrar espacios", run: toggle("whitespace", "Mostrar espacios") },
   { id: "pref.ligatures", label: "Preferencias: Ligaduras de fuente", run: toggle("ligatures", "Ligaduras") },
   { id: "pref.autosave", label: "Preferencias: Autoguardado", run: toggle("autoSave", "Autoguardado") },
+  { id: "pref.formatonsave", label: "Preferencias: Formatear al guardar", keywords: "format formatear guardar", run: toggle("formatOnSave", "Formatear al guardar") },
 
   { id: "explorer.refresh", label: "Explorador: Actualizar", run: () => void refreshTree() },
   { id: "explorer.collapse", label: "Explorador: Contraer todo", run: collapseAll },
@@ -635,12 +644,16 @@ initSearch();
 initTerminal();
 initIssues();
 initScm();
+initProblems(() => showView("problems"));
 initSettingsPage(() => void loadIssues());
 syncSettingsUI();
 commit();
 updateStatus();
 
 document.addEventListener("contextmenu", (e) => { if (!(e.target instanceof HTMLInputElement)) e.preventDefault(); });
+
+window.addEventListener("blur", flushBackups);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushBackups(); });
 
 window.addEventListener("focus", () => {
   if (!ws.root) return;
@@ -675,6 +688,7 @@ void (async () => {
   try {
     await loadIconManifest();
     await initToken();
+    void autoConnect().then((login) => { if (login) setStatus(`Conectado a GitHub como ${login} (con la sesión de Git de este equipo)`, 6000); });
     syncSettingsUI();
     rerenderGroups();
     if (!inTauri) return;
