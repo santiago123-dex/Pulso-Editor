@@ -11,6 +11,8 @@ import { canCommit, changeCount, discardMessage, lastLine, pathsOf, syncInfo, ty
 import { ws } from "./workspace";
 
 let changes: Changes | null = null;
+/** Raíz del repositorio de la carpeta abierta, o null si no es un repositorio. */
+export const gitTop = (): string | null => changes?.top ?? null;
 let problem = "";
 let seq = 0;
 let busy = false;
@@ -26,6 +28,7 @@ export async function refreshScm() {
     const c = await invoke<Changes>("git_changes", { root: ws.root });
     if (id !== seq) return;
     changes = c; problem = "";
+    window.dispatchEvent(new Event("pulso-scm-refreshed"));
   } catch (e) {
     if (id !== seq) return;
     changes = null; problem = String(e);

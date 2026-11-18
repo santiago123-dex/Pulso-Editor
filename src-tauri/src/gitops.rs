@@ -428,6 +428,167 @@ pub async fn git_diff_sources(root: String, path: String, orig: Option<String>, 
     tauri::async_runtime::spawn_blocking(move || diff_sources_sync(&root, &path, orig.as_deref(), staged)).await.map_err(|e| e.to_string())?
 }
 
+// ---------- Historial y culpa (blame) ----------
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub struct Commit {
+    pub hash: String,
+    pub short: String,
+    pub author: String,
+    pub email: String,
+    /// Fecha ISO 8601 del autor.
+    pub date: String,
+    pub subject: String,
+    /// Ramas y etiquetas que apuntan a este commit.
+    pub refs: Vec<String>,
+}
+
+const REC: char = '\u{1e}';
+const FLD: char = '\u{1f}';
+
+/// Lee la salida de `git log --format=%x1e%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%D`.
+pub fn parse_log(out: &str) -> Vec<Commit> {
+    out.split(REC)
+        .filter(|r| !r.trim().is_empty())
+        .filter_map(|r| {
+            let f: Vec<&str> = r.trim_end_matches('\n').split(FLD).collect();
+            if f.len() < 6 { return None; }
+            let refs = f.get(6).map(|d| d.split(", ").map(|x| x.trim()).filter(|x| !x.is_empty()).map(|x| x.to_string()).collect()).unwrap_or_default();
+            Some(Commit { hash: f[0].trim().to_string(), short: f[1].to_string(), author: f[2].to_string(), email: f[3].to_string(), date: f[4].to_string(), subject: f[5].to_string(), refs })
+        })
+        .collect()
+}
+
+fn valid_hash(h: &str) -> bool {
+    (7..=64).contains(&h.len()) && h.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+const MAX_LOG: u32 = 200;
+
+/// Historial de commits de HEAD (o de un archivo, siguiendo sus renombrados), de `limit` en `limit`.
+fn log_sync(root: &str, path: Option<&str>, skip: u32, limit: u32) -> Result<Vec<Commit>, String> {
+    let top = top_of(root)?;
+    if !has_head(&top) { return Ok(Vec::new()); }
+    if let Some(p) = path { if !safe_relative(p) { return Err("Ruta no válida".into()); } }
+    let limit = limit.clamp(1, MAX_LOG).to_string();
+    let skip = skip.to_string();
+    let mut args: Vec<&str> = vec!["log", "--format=%x1e%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%D", "-n", &limit, "--skip", &skip];
+    if path.is_some() { args.push("--follow"); }
+    args.push("--");
+    if let Some(p) = path { args.push(p); }
+    Ok(parse_log(&run(&top, &args)?))
+}
+
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub struct CommitFile {
+    /// M, A, D o R.
+    pub status: String,
+    pub path: String,
+    /// Nombre anterior si se renombró.
+    pub orig: Option<String>,
+}
+
+/// Lee `git show --name-status -z`: `M\0ruta\0` y, para renombrados, `R100\0antes\0después\0`.
+pub fn parse_name_status(out: &str) -> Vec<CommitFile> {
+    let mut parts = out.split('\0').filter(|x| !x.is_empty());
+    let mut files = Vec::new();
+    while let Some(code) = parts.next() {
+        let status = code.chars().next().map(|c| c.to_string()).unwrap_or_default();
+        if status == "R" || status == "C" {
+            let (Some(a), Some(b)) = (parts.next(), parts.next()) else { break };
+            files.push(CommitFile { status: "R".into(), path: b.to_string(), orig: Some(a.to_string()) });
+        } else {
+            let Some(path) = parts.next() else { break };
+            let status = if status == "T" { "M".to_string() } else { status };
+            files.push(CommitFile { status, path: path.to_string(), orig: None });
+        }
+    }
+    files
+}
+
+fn commit_files_sync(root: &str, hash: &str) -> Result<Vec<CommitFile>, String> {
+    if !valid_hash(hash) { return Err("Identificador de commit no válido".into()); }
+    let top = top_of(root)?;
+    Ok(parse_name_status(&run(&top, &["show", "--name-status", "-M", "-z", "--format=", hash])?))
+}
+
+/// Las dos versiones de un archivo en un commit: la del padre y la del propio commit.
+fn commit_sources_sync(root: &str, hash: &str, path: &str, orig: Option<&str>) -> Result<DiffSources, String> {
+    if !valid_hash(hash) { return Err("Identificador de commit no válido".into()); }
+    if !safe_relative(path) { return Err("Ruta no válida".into()); }
+    let top = top_of(root)?;
+    let a = blob(&top, &format!("{hash}^:{}", orig.unwrap_or(path)))?;
+    let b = blob(&top, &format!("{hash}:{path}"))?;
+    if a.len() > MAX_DIFF_BYTES || b.len() > MAX_DIFF_BYTES {
+        return Err("El archivo es demasiado grande para mostrar diferencias".into());
+    }
+    let binary = a.iter().take(8000).any(|&x| x == 0) || b.iter().take(8000).any(|&x| x == 0);
+    if binary { return Ok(DiffSources { original: String::new(), modified: String::new(), binary: true }); }
+    Ok(DiffSources { original: String::from_utf8_lossy(&a).into_owned(), modified: String::from_utf8_lossy(&b).into_owned(), binary: false })
+}
+
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub struct BlameLine {
+    pub line: u32,
+    /// Vacío si la línea aún no está en ningún commit.
+    pub hash: String,
+    pub author: String,
+    /// Segundos Unix.
+    pub time: i64,
+    pub summary: String,
+}
+
+/// Lee `git blame --line-porcelain`: cada línea trae su bloque completo de cabeceras.
+pub fn parse_blame(out: &str) -> Vec<BlameLine> {
+    let mut lines = Vec::new();
+    let (mut hash, mut final_line, mut author, mut time, mut summary) = (String::new(), 0u32, String::new(), 0i64, String::new());
+    for l in out.lines() {
+        if let Some(content) = l.strip_prefix('\t') {
+            let _ = content;
+            let uncommitted = hash.chars().all(|c| c == '0');
+            lines.push(BlameLine { line: final_line, hash: if uncommitted { String::new() } else { hash.clone() }, author: author.clone(), time, summary: summary.clone() });
+            continue;
+        }
+        if let Some(v) = l.strip_prefix("author ") { author = v.to_string(); }
+        else if let Some(v) = l.strip_prefix("author-time ") { time = v.trim().parse().unwrap_or(0); }
+        else if let Some(v) = l.strip_prefix("summary ") { summary = v.to_string(); }
+        else {
+            let f: Vec<&str> = l.split(' ').collect();
+            if f.len() >= 3 && f[0].len() >= 40 && f[0].chars().all(|c| c.is_ascii_hexdigit()) {
+                hash = f[0].to_string();
+                final_line = f[2].parse().unwrap_or(0);
+            }
+        }
+    }
+    lines
+}
+
+fn blame_sync(root: &str, path: &str) -> Result<Vec<BlameLine>, String> {
+    if !safe_relative(path) { return Err("Ruta no válida".into()); }
+    let top = top_of(root)?;
+    if !has_head(&top) { return Ok(Vec::new()); }
+    Ok(parse_blame(&run(&top, &["blame", "--line-porcelain", "--", path])?))
+}
+
+#[tauri::command]
+pub async fn git_log(root: String, path: Option<String>, skip: u32, limit: u32) -> Result<Vec<Commit>, String> {
+    tauri::async_runtime::spawn_blocking(move || log_sync(&root, path.as_deref(), skip, limit)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_commit_files(root: String, hash: String) -> Result<Vec<CommitFile>, String> {
+    tauri::async_runtime::spawn_blocking(move || commit_files_sync(&root, &hash)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_commit_sources(root: String, hash: String, path: String, orig: Option<String>) -> Result<DiffSources, String> {
+    tauri::async_runtime::spawn_blocking(move || commit_sources_sync(&root, &hash, &path, orig.as_deref())).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_blame(root: String, path: String) -> Result<Vec<BlameLine>, String> {
+    tauri::async_runtime::spawn_blocking(move || blame_sync(&root, &path)).await.map_err(|e| e.to_string())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -800,5 +961,99 @@ mod tests {
         for n in &names { r.write(n, "x\n"); }
         stage_sync(&r.s(), names).unwrap();
         assert_eq!(changes_sync(&r.s()).unwrap().staged.len(), 250);
+    }
+    fn history_repo() -> Repo {
+        let r = Repo::new();
+        r.write("a.txt", "uno\ndos\n");
+        r.commit_all("primero");
+        r.write("a.txt", "uno\ndos\ntres\n");
+        r.write("b.txt", "bee\n");
+        r.commit_all("segundo: añade tres");
+        r.git(&["mv", "a.txt", "renombrado.txt"]);
+        r.commit_all("tercero: renombra");
+        r
+    }
+
+    #[test]
+    fn log_lists_commits_newest_first_with_author_and_refs() {
+        let r = history_repo();
+        let l = log_sync(&r.s(), None, 0, 10).unwrap();
+        assert_eq!(l.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>(), ["tercero: renombra", "segundo: añade tres", "primero"]);
+        assert_eq!(l[0].author, "Prueba");
+        assert_eq!(l[0].short.len(), 7.max(l[0].short.len()));
+        assert!(l[0].hash.len() == 40 && l[0].date.contains('T'));
+        assert!(l[0].refs.iter().any(|x| x.starts_with("HEAD")), "{:?}", l[0].refs);
+    }
+
+    #[test]
+    fn log_pages_with_skip_and_limit_and_handles_an_empty_repo() {
+        let r = history_repo();
+        let page = log_sync(&r.s(), None, 1, 1).unwrap();
+        assert_eq!(page.len(), 1);
+        assert_eq!(page[0].subject, "segundo: añade tres");
+        let empty = Repo::new();
+        assert!(log_sync(&empty.s(), None, 0, 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn file_history_follows_renames() {
+        let r = history_repo();
+        let l = log_sync(&r.s(), Some("renombrado.txt"), 0, 10).unwrap();
+        assert_eq!(l.len(), 3, "{:?}", l.iter().map(|c| &c.subject).collect::<Vec<_>>());
+        let only_b = log_sync(&r.s(), Some("b.txt"), 0, 10).unwrap();
+        assert_eq!(only_b.len(), 1);
+    }
+
+    #[test]
+    fn log_rejects_paths_that_escape_the_repository() {
+        let r = history_repo();
+        assert!(log_sync(&r.s(), Some("../fuera.txt"), 0, 10).is_err());
+    }
+
+    #[test]
+    fn commit_files_report_status_and_renames() {
+        let r = history_repo();
+        let l = log_sync(&r.s(), None, 0, 10).unwrap();
+        let rename = commit_files_sync(&r.s(), &l[0].hash).unwrap();
+        assert_eq!(rename, vec![CommitFile { status: "R".into(), path: "renombrado.txt".into(), orig: Some("a.txt".into()) }]);
+        let second = commit_files_sync(&r.s(), &l[1].hash).unwrap();
+        assert_eq!(second.iter().map(|f| format!("{}{}", f.status, f.path)).collect::<Vec<_>>(), ["Ma.txt", "Ab.txt"]);
+        assert!(commit_files_sync(&r.s(), "no-es-un-hash; rm -rf").is_err());
+    }
+
+    #[test]
+    fn commit_sources_give_parent_and_commit_versions() {
+        let r = history_repo();
+        let l = log_sync(&r.s(), None, 0, 10).unwrap();
+        let s = commit_sources_sync(&r.s(), &l[1].hash, "a.txt", None).unwrap();
+        assert_eq!((s.original.as_str(), s.modified.as_str()), ("uno\ndos\n", "uno\ndos\ntres\n"));
+        let added = commit_sources_sync(&r.s(), &l[1].hash, "b.txt", None).unwrap();
+        assert_eq!((added.original.as_str(), added.modified.as_str()), ("", "bee\n"));
+        let renamed = commit_sources_sync(&r.s(), &l[0].hash, "renombrado.txt", Some("a.txt")).unwrap();
+        assert_eq!(renamed.original, renamed.modified);
+        let first = commit_sources_sync(&r.s(), &l[2].hash, "a.txt", None).unwrap();
+        assert_eq!(first.original, "", "el primer commit no tiene padre");
+    }
+
+    #[test]
+    fn blame_attributes_each_line_and_marks_uncommitted_ones() {
+        let r = history_repo();
+        r.write("renombrado.txt", "uno\ndos\ntres\ncuatro sin commit\n");
+        let b = blame_sync(&r.s(), "renombrado.txt").unwrap();
+        assert_eq!(b.len(), 4);
+        assert_eq!(b[0].summary, "primero");
+        assert_eq!(b[2].summary, "segundo: añade tres");
+        assert_eq!(b[0].author, "Prueba");
+        assert!(b[0].hash.len() == 40 && b[0].time > 1_600_000_000);
+        assert_eq!(b[3].hash, "", "la línea sin commit no tiene hash");
+        assert_eq!(b.iter().map(|x| x.line).collect::<Vec<_>>(), [1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn parsers_tolerate_garbage() {
+        assert!(parse_log("").is_empty());
+        assert!(parse_log("\u{1e}solo-un-campo").is_empty());
+        assert!(parse_name_status("").is_empty());
+        assert!(parse_blame("basura\nsin formato").is_empty());
     }
 }

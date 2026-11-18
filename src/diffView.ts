@@ -5,11 +5,24 @@ import { setStatus } from "./ui";
 import { $, baseName, h } from "./util";
 
 export interface DiffTarget { root: string; top: string; path: string; orig: string | null; staged: boolean; status: string }
-interface Sources { original: string; modified: string; binary: boolean }
+export interface Sources { original: string; modified: string; binary: boolean }
+
+/** Cualquier comparación de dos textos: la del control de código, la de un commit o la de una pull request. */
+export interface DiffRequest {
+  title: string;
+  sub: string;
+  /** Ruta, solo para colorear según la extensión. */
+  path: string;
+  load: () => Promise<Sources>;
+  /** Ruta local para el botón «Abrir archivo»; sin ella no se ofrece. */
+  openPath?: string;
+  /** Texto a la derecha del título (por ejemplo «+3 −1»). */
+  note?: string;
+}
 
 let editor: monaco.editor.IStandaloneDiffEditor | null = null;
 let models: monaco.editor.ITextModel[] = [];
-let target: DiffTarget | null = null;
+let target: DiffRequest | null = null;
 let token = 0;
 let inline = false;
 
@@ -41,7 +54,7 @@ function onKey(e: KeyboardEvent) {
   if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeDiff(); }
 }
 
-export async function openDiff(t: DiffTarget) {
+export async function openDiffRequest(t: DiffRequest) {
   closeDiff();
   const mine = ++token;
   target = t;
@@ -50,26 +63,32 @@ export async function openDiff(t: DiffTarget) {
   window.addEventListener("keydown", onKey, true);
 
   const head = h("div", "diff-head");
-  const title = h("span", "diff-title", baseName(t.path));
-  const where = t.staged ? "Preparado (HEAD ↔ índice)" : t.status === "U" ? "Archivo nuevo" : "Sin preparar (índice ↔ disco)";
-  const sub = h("span", "diff-sub", `${t.path} — ${where}`);
+  const title = h("span", "diff-title", t.title);
+  const sub = h("span", "diff-sub", t.sub);
   const toggle = h("button", "diff-btn", inline ? "Lado a lado" : "En línea");
-  const open = h("button", "diff-btn", "Abrir archivo");
   const close = h("button", "icon-btn diff-close");
   close.title = "Cerrar (Esc)";
   close.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
   close.onclick = closeDiff;
-  open.onclick = () => { const p = `${t.top}/${t.path}`; closeDiff(); void openFile(p); };
-  head.append(title, sub, h("span", "grow"), toggle, open, close);
+  head.append(title, sub, h("span", "grow"));
+  if (t.note) head.append(h("span", "diff-sub", t.note));
+  head.append(toggle);
+  if (t.openPath) {
+    const open = h("button", "diff-btn", "Abrir archivo");
+    const p = t.openPath;
+    open.onclick = () => { closeDiff(); void openFile(p); };
+    head.append(open);
+  }
+  head.append(close);
   const body = h("div", "diff-body");
   root.replaceChildren(head, body);
   body.append(h("div", "diff-msg", "Cargando diferencias…"));
 
   let src: Sources;
   try {
-    src = await invoke<Sources>("git_diff_sources", { root: t.root, path: t.path, orig: t.orig, staged: t.staged });
+    src = await t.load();
   } catch (e) {
-    if (mine === token) body.replaceChildren(h("div", "diff-msg", `No se pudo cargar la comparación: ${e}`));
+    if (mine === token) body.replaceChildren(h("div", "diff-msg", `No se pudo cargar la comparación: ${e instanceof Error ? e.message : e}`));
     return;
   }
   if (mine !== token) return;
@@ -99,4 +118,16 @@ export async function openDiff(t: DiffTarget) {
     editor?.updateOptions({ renderSideBySide: !inline });
   };
   setStatus(`Diferencias de ${baseName(t.path)}`, 2500);
+}
+
+/** Diferencias de un archivo del control de código (preparado o sin preparar). */
+export async function openDiff(t: DiffTarget) {
+  const where = t.staged ? "Preparado (HEAD ↔ índice)" : t.status === "U" ? "Archivo nuevo" : "Sin preparar (índice ↔ disco)";
+  await openDiffRequest({
+    title: baseName(t.path),
+    sub: `${t.path} — ${where}`,
+    path: t.path,
+    openPath: `${t.top}/${t.path}`,
+    load: () => invoke<Sources>("git_diff_sources", { root: t.root, path: t.path, orig: t.orig, staged: t.staged }),
+  });
 }
