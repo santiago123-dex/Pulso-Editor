@@ -10,12 +10,34 @@ import { fileKey } from "./util";
 
 type Json = any; // LSP messages are validated at the boundary where they are used.
 type Pending = { resolve: (value: Json) => void; reject: (error: Error) => void; timer: number };
-type Session = { id: number; root: string; ready: boolean; incremental: boolean; next: number; pending: Map<number, Pending>; send: Promise<void>; models: Map<string, monaco.IDisposable>; openedAt: Map<string, number>; definitions: Map<string, Promise<monaco.languages.LocationLink[]>> };
+type ServerCaps = {
+  signatureHelp: boolean;
+  codeAction: boolean;
+  codeActionResolve: boolean;
+  inlayHint: boolean;
+  documentSymbol: boolean;
+  formatting: boolean;
+  executeCommand: boolean;
+};
+type Session = {
+  id: number;
+  root: string;
+  ready: boolean;
+  incremental: boolean;
+  caps: ServerCaps;
+  next: number;
+  pending: Map<number, Pending>;
+  send: Promise<void>;
+  models: Map<string, monaco.IDisposable>;
+  openedAt: Map<string, number>;
+  definitions: Map<string, Promise<monaco.languages.LocationLink[]>>;
+};
 let session: Session | null = null;
 let generation = 0;
 let transition: Promise<void> = Promise.resolve();
 let workspaceRoot: string | null = null;
 let listenersReady: Promise<void> | null = null;
+let inlayRefresh: monaco.Emitter<void> | null = null;
 const owner = "pulso-lsp";
 const defaults = [monaco.languages.typescript.typescriptDefaults, monaco.languages.typescript.javascriptDefaults];
 
@@ -91,6 +113,17 @@ function handleMessage(id: number, msg: Json) {
   if (!s || s.id !== id || !msg || typeof msg !== "object") return;
   if (msg.method && msg.id !== undefined) {
     // Responder a solicitudes del servidor evita que este quede esperando indefinidamente.
+    if (msg.method === "workspace/applyEdit") {
+      void applyServerWorkspaceEdit(s, msg.params?.edit)
+        .then((applied) => send(s, { jsonrpc: "2.0", id: msg.id, result: { applied } }))
+        .catch((e) => send(s, { jsonrpc: "2.0", id: msg.id, result: { applied: false, failureReason: String(e) } }));
+      return;
+    }
+    if (msg.method === "workspace/inlayHint/refresh") {
+      inlayRefresh?.fire();
+      void send(s, { jsonrpc: "2.0", id: msg.id, result: null });
+      return;
+    }
     const result = msg.method === "workspace/configuration" ? (msg.params?.items ?? []).map(() => ({})) : null;
     void send(s, { jsonrpc: "2.0", id: msg.id, result });
   } else if (msg.method === "textDocument/publishDiagnostics") {
@@ -130,14 +163,74 @@ export function setLspWorkspace(root: string | null) {
     if (current !== generation) return;
     const id = await invoke<number>("lsp_start", { root });
     if (current !== generation) { await invoke("lsp_stop"); return; }
-    const s: Session = { id, root, ready: false, incremental: false, next: 0, pending: new Map(), send: Promise.resolve(), models: new Map(), openedAt: new Map(), definitions: new Map() };
+    const s: Session = {
+      id,
+      root,
+      ready: false,
+      incremental: false,
+      caps: { signatureHelp: false, codeAction: false, codeActionResolve: false, inlayHint: false, documentSymbol: false, formatting: true, executeCommand: false },
+      next: 0,
+      pending: new Map(),
+      send: Promise.resolve(),
+      models: new Map(),
+      openedAt: new Map(),
+      definitions: new Map(),
+    };
     session = s;
     try {
       const rootUri = monaco.Uri.file(root).toString();
-      const result = await request(s, "initialize", { processId: null, rootUri, workspaceFolders: [{ uri: rootUri, name: root.split(/[\\/]/).pop() || root }], capabilities: { workspace: { configuration: true, workspaceEdit: { documentChanges: false } }, textDocument: { publishDiagnostics: { versionSupport: true }, completion: { completionItem: { snippetSupport: true } }, hover: { contentFormat: ["markdown", "plaintext"] }, definition: { linkSupport: true }, rename: { prepareSupport: true }, formatting: {} } }, initializationOptions: { hostInfo: "Pulso", disableAutomaticTypingAcquisition: true } });
+      const result = await request(s, "initialize", {
+        processId: null,
+        rootUri,
+        workspaceFolders: [{ uri: rootUri, name: root.split(/[\\/]/).pop() || root }],
+        capabilities: {
+          workspace: {
+            configuration: true,
+            applyEdit: true,
+            executeCommand: { dynamicRegistration: false },
+            inlayHint: { refreshSupport: true },
+            workspaceEdit: { documentChanges: true },
+          },
+          textDocument: {
+            publishDiagnostics: { versionSupport: true },
+            completion: { completionItem: { snippetSupport: true, resolveSupport: { properties: ["documentation", "detail", "additionalTextEdits"] } } },
+            hover: { contentFormat: ["markdown", "plaintext"] },
+            definition: { linkSupport: true },
+            signatureHelp: { signatureInformation: { documentationFormat: ["markdown", "plaintext"], parameterInformation: { labelOffsetSupport: true } }, contextSupport: true },
+            codeAction: {
+              codeActionLiteralSupport: { codeActionKind: { valueSet: ["", "quickfix", "refactor", "refactor.extract", "refactor.inline", "refactor.rewrite", "source", "source.organizeImports", "source.fixAll"] } },
+              resolveSupport: { properties: ["edit", "command"] },
+            },
+            documentSymbol: { hierarchicalDocumentSymbolSupport: true },
+            inlayHint: { resolveSupport: { properties: ["tooltip", "textEdits"] } },
+            rename: { prepareSupport: true },
+            formatting: {},
+          },
+        },
+        initializationOptions: {
+          hostInfo: "Pulso",
+          disableAutomaticTypingAcquisition: true,
+          maxTsServerMemory: 1536,
+          preferences: {
+            includeInlayParameterNameHints: "literals",
+            includeInlayParameterNameHintsWhenArgumentMatchesName: false,
+            includeInlayEnumMemberValueHints: true,
+          },
+        },
+      });
       if (session !== s || current !== generation) return;
-      const sync = result?.capabilities?.textDocumentSync;
+      const caps = result?.capabilities;
+      const sync = caps?.textDocumentSync;
       s.incremental = (typeof sync === "number" ? sync : sync?.change) === 2;
+      s.caps = {
+        signatureHelp: !!caps?.signatureHelpProvider,
+        codeAction: !!caps?.codeActionProvider,
+        codeActionResolve: !!caps?.codeActionProvider?.resolveProvider,
+        inlayHint: !!caps?.inlayHintProvider,
+        documentSymbol: !!caps?.documentSymbolProvider,
+        formatting: caps?.documentFormattingProvider !== false,
+        executeCommand: !!caps?.executeCommandProvider,
+      };
       notify(s, "initialized", {});
       s.ready = true;
       builtIn(false);
@@ -198,30 +291,31 @@ async function definition(model: monaco.editor.ITextModel, position: monaco.Posi
 }
 
 const slash = (p: string) => p.replace(/\\/g, "/");
+const lspRange = (r: monaco.IRange) => ({
+  start: { line: r.startLineNumber - 1, character: r.startColumn - 1 },
+  end: { line: r.endLineNumber - 1, character: r.endColumn - 1 },
+});
+const lspSeverity = (s: number) => (s === 8 ? 1 : s === 4 ? 2 : s === 2 ? 3 : 4);
+const EXEC_CMD = "pulso.lsp.executeCommand";
 
-/**
- * Pide el renombrado al servidor. Los archivos abiertos se editan en el editor (quedan sin guardar y se pueden deshacer);
- * los cerrados se escriben en el disco, y solo si todos se pueden calcular antes de escribir ninguno.
- */
-async function renameEdits(s: Session, model: monaco.editor.ITextModel, position: monaco.Position, newName: string, token: monaco.CancellationToken): Promise<monaco.languages.WorkspaceEdit & monaco.languages.Rejection> {
-  const result = await request(s, "textDocument/rename", { ...params(model, position), newName }, token);
-  const byUri = collectEdits(result);
+function bridgeCommand(cmd: Json): monaco.languages.Command | undefined {
+  if (!cmd || typeof cmd.command !== "string") return undefined;
+  return { id: EXEC_CMD, title: typeof cmd.title === "string" ? cmd.title : cmd.command, arguments: [cmd.command, Array.isArray(cmd.arguments) ? cmd.arguments : []] };
+}
+
+function toMonacoWorkspaceEdit(edit: Json): monaco.languages.WorkspaceEdit {
+  const byUri = collectEdits(edit);
   const edits: monaco.languages.IWorkspaceTextEdit[] = [];
-  const closed: { path: string; text: string; mtime: number }[] = [];
   for (const [u, list] of byUri) {
     const target = monaco.Uri.parse(u);
-    if (target.scheme !== "file") throw new Error(`El servidor pidió editar un recurso que no es un archivo (${u})`);
-    const path = slash(target.fsPath);
-    const open = findOpenDoc(path);
-    if (open) {
-      for (const e of list) edits.push({ resource: open.model.uri, textEdit: { range: range(e.range), text: e.newText }, versionId: undefined });
-    } else {
-      const mtime = await invoke<number>("file_mtime", { path });
-      const text = applyTextEdits(await invoke<string>("read_file", { path }), list);
-      closed.push({ path, text, mtime });
-    }
+    const open = target.scheme === "file" ? findOpenDoc(slash(target.fsPath)) : undefined;
+    const resource = open ? open.model.uri : target;
+    for (const e of list) edits.push({ resource, textEdit: { range: range(e.range), text: e.newText }, versionId: undefined });
   }
-  if (token.isCancellationRequested) return { edits: [] };
+  return { edits };
+}
+
+async function writeClosedEdits(closed: { path: string; text: string; mtime: number }[]): Promise<void> {
   const written: string[] = [];
   for (const f of closed) {
     try { await invoke("write_file", { path: f.path, contents: f.text, expectedMtime: f.mtime }); written.push(f.path); }
@@ -230,7 +324,56 @@ async function renameEdits(s: Session, model: monaco.editor.ITextModel, position
       throw new Error(`No se pudo escribir ${f.path.split("/").pop()}: ${String(e).replace(/^CONFLICT$/, "cambió en el disco")}.${done}`);
     }
   }
-  const files = byUri.size;
+}
+
+async function prepareWorkspaceEdits(workspaceEdit: Json) {
+  const byUri = collectEdits(workspaceEdit);
+  const openEdits: { model: monaco.editor.ITextModel; edit: monaco.languages.IWorkspaceTextEdit; textEdit: monaco.editor.ISingleEditOperation }[] = [];
+  const closed: { path: string; text: string; mtime: number }[] = [];
+  for (const [u, list] of byUri) {
+    const target = monaco.Uri.parse(u);
+    if (target.scheme !== "file") throw new Error(`El servidor pidió editar un recurso que no es un archivo (${u})`);
+    const path = slash(target.fsPath);
+    const open = findOpenDoc(path);
+    const model = open?.model ?? monaco.editor.getModel(target);
+    if (model) {
+      for (const e of list) {
+        const rg = range(e.range);
+        openEdits.push({ model, edit: { resource: model.uri, textEdit: { range: rg, text: e.newText }, versionId: undefined }, textEdit: { range: rg, text: e.newText } });
+      }
+    } else {
+      const mtime = await invoke<number>("file_mtime", { path });
+      const text = applyTextEdits(await invoke<string>("read_file", { path }), list);
+      closed.push({ path, text, mtime });
+    }
+  }
+  return { files: byUri.size, openEdits, closed };
+}
+
+async function applyServerWorkspaceEdit(_s: Session, workspaceEdit: Json): Promise<boolean> {
+  if (!workspaceEdit) return false;
+  const { openEdits, closed } = await prepareWorkspaceEdits(workspaceEdit);
+  await writeClosedEdits(closed);
+  const byModel = new Map<monaco.editor.ITextModel, monaco.editor.ISingleEditOperation[]>();
+  for (const item of openEdits) {
+    const list = byModel.get(item.model) ?? [];
+    list.push(item.textEdit);
+    byModel.set(item.model, list);
+  }
+  for (const [model, ops] of byModel) model.pushEditOperations([], ops, () => null);
+  return true;
+}
+
+/**
+ * Pide el renombrado al servidor. Los archivos abiertos se editan en el editor (quedan sin guardar y se pueden deshacer);
+ * los cerrados se escriben en el disco, y solo si todos se pueden calcular antes de escribir ninguno.
+ */
+async function renameEdits(s: Session, model: monaco.editor.ITextModel, position: monaco.Position, newName: string, token: monaco.CancellationToken): Promise<monaco.languages.WorkspaceEdit & monaco.languages.Rejection> {
+  const result = await request(s, "textDocument/rename", { ...params(model, position), newName }, token);
+  const { files, openEdits, closed } = await prepareWorkspaceEdits(result);
+  if (token.isCancellationRequested) return { edits: [] };
+  await writeClosedEdits(closed);
+  const edits = openEdits.map((o) => o.edit);
   setStatus(`Renombrado en ${files} archivo${files === 1 ? "" : "s"}${closed.length ? ` (${closed.length} guardado${closed.length === 1 ? "" : "s"} en disco)` : ""}${edits.length ? ". Los archivos abiertos quedan sin guardar" : ""}`, 6000);
   return { edits };
 }
@@ -242,8 +385,63 @@ async function formatEdits(s: Session, model: monaco.editor.ITextModel, token?: 
   return (Array.isArray(edits) ? edits : []).map((e: Json) => ({ range: range(e.range), text: e.newText }));
 }
 
+function toDocumentSymbols(items: Json): monaco.languages.DocumentSymbol[] {
+  if (!Array.isArray(items)) return [];
+  const mapOne = (x: Json): monaco.languages.DocumentSymbol | null => {
+    const rg = x.range ?? x.location?.range;
+    if (!rg || typeof x.name !== "string") return null;
+    const sel = x.selectionRange ?? rg;
+    return {
+      name: x.name,
+      detail: typeof x.detail === "string" ? x.detail : "",
+      kind: Math.max(0, (x.kind ?? 1) - 1),
+      tags: Array.isArray(x.tags) ? x.tags : [],
+      containerName: typeof x.containerName === "string" ? x.containerName : undefined,
+      range: range(rg),
+      selectionRange: range(sel),
+      children: Array.isArray(x.children) ? x.children.map(mapOne).filter((c: Json): c is monaco.languages.DocumentSymbol => !!c) : undefined,
+    };
+  };
+  return items.map(mapOne).filter((s): s is monaco.languages.DocumentSymbol => !!s);
+}
+
+function toCodeAction(raw: Json): monaco.languages.CodeAction & { _lsp?: Json } {
+  if (raw && typeof raw.command === "string" && !raw.edit && !raw.kind) {
+    return { title: String(raw.title ?? raw.command), command: bridgeCommand(raw), _lsp: raw };
+  }
+  return {
+    title: String(raw?.title ?? "Acción"),
+    kind: typeof raw?.kind === "string" ? raw.kind : undefined,
+    isPreferred: raw?.isPreferred === true,
+    disabled: typeof raw?.disabled?.reason === "string" ? raw.disabled.reason : undefined,
+    edit: raw?.edit ? toMonacoWorkspaceEdit(raw.edit) : undefined,
+    command: raw?.command ? bridgeCommand(raw.command) : undefined,
+    _lsp: raw,
+  };
+}
+
+function toInlayHints(raw: Json): monaco.languages.InlayHint[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((h: Json) => h?.position).map((h: Json) => ({
+    position: { lineNumber: h.position.line + 1, column: h.position.character + 1 },
+    label: Array.isArray(h.label)
+      ? h.label.map((p: Json) => ({ label: String(p.value ?? p.label ?? ""), tooltip: p.tooltip ? { value: markdown(p.tooltip) } : undefined, command: p.command ? bridgeCommand(p.command) : undefined }))
+      : String(h.label ?? ""),
+    kind: h.kind === 1 || h.kind === 2 ? h.kind : undefined,
+    tooltip: h.tooltip ? { value: markdown(h.tooltip) } : undefined,
+    paddingLeft: h.paddingLeft === true,
+    paddingRight: h.paddingRight === true,
+  }));
+}
+
 export function initLsp() {
   if (!("__TAURI_INTERNALS__" in window)) return;
+  if (!inlayRefresh && typeof monaco.Emitter === "function") inlayRefresh = new monaco.Emitter<void>();
+  monaco.editor.registerCommand?.(EXEC_CMD, (_accessor, command: string, args?: unknown[]) => {
+    const s = session;
+    if (!s?.ready || !command) return Promise.resolve();
+    return safe(request(s, "workspace/executeCommand", { command, arguments: args ?? [] }), null);
+  });
   config.probeDefinition = async (model, position) => !!(await definition(model, position, false))?.length;
   config.goToDefinition = async (model, position, isCurrent = () => true) => {
     const result = await definition(model, position, true);
@@ -262,7 +460,7 @@ export function initLsp() {
   // «Formatear al guardar»: si el texto cambió mientras el servidor respondía, las ediciones ya no encajan y se descartan.
   setBeforeSave(async (d) => {
     const s = session;
-    if (!s || !active(d.model)) return;
+    if (!s || !active(d.model) || !s.caps.formatting) return;
     const version = d.model.getVersionId();
     const edits = await Promise.race([formatEdits(s, d.model), new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error("el servidor tardó demasiado")), 4000))]);
     if (!edits.length || d.model.getVersionId() !== version) return;
@@ -300,7 +498,75 @@ export function initLsp() {
         catch (e) { return { edits: [], rejectReason: e instanceof Error ? e.message : String(e) }; }
       },
     });
-    monaco.languages.registerDocumentFormattingEditProvider(lang, { displayName: "Servidor de lenguaje", provideDocumentFormattingEdits: (model, _options, token) => { const s = active(model); return s ? safe(formatEdits(s, model, token), []) : []; } });
+    monaco.languages.registerDocumentFormattingEditProvider(lang, { displayName: "Servidor de lenguaje", provideDocumentFormattingEdits: (model, _options, token) => { const s = active(model); return s && s.caps.formatting ? safe(formatEdits(s, model, token), []) : []; } });
+    monaco.languages.registerSignatureHelpProvider?.(lang, {
+      signatureHelpTriggerCharacters: ["(", ","],
+      signatureHelpRetriggerCharacters: [","],
+      provideSignatureHelp: (model, position, token, context) => {
+        const s = active(model); if (!s || !s.caps.signatureHelp) return null;
+        return safe(request(s, "textDocument/signatureHelp", { ...params(model, position), context: { triggerKind: context.triggerKind, triggerCharacter: context.triggerCharacter, isRetrigger: context.isRetrigger } }, token).then((v) => v?.signatures?.length ? {
+          value: {
+            signatures: v.signatures.map((sig: Json) => ({
+              label: String(sig.label ?? ""),
+              documentation: sig.documentation ? { value: markdown(sig.documentation) } : undefined,
+              parameters: Array.isArray(sig.parameters) ? sig.parameters.map((p: Json) => ({ label: p.label, documentation: p.documentation ? { value: markdown(p.documentation) } : undefined })) : [],
+              activeParameter: typeof sig.activeParameter === "number" ? sig.activeParameter : undefined,
+            })),
+            activeSignature: typeof v.activeSignature === "number" ? v.activeSignature : 0,
+            activeParameter: typeof v.activeParameter === "number" ? v.activeParameter : 0,
+          },
+          dispose() {},
+        } : null), null);
+      },
+    });
+    monaco.languages.registerCodeActionProvider?.(lang, {
+      provideCodeActions: (model, selRange, context, token) => {
+        const s = active(model); if (!s || !s.caps.codeAction) return { actions: [], dispose() {} };
+        const markers = monaco.editor.getModelMarkers({ resource: model.uri }).filter((m) =>
+          m.endLineNumber >= selRange.startLineNumber && m.startLineNumber <= selRange.endLineNumber
+        );
+        const diagnostics = markers.map((m) => ({
+          range: lspRange({ startLineNumber: m.startLineNumber, startColumn: m.startColumn, endLineNumber: m.endLineNumber, endColumn: m.endColumn }),
+          message: m.message,
+          severity: lspSeverity(m.severity),
+          code: typeof m.code === "object" && m.code ? m.code.value : m.code,
+          source: m.source,
+        }));
+        const ctx: Json = { diagnostics, triggerKind: context.trigger === 2 ? 2 : 1 };
+        if (context.only) ctx.only = [context.only];
+        return safe(request(s, "textDocument/codeAction", { textDocument: { uri: uri(model) }, range: lspRange(selRange), context: ctx }, token).then((v) => ({
+          actions: (Array.isArray(v) ? v : []).map(toCodeAction),
+          dispose() {},
+        })), { actions: [], dispose() {} });
+      },
+      resolveCodeAction: (action, token) => {
+        const s = session; const raw = (action as Json)._lsp;
+        if (!s?.ready || !s.caps.codeActionResolve || !raw) return action;
+        return safe(request(s, "codeAction/resolve", raw, token).then((v) => ({
+          ...action,
+          edit: v?.edit ? toMonacoWorkspaceEdit(v.edit) : action.edit,
+          command: v?.command ? bridgeCommand(v.command) : action.command,
+        })), action);
+      },
+    }, { providedCodeActionKinds: ["quickfix", "refactor", "source", "source.organizeImports"] });
+    monaco.languages.registerDocumentSymbolProvider?.(lang, {
+      displayName: "Servidor de lenguaje",
+      provideDocumentSymbols: (model, token) => {
+        const s = active(model); if (!s || !s.caps.documentSymbol) return [];
+        return safe(request(s, "textDocument/documentSymbol", { textDocument: { uri: uri(model) } }, token).then(toDocumentSymbols), []);
+      },
+    });
+    monaco.languages.registerInlayHintsProvider?.(lang, {
+      displayName: "Servidor de lenguaje",
+      onDidChangeInlayHints: inlayRefresh?.event,
+      provideInlayHints: (model, hintRange, token) => {
+        const s = active(model); if (!s || !s.caps.inlayHint) return { hints: [], dispose() {} };
+        return safe(request(s, "textDocument/inlayHint", { textDocument: { uri: uri(model) }, range: lspRange(hintRange) }, token).then((v) => ({
+          hints: toInlayHints(v),
+          dispose() {},
+        })), { hints: [], dispose() {} });
+      },
+    });
     monaco.languages.registerCompletionItemProvider(lang, { triggerCharacters: [".", "\"", "'", "/", "@"], provideCompletionItems: (model, position, _context, token) => {
       const s = active(model); if (!s) return null;
       const word = model.getWordUntilPosition(position);

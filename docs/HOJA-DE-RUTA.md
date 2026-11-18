@@ -34,5 +34,5 @@ La prueba `test:lsp:ui` ya comprueba una compilación de desarrollo en WebView2 
 - Revisar la política CSP y acotar los comandos nativos expuestos a la interfaz para reducir el impacto de una eventual inyección de código.
 - Perfiles, accesibilidad y pruebas de uso con distintos tamaños de ventana.
 - Sistema de extensibilidad definido y acotado antes de prometer compatibilidad con extensiones de VS Code.
-- Funciones de IA ligadas a un flujo concreto, por ejemplo issue → plan → cambios → revisión, con acciones visibles y reversibles.
+- Hecho: asistente de IA con Claude Code (ver Funciones). Falta Codex y otros proveedores, claves de API propias, aprobar permisos desde Pulso, mostrar los cambios propuestos como diferencias antes de aplicarlos, adjuntar issues, pull requests y diffs, y flujos como issue → plan → cambios → revisión.
 - Distribución de versiones, actualizaciones y firma de instaladores cuando el proyecto esté preparado para entregarse a otras personas.

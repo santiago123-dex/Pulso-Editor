@@ -15,6 +15,7 @@ mod userconf;
 mod lsp;
 mod gitops;
 mod githubauth;
+mod aichat;
 
 /// Los procesos auxiliares no deben abrir ventanas de consola en Windows.
 fn background_command(program: &str) -> Command {
@@ -623,6 +624,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(term::TermState::default())
         .manage(lsp::LspState::default())
+        .manage(aichat::AiState::default())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             list_dir,
@@ -672,7 +674,10 @@ pub fn run() {
             gitops::git_commit_sources,
             gitops::git_blame,
             githubauth::github_credential,
-            githubauth::open_external
+            githubauth::open_external,
+            aichat::ai_detect,
+            aichat::ai_send,
+            aichat::ai_stop
         ])
         .build(tauri::generate_context!())
         .expect("error al iniciar Pulso Editor")

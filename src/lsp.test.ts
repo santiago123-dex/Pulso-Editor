@@ -4,8 +4,19 @@ const h = vi.hoisted(() => {
   const handlers = new Map<string, (event: any) => void>();
   const sent: any[] = [];
   const providers: Record<string, any> = {};
+  const commands: Record<string, (...args: any[]) => any> = {};
   const markers = vi.fn();
+  const pushEditOperations = vi.fn();
   const definitionResults: any[] = [];
+  const serverCaps: Record<string, any> = {
+    textDocumentSync: { change: 2 },
+    signatureHelpProvider: { triggerCharacters: ["(", ","] },
+    codeActionProvider: { resolveProvider: true },
+    documentSymbolProvider: true,
+    inlayHintProvider: true,
+    documentFormattingProvider: true,
+    executeCommandProvider: { commands: ["_typescript.organizeImports"] },
+  };
   const line = { text: "const saludo = 1;" };
   let change: ((event: any) => void) | undefined;
   const model = {
@@ -16,17 +27,31 @@ const h = vi.hoisted(() => {
     getLineContent: () => line.text,
     getWordAtPosition: () => ({ word: "saludo", startColumn: 2, endColumn: 8 }),
     getWordUntilPosition: () => ({ startColumn: 7, endColumn: 13 }),
+    pushEditOperations,
     onDidChangeContent: (f: (event: any) => void) => { change = f; return { dispose() {} }; },
     onWillDispose: () => ({ dispose() {} }),
   };
   const defaults = { setModeConfiguration: vi.fn() };
-  return { handlers, sent, providers, markers, model, defaults, definitionResults, line, triggerChange: () => change?.({ isFlush: false, changes: [{ range: { startLineNumber: 1, startColumn: 3, endLineNumber: 1, endColumn: 3 }, text: "x" }] }) };
+  return { handlers, sent, providers, commands, markers, pushEditOperations, model, defaults, definitionResults, serverCaps, line, triggerChange: () => change?.({ isFlush: false, changes: [{ range: { startLineNumber: 1, startColumn: 3, endLineNumber: 1, endColumn: 3 }, text: "x" }] }) };
 });
 
 vi.mock("monaco-editor", () => ({
+  Emitter: class {
+    private ls: (() => void)[] = [];
+    event = (cb: () => void) => { this.ls.push(cb); return { dispose() {} }; };
+    fire() { this.ls.forEach((f) => f()); }
+  },
   Uri: { file: () => h.model.uri, parse: (value: string) => value.includes("other.ts") ? { scheme: "file", fsPath: "C:\\project\\other.ts", toString: () => value } : h.model.uri },
   MarkerSeverity: { Error: 8, Warning: 4, Info: 2, Hint: 1 },
-  editor: { getModels: () => [h.model], getModel: vi.fn(() => h.model), setModelMarkers: h.markers, onDidCreateModel: vi.fn(), registerEditorOpener: vi.fn() },
+  editor: {
+    getModels: () => [h.model],
+    getModel: vi.fn(() => h.model),
+    setModelMarkers: h.markers,
+    getModelMarkers: () => [{ startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 6, message: "error", severity: 8, code: "2304", source: "ts" }],
+    registerCommand: (id: string, fn: (...args: any[]) => any) => { h.commands[id] = fn; return { dispose() {} }; },
+    onDidCreateModel: vi.fn(),
+    registerEditorOpener: vi.fn(),
+  },
   languages: {
     typescript: { typescriptDefaults: h.defaults, javascriptDefaults: h.defaults },
     CompletionItemKind: new Proxy({}, { get: () => 1 }),
@@ -37,6 +62,10 @@ vi.mock("monaco-editor", () => ({
     registerCompletionItemProvider: (_: string, p: unknown) => { h.providers.completion = p; },
     registerRenameProvider: (_: unknown, p: unknown) => { h.providers.rename = p; },
     registerDocumentFormattingEditProvider: (_: string, p: unknown) => { h.providers.formatting = p; },
+    registerSignatureHelpProvider: (_: string, p: unknown) => { h.providers.signatureHelp = p; },
+    registerCodeActionProvider: (_: string, p: unknown) => { h.providers.codeAction = p; },
+    registerDocumentSymbolProvider: (_: string, p: unknown) => { h.providers.documentSymbol = p; },
+    registerInlayHintsProvider: (_: string, p: unknown) => { h.providers.inlayHints = p; },
   },
 }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: async (name: string, callback: (event: any) => void) => { h.handlers.set(name, callback); return () => {}; } }));
@@ -45,7 +74,24 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: async (command: string, args: a
   if (command === "lsp_send") {
     h.sent.push(args.message);
     if (args.message.id !== undefined && args.message.method) {
-      const result = args.message.method === "initialize" ? { capabilities: { textDocumentSync: { change: 2 } } } : args.message.method === "textDocument/definition" ? h.definitionResults.shift() ?? [{ uri: "file:///c%3A/project/other.ts", range: { start: { line: 2, character: 3 }, end: { line: 2, character: 8 } } }] : args.message.method === "textDocument/hover" ? { contents: { kind: "markdown", value: "const saludo: number" } } : {};
+      const m = args.message.method;
+      const result = m === "initialize"
+        ? { capabilities: h.serverCaps }
+        : m === "textDocument/definition"
+        ? h.definitionResults.shift() ?? [{ uri: "file:///c%3A/project/other.ts", range: { start: { line: 2, character: 3 }, end: { line: 2, character: 8 } } }]
+        : m === "textDocument/hover"
+        ? { contents: { kind: "markdown", value: "const saludo: number" } }
+        : m === "textDocument/signatureHelp"
+        ? { signatures: [{ label: "fn(a: number)", parameters: [{ label: "a: number" }] }], activeSignature: 0, activeParameter: 0 }
+        : m === "textDocument/codeAction"
+        ? [{ title: "Importar 'foo'", kind: "quickfix", isPreferred: true, edit: { changes: { [h.model.uri.toString()]: [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }, newText: "import { foo } from './foo';\n" }] } } }]
+        : m === "codeAction/resolve"
+        ? { ...args.message.params, command: { title: "Aplicar", command: "_typescript.organizeImports", arguments: ["C:\\project\\main.ts"] } }
+        : m === "textDocument/documentSymbol"
+        ? [{ name: "saludar", detail: "() => void", kind: 12, range: { start: { line: 0, character: 0 }, end: { line: 2, character: 1 } }, selectionRange: { start: { line: 0, character: 9 }, end: { line: 0, character: 16 } }, children: [] }]
+        : m === "textDocument/inlayHint"
+        ? [{ position: { line: 0, character: 10 }, label: "a:", kind: 2, paddingRight: true }]
+        : {};
       queueMicrotask(() => h.handlers.get("lsp-message")?.({ payload: { id: 1, message: { jsonrpc: "2.0", id: args.message.id, result } } }));
     }
   }
@@ -98,6 +144,57 @@ describe("cliente LSP", () => {
     expect(await config.goToDefinition!(h.model as any, { lineNumber: 1, column: 2 } as any)).toBe(true);
     expect(openFile).toHaveBeenCalledWith("C:/project/other.ts", { line: 3, col: 4 });
     h.line.text = "const saludo = 1;";
+    setLspWorkspace(null);
+  });
+
+  it("provee firma, acciones de código, símbolos, inlay hints y workspace/applyEdit respetando capacidades", async () => {
+    h.sent.length = 0;
+    h.pushEditOperations.mockClear();
+    initLsp();
+    setLspWorkspace("C:/project");
+    await vi.waitFor(() => expect(h.sent.some((m) => m.method === "textDocument/didOpen")).toBe(true));
+
+    const initMsg = h.sent.find((m) => m.method === "initialize");
+    expect(initMsg.params.initializationOptions.maxTsServerMemory).toBe(1536);
+
+    const token = { onCancellationRequested: () => ({ dispose() {} }) };
+    const sig = await h.providers.signatureHelp.provideSignatureHelp(h.model, { lineNumber: 1, column: 10 }, token, { triggerKind: 2, triggerCharacter: "(", isRetrigger: false });
+    expect(sig.value.signatures[0].label).toBe("fn(a: number)");
+
+    const caList = await h.providers.codeAction.provideCodeActions(h.model, { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 6 }, { trigger: 1 }, token);
+    expect(caList.actions[0].title).toBe("Importar 'foo'");
+    expect(caList.actions[0].edit.edits[0].textEdit.text).toContain("import { foo }");
+
+    const resolved = await h.providers.codeAction.resolveCodeAction(caList.actions[0], token);
+    expect(resolved.command.id).toBe("pulso.lsp.executeCommand");
+    await h.commands["pulso.lsp.executeCommand"](null, ...resolved.command.arguments);
+    expect(h.sent.some((m) => m.method === "workspace/executeCommand")).toBe(true);
+
+    const syms = await h.providers.documentSymbol.provideDocumentSymbols(h.model, token);
+    expect(syms[0]).toMatchObject({ name: "saludar", kind: 11 });
+
+    const refreshed = vi.fn();
+    h.providers.inlayHints.onDidChangeInlayHints(refreshed);
+    const hints = await h.providers.inlayHints.provideInlayHints(h.model, { startLineNumber: 1, startColumn: 1, endLineNumber: 5, endColumn: 1 }, token);
+    expect(hints.hints[0]).toMatchObject({ label: "a:", kind: 2, position: { lineNumber: 1, column: 11 } });
+
+    h.handlers.get("lsp-message")!({ payload: { id: 1, message: { jsonrpc: "2.0", id: 99, method: "workspace/inlayHint/refresh", params: null } } });
+    expect(refreshed).toHaveBeenCalledTimes(1);
+
+    h.handlers.get("lsp-message")!({
+      payload: {
+        id: 1,
+        message: {
+          jsonrpc: "2.0",
+          id: 100,
+          method: "workspace/applyEdit",
+          params: { edit: { changes: { [h.model.uri.toString()]: [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } }, newText: "let" }] } } },
+        },
+      },
+    });
+    await vi.waitFor(() => expect(h.pushEditOperations).toHaveBeenCalledTimes(1));
+    expect(h.sent.some((m) => m.id === 100 && m.result?.applied === true)).toBe(true);
+
     setLspWorkspace(null);
   });
 });

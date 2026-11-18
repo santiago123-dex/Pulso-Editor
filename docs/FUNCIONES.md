@@ -71,6 +71,10 @@ Límites: no hay preparar por fragmentos, historial, borrar o renombrar ramas, m
 - **Culpa en línea** («Git: Alternar culpa en línea»; se recuerda): junto a la línea del cursor aparece quién la cambió, cuándo y el asunto del commit. Solo con archivos guardados (con cambios sin guardar los números de línea ya no coinciden con los de git y no se muestra nada); una línea que aún no está en ningún commit lo dice. Se actualiza al guardar y al confirmar.
 - Límites: no hay vista de grafo de ramas, ni buscar en el historial, ni ver el historial de un fragmento. Las rutas se validan para no salir del repositorio, y los identificadores de commit solo admiten caracteres hexadecimales. Probado con repositorios temporales (Rust) y en la aplicación real.
 
+### Asistente de IA
+
+Chat con Claude Code usando tu propia sesión (tu suscripción), con respuesta en vivo, herramientas visibles, contexto adjunto a la vista (archivo y selección), modos «Solo leer» y «Puede editar», conversaciones guardadas por proyecto y el uso del plan al pie. Barra lateral o pantalla completa. Detalles, privacidad y límites en [Asistente de IA](CHAT-IA.md).
+
 ### Pull requests
 
 Icono de la barra de actividad o «Ver: Pull requests». Usa la cuenta de GitHub conectada (si falta, ofrece conectar) y el remoto `origin` de la carpeta.

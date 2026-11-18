@@ -26,6 +26,7 @@ import { pickScript } from "./scripts";
 import { initHistory, showFileHistory } from "./history";
 import { initBlame, toggleBlame } from "./blame";
 import { initPrs, newPull, setPrsVisible } from "./prs";
+import { initAi, setAiVisible, startNewConversation } from "./aiChat";
 import { setChatVisible } from "./repoChat";
 import { initLsp, setLspWorkspace } from "./lsp";
 import { getLspState, lspDetail, lspLabel, onLspState } from "./lspState";
@@ -81,21 +82,22 @@ const inTauri = "__TAURI_INTERNALS__" in window;
 hooks.focusEditor = () => focusedEditor()?.focus();
 
 // ---------- Vistas de la barra lateral ----------
-type View = "explorer" | "search" | "git" | "issues" | "problems" | "chat" | "prs";
+type View = "explorer" | "search" | "git" | "issues" | "problems" | "chat" | "prs" | "ai";
 let currentView: View = "explorer";
 
 function showView(view: View | "settings") {
   if (view === "settings") { toggleSettings(); return; }
   closeSettings();
   const app = $("app");
-  if (view === currentView && !app.classList.contains("no-sidebar")) { app.classList.add("no-sidebar"); setProblemsVisible(false); setChatVisible(false); setPrsVisible(false); return; }
+  if (view === currentView && !app.classList.contains("no-sidebar")) { app.classList.add("no-sidebar"); setProblemsVisible(false); setChatVisible(false); setPrsVisible(false); setAiVisible(false); return; }
   app.classList.remove("no-sidebar");
   currentView = view;
   document.querySelectorAll<HTMLElement>(".act[data-view]").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
-  for (const v of ["explorer", "search", "git", "issues", "problems", "chat", "prs"] as View[]) $(`view-${v}`).hidden = v !== view;
+  for (const v of ["explorer", "search", "git", "issues", "problems", "chat", "prs", "ai"] as View[]) $(`view-${v}`).hidden = v !== view;
   setProblemsVisible(view === "problems");
   setChatVisible(view === "chat");
   setPrsVisible(view === "prs");
+  setAiVisible(view === "ai");
   if (view === "issues") void loadIssues();
   if (view === "git") void refreshScm();
 }
@@ -421,6 +423,8 @@ register(
   { id: "git.stageAll", label: "Git: Preparar todos los cambios", keywords: "git stage add preparar todo", run: () => void stage([]) },
   { id: "git.unstageAll", label: "Git: Quitar todo de lo preparado", keywords: "git unstage reset quitar", run: () => void unstage([]) },
   { id: "task.script", label: "Tareas: Ejecutar un script de package.json", keywords: "npm run script tarea test build dev pnpm yarn bun", run: () => void pickScript() },
+  { id: "view.ai", label: "Ver: Asistente de IA", keywords: "ia ai asistente claude chat inteligencia artificial", run: () => showView("ai") },
+  { id: "ai.new", label: "Asistente de IA: Nueva conversación", keywords: "ia ai claude nueva conversacion", run: () => { showView("ai"); startNewConversation(); } },
   { id: "view.prs", label: "Ver: Pull requests", keywords: "pull request pr github revisar", run: () => showView("prs") },
   { id: "git.newPull", label: "Git: Nueva pull request desde la rama actual", keywords: "pull request pr crear github", run: () => { showView("prs"); void newPull(); } },
   { id: "view.chat", label: "Ver: Chat del equipo", keywords: "chat mensajes equipo conversacion", run: () => showView("chat") },
@@ -656,6 +660,7 @@ initScm();
 initHistory();
 initBlame();
 initPrs();
+initAi();
 initProblems(() => showView("problems"));
 initSettingsPage(() => void loadIssues());
 syncSettingsUI();

@@ -1325,6 +1325,136 @@ try {
       eq(writes.length, 0, "no se envió nada");
     });
 
+    // ---------- Asistente de IA (herramienta falsa, sin red) ----------
+    const FAKE_STATE = path.join(os.tmpdir(), "pulso-fake-claude.json");
+    const FAKE_LOG = path.join(os.tmpdir(), "pulso-fake-claude.log.jsonl");
+    const fakeLog = () => (fs.existsSync(FAKE_LOG) ? fs.readFileSync(FAKE_LOG, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []);
+    const aiTool = await invoke("ai_detect").catch(() => null);
+    const fakeOn = !!aiTool?.version?.includes("falso");
+    console.log(fakeOn ? "\nAsistente de IA (herramienta falsa)" : "\nAsistente de IA: omitido (inicia la app con PULSO_CLAUDE_BIN=scripts\\fake-claude.cmd)");
+    let aiBefore = 0;
+    const aiSend = async (text) => {
+      aiBefore = await run(`return document.querySelectorAll("#view-ai .ai-user").length`);
+      await run(`const t = document.querySelector(".ai-input"); t.value = ${JSON.stringify(text)}; t.dispatchEvent(new Event("input", { bubbles: true })); t.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); return 1`);
+    };
+    // Termina cuando ya hay un mensaje nuevo de la persona y lo último de la conversación es el resultado o el error de ese turno.
+    const aiDone = () => waitFor(`const b = document.querySelector("#view-ai .ai-body"); return document.querySelectorAll("#view-ai .ai-user").length > ${aiBefore} && !document.querySelector(".ai-working") && !!b.lastElementChild?.matches(".ai-outcome, .ai-error")`, "que termine la respuesta", 20000);
+    const openAi = async () => { await run(`document.querySelector('.act[data-view="ai"]').click(); return 1`); await waitFor(`return !!document.querySelector("#view-ai .ai-shell")`, "el asistente"); };
+
+    if (fakeOn) {
+      await test("sin sesión iniciada el asistente ofrece iniciarla, y al volver a comprobar queda listo", async () => {
+        fs.writeFileSync(FAKE_STATE, JSON.stringify({ loggedIn: false }));
+        fs.rmSync(FAKE_LOG, { force: true });
+        await run(`for (const k of ["pulso.ai.mode", "pulso.ai.editOk", "pulso.ai.chats", "pulso.ai.model", "pulso.ai.usage"]) localStorage.removeItem(k); return 1`);
+        await bootApp(gitSession());
+        await openAi();
+        await waitFor(`return document.querySelector("#view-ai .ai-setup")?.textContent.includes("no hay una sesión iniciada")`, "el aviso de sesión", 15000);
+        eq(await run(`return document.querySelector("#view-ai .ai-compose").hidden`), true, "sin sesión no se puede escribir");
+        fs.writeFileSync(FAKE_STATE, JSON.stringify({ loggedIn: true }));
+        await run(`[...document.querySelectorAll("#view-ai .ai-setup button")].find(b => b.textContent.includes("volver a comprobar")).click(); return 1`);
+        await waitFor(`return !document.querySelector("#view-ai .ai-compose").hidden`, "el asistente listo", 15000);
+        eq(await run(`return document.querySelector("#view-ai .ai-sub").textContent`), "Claude Code 9.9.9 · plan Max");
+        ok(!(await run(`return document.getElementById("view-ai").textContent`)).includes("secreto@example.com"), "no se muestra el correo de la cuenta");
+      });
+
+      await test("un mensaje con el archivo y la selección adjuntos llega a la herramienta, y la respuesta se pinta con código, listas y uso del plan", async () => {
+        await run(`document.querySelector('.act[data-view="explorer"]').click(); return 1`);
+        await waitFor(`return [...document.querySelectorAll("#tree .node .name")].some(n => n.textContent === "a.txt")`, "a.txt");
+        await run(`[...document.querySelectorAll("#tree .node")].find(n => n.querySelector(".name")?.textContent === "a.txt").click(); return 1`);
+        await waitFor(`return !!document.querySelector(".tab.active")`, "a.txt abierto");
+        await run(`const ta = document.querySelector(".group.focused textarea.inputarea"); ta.focus(); ta.dispatchEvent(new KeyboardEvent("keydown", { key: "a", code: "KeyA", keyCode: 65, ctrlKey: true, bubbles: true, cancelable: true })); return 1`);
+        await wait(300);
+        await openAi();
+        await waitFor(`return !!document.querySelector("#view-ai .ai-chip")`, "los chips de contexto", 10000);
+        ok((await run(`return [...document.querySelectorAll("#view-ai .ai-chip")].map(c => c.textContent).join("|")`)).includes("a.txt"), "chip del archivo");
+        await aiSend("Explícame esto");
+        await aiDone();
+        const call = fakeLog().pop();
+        ok(call.prompt.includes("Archivo abierto: a.txt"), call.prompt);
+        ok(call.prompt.endsWith("Mensaje:\nExplícame esto"), "el mensaje va al final");
+        ok(call.args.includes("--permission-mode") && call.args.includes("default") && !call.args.join(" ").includes("Edit"), `solo lectura: ${call.args}`);
+        eq(await run(`return document.querySelector("#view-ai .ai-user-text").textContent`), "Explícame esto");
+        eq(await run(`return document.querySelector("#view-ai .ai-code code").textContent`), "const a = 1;");
+        eq(await run(`return document.querySelector("#view-ai .ai-code-head span").textContent`), "js");
+        eq(await run(`return document.querySelectorAll("#view-ai .ai-li").length`), 2);
+        ok((await run(`return document.querySelector("#view-ai .ai-outcome").textContent`)).startsWith("Listo"), "resultado");
+        ok((await run(`return document.querySelector("#view-ai .ai-foot").textContent`)).includes("sesión de 5 h: 34 %"), "uso del plan");
+      });
+
+      await test("las herramientas que usa la IA se resumen en una línea y se despliegan", async () => {
+        await aiSend("LEE el archivo");
+        await aiDone();
+        await waitFor(`return !!document.querySelector("#view-ai .ai-tool")`, "la fila de la herramienta");
+        eq(await run(`return document.querySelector("#view-ai .ai-tool-text").textContent`), "Leyó a.txt");
+        eq(await run(`return document.querySelector("#view-ai .ai-tool-dot").className.includes("ok")`), true);
+        await run(`document.querySelector("#view-ai .ai-tool summary").click(); return 1`);
+        ok((await run(`return document.querySelector("#view-ai .ai-tool-result")?.textContent`)).includes("linea 1"), "el resultado");
+        eq(await run(`return document.querySelector("#view-ai .ai-assistant:last-of-type strong, #view-ai .ai-assistant strong")?.textContent`), "dos líneas");
+        // La conversación se reanuda con la sesión de la herramienta.
+        const calls = fakeLog();
+        ok(calls[calls.length - 1].args.includes("--resume"), "reanuda la sesión anterior");
+      });
+
+      await test("«Puede editar» pide confirmar una vez, cambia los permisos y los archivos que la IA modifica se recargan en el editor", async () => {
+        await run(`localStorage.removeItem("pulso.ai.editOk"); [...document.querySelectorAll("#view-ai .ai-mode button")].find(b => b.textContent === "Puede editar").click(); return 1`);
+        await waitFor(`return !!document.querySelector(".modal")`, "la confirmación");
+        eq((await dialog()).title, "Permitir que la IA edite archivos");
+        await clickBtn("Permitir editar");
+        await waitFor(`return document.querySelector("#view-ai .ai-mode button[aria-selected=true]")?.textContent === "Puede editar"`, "el modo cambiado");
+        await aiSend("EDITA a.txt por favor");
+        await aiDone();
+        const call = fakeLog().pop();
+        ok(call.args.includes("acceptEdits"), `permisos de edición: ${call.args}`);
+        ok(!call.args.join(" ").includes("Bash"), "nunca comandos");
+        ok(fs.readFileSync(`${GROOT}/a.txt`, "utf8").includes("línea añadida por la IA"), "la IA editó el archivo");
+        await waitFor(`return document.querySelector(".group.focused .view-lines")?.textContent.includes("añadida")`, "que el editor muestre el cambio sin recargar a mano", 15000);
+        await run(`[...document.querySelectorAll("#view-ai .ai-mode button")].find(b => b.textContent === "Solo leer").click(); return 1`);
+      });
+
+      await test("parar corta una respuesta en curso", async () => {
+        await run(`document.querySelector("#view-ai .ai-chip-x")?.click(); return 1`);
+        await aiSend("LENTO por favor");
+        await waitFor(`return document.querySelector("#view-ai .ai-send").classList.contains("stop")`, "el botón de parar", 10000);
+        await run(`document.querySelector("#view-ai .ai-send").click(); return 1`);
+        await waitFor(`return document.querySelector("#view-ai .ai-error")?.textContent.includes("se detuvo")`, "que la conversación se detenga", 15000);
+        eq(await run(`return document.querySelector("#view-ai .ai-send").classList.contains("stop")`), false, "vuelve el botón de enviar");
+      });
+
+      await test("un error de sesión de la herramienta se muestra con el botón para iniciar sesión", async () => {
+        await aiSend("ERROR por favor");
+        await aiDone();
+        ok((await run(`return document.querySelector("#view-ai .ai-error").textContent`)).includes("Invalid API key"));
+        ok(await run(`return [...document.querySelectorAll("#view-ai .ai-error button")].some(b => b.textContent.includes("Iniciar sesión"))`), "ofrece iniciar sesión");
+      });
+
+      await test("las conversaciones se guardan, se listan por proyecto y se reabren tras reiniciar", async () => {
+        await bootApp(gitSession());
+        await openAi();
+        await waitFor(`return !document.querySelector("#view-ai .ai-compose").hidden`, "el asistente");
+        await run(`document.querySelector('#view-ai .ai-tools button[title="Conversaciones anteriores"]').click(); return 1`);
+        await waitFor(`return document.querySelectorAll("#view-ai .ai-hist-row").length >= 1`, "el historial");
+        ok((await run(`return document.querySelector("#view-ai .ai-hist-name").textContent`)).length > 0);
+        await run(`document.querySelector("#view-ai .ai-hist-open").click(); return 1`);
+        await waitFor(`return document.querySelectorAll("#view-ai .ai-user").length >= 1`, "los mensajes de la conversación guardada");
+        const before = fakeLog().length;
+        await aiSend("seguimos");
+        await aiDone();
+        const resumed = fakeLog()[before];
+        ok(resumed.args.includes("--resume"), "la conversación guardada reanuda su sesión");
+      });
+
+      await test("el asistente pasa a pantalla completa con el botón y Esc lo devuelve a la barra lateral", async () => {
+        eq(await run(`return document.getElementById("view-ai").classList.contains("ai-docked")`), true);
+        await run(`document.querySelector("#view-ai .ai-expand").click(); return 1`);
+        await waitFor(`return document.getElementById("view-ai").classList.contains("ai-full")`, "pantalla completa");
+        ok((await run(`return document.getElementById("view-ai").getBoundingClientRect().width`)) > 900, "ocupa la ventana");
+        await key("Escape");
+        await waitFor(`return document.getElementById("view-ai").classList.contains("ai-docked")`, "Esc vuelve");
+      });
+      await run(`for (const k of ["pulso.ai.mode", "pulso.ai.editOk", "pulso.ai.chats", "pulso.ai.model", "pulso.ai.usage", "pulso.aiFull"]) localStorage.removeItem(k); return 1`);
+      fs.rmSync(FAKE_STATE, { force: true });
+    }
+
     await test("sin token no se intenta escribir y Esc cierra el tablero", async () => {
       await invoke("secret_delete", { name: "github-token" });
       await bootApp(gitSession());
