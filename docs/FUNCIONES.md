@@ -64,6 +64,22 @@ Autenticación: push y pull usan las credenciales que Git ya tenga en tu equipo 
 
 Límites: no hay preparar por fragmentos, historial, borrar o renombrar ramas, merge ni rebase, ni resolución asistida de conflictos (los archivos en conflicto se abren para editarlos y se marcan como resueltos al prepararlos). La comparación de un archivo sin preparar usa lo guardado en disco, no los cambios sin guardar del editor. Un renombrado detectado por git se prepara y se quita junto con el nombre anterior. Para repositorios con identidad sin configurar, git decide el resultado.
 
+### Historial y culpa
+
+- **Pestaña «Historial»** del panel de Git (junto a «Cambios»): los commits de la rama actual de 40 en 40 («Cargar más commits»), con asunto, autor, antigüedad, identificador corto y las ramas y etiquetas que apuntan a él. Pulsar un commit despliega sus archivos con su estado (M, A, D, R); pulsar un archivo abre sus diferencias (versión del padre contra la del commit) en el mismo visor que el panel de cambios. El botón de cada commit copia su identificador completo. Se recarga sola tras un commit, un pull o un cambio de rama, sin perder lo desplegado.
+- **Historial de un archivo** («Git: Historial del archivo activo»): filtra la pestaña por ese archivo siguiendo sus renombrados (`git log --follow`); la «x» del filtro vuelve a todo el repositorio.
+- **Culpa en línea** («Git: Alternar culpa en línea»; se recuerda): junto a la línea del cursor aparece quién la cambió, cuándo y el asunto del commit. Solo con archivos guardados (con cambios sin guardar los números de línea ya no coinciden con los de git y no se muestra nada); una línea que aún no está en ningún commit lo dice. Se actualiza al guardar y al confirmar.
+- Límites: no hay vista de grafo de ramas, ni buscar en el historial, ni ver el historial de un fragmento. Las rutas se validan para no salir del repositorio, y los identificadores de commit solo admiten caracteres hexadecimales. Probado con repositorios temporales (Rust) y en la aplicación real.
+
+### Pull requests
+
+Icono de la barra de actividad o «Ver: Pull requests». Usa la cuenta de GitHub conectada (si falta, ofrece conectar) y el remoto `origin` de la carpeta.
+
+- **Lista** con filtro Abiertas / Cerradas / Todas: título, estado (abierta, borrador, fusionada o cerrada, con su color), número, autor, rama de origen → destino y antigüedad. Se actualiza sola cada 20 s con la vista visible y al volver a la ventana (consultas con ETag, sin gastar cuota si nada cambió).
+- **Detalle**: título, estado, rama → destino, totales (archivos, +líneas, −líneas), descripción en texto plano, «Ver en GitHub» y la lista de archivos (hasta 300) con su estado y sus cambios. Cada archivo se abre en el visor de diferencias comparando el **ancestro común** con la punta de la rama (lo mismo que muestra GitHub, aunque la rama de destino haya avanzado); los archivos añadidos o eliminados comparan contra vacío, los renombrados contra su nombre anterior, y los binarios o de más de 2 MB lo avisan.
+- **Nueva pull request**: parte de la rama actual. Comprueba antes de enviar que haya una rama activa, que no sea la de destino y que esté subida a GitHub (si no, explica qué hacer). Propone como título el del último commit (o el nombre de la rama en lenguaje normal), permite descripción y cambiar la rama de destino (por defecto, la principal del repositorio), y tras crearla abre su detalle. Si GitHub la rechaza (ya existe una abierta, no hay commits nuevos, falta permiso) lo explica en español.
+- Límites: solo ramas del mismo repositorio (no forks); no se puede fusionar, cerrar, revisar, comentar ni ver los resultados de las comprobaciones desde Pulso; la descripción se muestra como texto, sin Markdown. Probado contra un GitHub simulado; **no se ha probado con tu repositorio real**.
+
 ### Tablero kanban de issues
 
 El botón del tablero en la vista de Issues (o «Issues: Abrir el tablero kanban» en la paleta) muestra las issues del remoto `origin` de GitHub en tres columnas:

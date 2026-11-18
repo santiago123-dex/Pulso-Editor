@@ -76,6 +76,9 @@
         <button class="act" data-view="issues" title="Issues de GitHub (Ctrl+Shift+I)">
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg>
         </button>
+        <button class="act" data-view="prs" title="Pull requests" aria-label="Pull requests">
+          <svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="18" r="2.2"/><path d="M6 8.2v7.6M18 15.8V10a3 3 0 0 0-3-3h-3M12 7l2.2-2.2M12 7l2.2 2.2"/></svg>
+        </button>
         <button class="act" data-view="chat" title="Chat del equipo" aria-label="Chat del equipo">
           <svg viewBox="0 0 24 24"><path d="M4 5.5h16v11H9l-5 3v-14z"/><path d="M8 10h8M8 13h5"/></svg>
           <span id="chat-badge" class="act-badge" hidden></span>
@@ -151,6 +154,10 @@
               <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg>
             </button>
           </header>
+          <div class="seg" id="scm-tabs" role="tablist" aria-label="Control de código">
+            <button type="button" role="tab" data-tab="changes" aria-selected="true">Cambios</button>
+            <button type="button" role="tab" data-tab="history" aria-selected="false">Historial</button>
+          </div>
           <div id="scm-bar" hidden>
             <button id="scm-branch-btn" class="scm-branch-btn" title="Cambiar de rama"></button>
             <button class="scm-sync" id="scm-pull" title="Traer cambios del remoto (pull)"><svg viewBox="0 0 24 24"><path d="M12 4v13M6 12l6 6 6-6"/></svg><span id="scm-pull-n"></span></button>
@@ -161,6 +168,7 @@
             <button class="primary" id="scm-commit" disabled>Confirmar</button>
           </div>
           <div id="scm-list"></div>
+          <div id="scm-history"></div>
         </section>
 
         <section id="view-problems" class="view" hidden>
@@ -170,6 +178,28 @@
           </header>
           <div id="problems-summary"></div>
           <div id="problems-list"></div>
+        </section>
+
+        <section id="view-prs" class="view" hidden>
+          <header>
+            <span class="title">Pull requests</span>
+            <button class="icon-btn" id="prs-refresh" title="Recargar">
+              <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg>
+            </button>
+          </header>
+          <div id="prs-repo" class="repo-label"></div>
+          <div class="seg" id="prs-filter" role="tablist" aria-label="Estado de las pull requests">
+            <button type="button" role="tab" data-v="open" aria-selected="true">Abiertas</button>
+            <button type="button" role="tab" data-v="closed" aria-selected="false">Cerradas</button>
+            <button type="button" role="tab" data-v="all" aria-selected="false">Todas</button>
+          </div>
+          <div id="prs-body"></div>
+          <div class="issues-foot">
+            <button type="button" class="foot-btn foot-btn-line" id="prs-new" title="Proponer los cambios de la rama actual">
+              <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+              Nueva pull request
+            </button>
+          </div>
         </section>
 
         <section id="view-chat" class="view chat-docked" hidden></section>

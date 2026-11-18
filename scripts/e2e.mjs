@@ -737,6 +737,62 @@ try {
   });
 
 
+  console.log("\nGit: historial y culpa");
+  const palette = async (text) => {
+    await key("P", { ctrl: true, shift: true });
+    await waitFor(`return !document.getElementById("quickopen").hidden`, "la paleta de comandos");
+    await run(`const i = document.getElementById("qo-input"); i.value = ${JSON.stringify(text)}; i.dispatchEvent(new Event("input", { bubbles: true })); return 1`);
+    await wait(250);
+    await run(`document.getElementById("qo-input").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); return 1`);
+  };
+  await test("la pestaña Historial lista los commits y uno se abre para ver sus archivos y sus diferencias", async () => {
+    git("remote", "set-url", "origin", BARE);
+    await run(`localStorage.setItem("pulso.blame", "0"); return 1`);
+    await bootApp(gitSession());
+    await key("g", { ctrl: true, shift: true });
+    await run(`document.querySelector('#scm-tabs [data-tab="history"]').click(); return 1`);
+    await waitFor(`return document.querySelectorAll("#scm-history .hist-row").length >= 2`, "los commits", 15000);
+    const last = git("log", "-1", "--format=%s").trim();
+    eq(await run(`return document.querySelector("#scm-history .hist-subject").textContent`), last, "el más reciente va primero");
+    ok((await run(`return document.querySelector("#scm-history .hist-meta").textContent`)).includes(git("log", "-1", "--format=%an").trim()), "muestra el autor");
+    eq(await run(`return getComputedStyle(document.getElementById("scm-list")).display`), "none", "la lista de cambios se oculta");
+    await run(`document.querySelector("#scm-history .hist-head").click(); return 1`);
+    await waitFor(`return document.querySelectorAll("#scm-history .hist-file").length > 0`, "los archivos del commit");
+    await run(`document.querySelector("#scm-history .hist-file").click(); return 1`);
+    await waitFor(`return !document.getElementById("diff-view").hidden && !!document.querySelector("#diff-view .monaco-diff-editor, #diff-view .diff-msg")`, "la comparación del commit", 15000);
+    await key("Escape");
+    await waitFor(`return document.getElementById("diff-view").hidden`, "cerrar con Esc");
+    await run(`document.querySelector('#scm-tabs [data-tab="changes"]').click(); return 1`);
+    eq(await run(`return getComputedStyle(document.getElementById("scm-list")).display !== "none"`), true, "vuelve la lista de cambios");
+  });
+
+  await test("«Historial del archivo activo» filtra por ese archivo y sigue sus renombrados", async () => {
+    await run(`document.querySelector('.act[data-view="explorer"]').click(); return 1`);
+    await waitFor(`return [...document.querySelectorAll("#tree .node .name")].some(n => n.textContent === "a.txt")`, "a.txt en el explorador");
+    await run(`[...document.querySelectorAll("#tree .node")].find(n => n.querySelector(".name")?.textContent === "a.txt").click(); return 1`);
+    await waitFor(`return !!document.querySelector(".tab.active")`, "a.txt abierto");
+    await palette("historial del archivo");
+    await waitFor(`return !!document.querySelector("#scm-history .hist-filter")`, "el filtro del archivo", 15000);
+    ok((await run(`return document.querySelector("#scm-history .hist-filter").textContent`)).includes("a.txt"));
+    const expected = git("log", "--oneline", "--follow", "--", "a.txt").trim().split("\n").length;
+    await waitFor(`return document.querySelectorAll("#scm-history .hist-row").length === ${expected}`, `${expected} commits de a.txt`, 15000);
+    await run(`document.querySelector("#scm-history .hist-filter .icon-btn").click(); return 1`);
+    await waitFor(`return !document.querySelector("#scm-history .hist-filter")`, "quitar el filtro");
+  });
+
+  await test("la culpa en línea muestra quién cambió la línea del cursor y se puede apagar", async () => {
+    await palette("alternar culpa");
+    await waitFor(`return document.getElementById("status-left").textContent.includes("Culpa en línea: activada")`, "activar la culpa");
+    await run(`document.querySelector('.act[data-view="explorer"]').click(); return 1`);
+    await run(`const ed = document.querySelector(".group.focused textarea.inputarea"); ed?.focus(); return 1`);
+    await run(`document.querySelector(".group.focused .view-line")?.click(); return 1`);
+    await waitFor(`return !!document.querySelector(".group.focused .blame-inline")`, "la anotación de culpa", 15000);
+    ok((await run(`return document.querySelector(".group.focused .blame-inline").textContent`)).trim().length > 3, "con texto");
+    await palette("alternar culpa");
+    await waitFor(`return !document.querySelector(".blame-inline")`, "apagar la culpa");
+    await run(`localStorage.removeItem("pulso.blame"); return 1`);
+  });
+
   console.log("\nTablero kanban de issues (servidor de GitHub falso, sin red)");
   const mockIssues = [
     { number: 1, title: "Primera tarea", state: "open", labels: [], user: { login: "ana" }, comments: 2, html_url: "https://example.test/1", assignees: [] },
@@ -747,6 +803,19 @@ try {
   for (const i of mockIssues) i.node_id = `I_${i.number}`;
   const writes = [];
   let failNext = null;
+  // Pull requests: dos abiertas (una borrador) y una fusionada.
+  const iso = (m) => new Date(Date.now() - m * 60000).toISOString();
+  const mockPulls = [
+    { number: 31, title: "Añade el panel de IA", state: "open", draft: false, merged_at: null, html_url: "https://example.test/pr/31", user: { login: "ana" }, head: { ref: "feature/ia", sha: "HEAD31" }, base: { ref: "trunk", sha: "BASE31" }, created_at: iso(300), updated_at: iso(20), body: "Primera línea de la descripción.", additions: 12, deletions: 3 },
+    { number: 30, title: "Corrige el tablero", state: "open", draft: true, merged_at: null, html_url: "https://example.test/pr/30", user: { login: "bruno" }, head: { ref: "fix/tablero", sha: "HEAD30" }, base: { ref: "trunk", sha: "BASE30" }, created_at: iso(900), updated_at: iso(600), body: "", additions: 1, deletions: 1 },
+    { number: 29, title: "Historial de Git", state: "closed", draft: false, merged_at: iso(4000), html_url: "https://example.test/pr/29", user: { login: "ana" }, head: { ref: "feature/historial", sha: "HEAD29" }, base: { ref: "trunk", sha: "BASE29" }, created_at: iso(9000), updated_at: iso(4000), body: "Hecho.", additions: 5, deletions: 0 },
+  ];
+  const prFiles = [
+    { filename: "src/ia/proveedores.ts", status: "added", additions: 8, deletions: 0 },
+    { filename: "src/ia/chat.ts", status: "modified", additions: 3, deletions: 2 },
+    { filename: "docs/IA.md", status: "renamed", previous_filename: "docs/AI.md", additions: 1, deletions: 1 },
+  ];
+  const prTexts = { "MB31:src/ia/chat.ts": "uno\ndos\n", "HEAD31:src/ia/chat.ts": "uno\ndos\ntres\n", "HEAD31:src/ia/proveedores.ts": "export const p = [];\n", "MB31:docs/AI.md": "a\n", "HEAD31:docs/IA.md": "b\n" };
   // Chat: comentarios de la issue-sala, personas del repositorio y si la etiqueta ya existe.
   const chatComments = [];
   const people = [{ login: "yo", avatar_url: "" }, { login: "ana", avatar_url: "" }, { login: "bruno", avatar_url: "" }];
@@ -779,6 +848,22 @@ try {
         if (!found) { send(404, {}); return; }
         send(200, found); return;
       }
+      if (req.method === "GET" && url.pathname === "/repos/e2e/demo") { send(200, { default_branch: "trunk" }); return; }
+      if (req.method === "GET" && url.pathname === "/repos/e2e/demo/pulls") {
+        const st = url.searchParams.get("state");
+        send(200, mockPulls.filter((x) => st === "all" || (st === "open" ? x.state === "open" : x.state === "closed"))); return;
+      }
+      if (req.method === "GET" && (m = url.pathname.match(/^\/repos\/e2e\/demo\/pulls\/(\d+)\/files$/))) { send(200, prFiles); return; }
+      if (req.method === "GET" && (m = url.pathname.match(/^\/repos\/e2e\/demo\/pulls\/(\d+)$/))) {
+        const found = mockPulls.find((x) => x.number === Number(m[1]));
+        if (!found) { send(404, {}); return; }
+        send(200, found); return;
+      }
+      if (req.method === "GET" && url.pathname.startsWith("/repos/e2e/demo/compare/")) { send(200, { merge_base_commit: { sha: "MB31" } }); return; }
+      if (req.method === "GET" && (m = url.pathname.match(/^\/repos\/e2e\/demo\/contents\/(.+)$/))) {
+        const text = prTexts[`${url.searchParams.get("ref")}:${decodeURIComponent(m[1])}`];
+        res.writeHead(text === undefined ? 404 : 200, { ...cors, "Content-Type": "text/plain" }); res.end(text ?? ""); return;
+      }
       if (req.method === "GET" && url.pathname === "/user") { send(200, { login: "yo", avatar_url: "" }); return; }
       if (req.method === "GET" && url.pathname === "/repos/e2e/demo/collaborators") { send(200, people); return; }
       if (req.method === "GET" && url.pathname === "/repos/e2e/demo/labels/pulso-chat") { send(chatLabel ? 200 : 404, { name: "pulso-chat" }); return; }
@@ -800,6 +885,12 @@ try {
       if (req.method !== "GET") {
         writes.push(`${req.method} ${url.pathname}${body ? " " + body : ""}`);
         if (failNext) { const code = failNext; failNext = null; send(code, { message: "falló a propósito" }); return; }
+      }
+      if (req.method === "POST" && url.pathname === "/repos/e2e/demo/pulls") {
+        const d = JSON.parse(body);
+        if (mockPulls.some((x) => x.state === "open" && x.head.ref === d.head)) { send(422, { message: "Validation Failed", errors: [{ message: `A pull request already exists for e2e:${d.head}.` }] }); return; }
+        const made = { number: 40 + mockPulls.length, title: d.title, state: "open", draft: false, merged_at: null, html_url: "https://example.test/pr/new", user: { login: "yo" }, head: { ref: d.head, sha: "HEADNEW" }, base: { ref: d.base, sha: "BASENEW" }, created_at: iso(0), updated_at: iso(0), body: d.body, additions: 0, deletions: 0 };
+        mockPulls.unshift(made); send(201, made); return;
       }
       if (req.method === "POST" && url.pathname === "/repos/e2e/demo/labels") { chatLabel = true; send(201, JSON.parse(body)); return; }
       if (req.method === "POST" && (m = url.pathname.match(/^\/repos\/e2e\/demo\/issues\/(\d+)\/comments$/))) {
@@ -1162,6 +1253,76 @@ try {
       issue.state = "open"; issue.labels = [{ name: "in progress", color: "fbca04" }]; issue.updated_at = new Date(Date.now() + 1000).toISOString();
       await colIs("doing");
       await run(`localStorage.removeItem("pulso.boardInterval"); return 1`);
+    });
+
+    // ---------- Pull requests ----------
+    const prRows = () => run(`return [...document.querySelectorAll("#prs-body .pr-row")].map(r => ({ title: r.querySelector(".pr-row-text").textContent, dot: r.querySelector(".pr-dot").className.replace("pr-dot ", ""), meta: r.querySelector(".pr-row-meta").textContent }))`);
+    await test("la vista Pull requests lista las abiertas con su estado y la rama de cada una", async () => {
+      await bootApp(gitSession());
+      await run(`document.querySelector('.act[data-view="prs"]').click(); return 1`);
+      await waitFor(`return document.querySelectorAll("#prs-body .pr-row").length === 2`, "las pull requests abiertas", 15000);
+      const rows = await prRows();
+      eq(rows.map((r) => [r.title, r.dot]), [["Añade el panel de IA", "open"], ["Corrige el tablero", "draft"]]);
+      ok(rows[0].meta.includes("#31 · ana · feature/ia → trunk"), rows[0].meta);
+      await run(`document.querySelector('#prs-filter [data-v="closed"]').click(); return 1`);
+      await waitFor(`return document.querySelectorAll("#prs-body .pr-row").length === 1`, "las cerradas");
+      eq((await prRows())[0].dot, "merged", "una fusionada se distingue de una cerrada sin fusionar");
+      await run(`document.querySelector('#prs-filter [data-v="open"]').click(); return 1`);
+      await waitFor(`return document.querySelectorAll("#prs-body .pr-row").length === 2`, "vuelven las abiertas");
+    });
+
+    await test("el detalle muestra rama, archivos y totales, y cada archivo se abre en el visor de diferencias", async () => {
+      await run(`document.querySelector("#prs-body .pr-row").click(); return 1`);
+      await waitFor(`return !!document.querySelector("#prs-body .pr-detail .pr-files .hist-file")`, "el detalle", 15000);
+      eq(await run(`return document.querySelector(".pr-title-text").textContent`), "Añade el panel de IA");
+      eq(await run(`return document.querySelector(".pr-chip").textContent`), "Abierta");
+      eq(await run(`return document.querySelector(".pr-branch").textContent`), "feature/ia → trunk");
+      ok((await run(`return document.querySelector(".pr-stats").textContent`)).startsWith("3 archivos · +12 −3"), "totales");
+      eq(await run(`return [...document.querySelectorAll(".pr-files .hist-st")].map(x => x.textContent)`), ["A", "M", "R"]);
+      await run(`document.querySelectorAll(".pr-files .hist-file")[1].click(); return 1`);
+      await waitFor(`return !document.getElementById("diff-view").hidden && !!document.querySelector("#diff-view .monaco-diff-editor")`, "el visor de diferencias", 15000);
+      eq(await run(`return document.querySelector("#diff-view .diff-title").textContent`), "chat.ts");
+      await key("Escape");
+      await waitFor(`return document.getElementById("diff-view").hidden`, "cerrar con Esc");
+      await run(`document.querySelector(".pr-back").click(); return 1`);
+      await waitFor(`return document.querySelectorAll("#prs-body .pr-row").length === 2`, "volver a la lista");
+    });
+
+    await test("«Nueva pull request» propone el título del último commit, crea la PR con la rama actual y abre su detalle", async () => {
+      const branch = git("rev-parse", "--abbrev-ref", "HEAD").trim();
+      const subject = git("log", "-1", "--format=%s").trim();
+      writes.length = 0;
+      await run(`document.getElementById("prs-new").click(); return 1`);
+      await waitFor(`return !!document.querySelector(".modal-form")`, "el formulario", 15000);
+      eq((await dialog()).title, "Nueva pull request");
+      eq(await run(`return [...document.querySelectorAll(".modal-form .modal-input")].map(x => x.value)`), [subject, "", "trunk"], "título, descripción y destino propuestos");
+      await run(`const f = [...document.querySelectorAll(".modal-form .modal-input")]; f[1].value = "Cambios de la rama"; f[1].dispatchEvent(new Event("input", { bubbles: true })); return 1`);
+      await clickBtn("Crear");
+      await waitFor(`return !!document.querySelector("#prs-body .pr-detail")`, "el detalle de la nueva PR", 20000);
+      const post = writes.find((w) => w.startsWith("POST /repos/e2e/demo/pulls "));
+      ok(post, `se creó en GitHub: ${writes}`);
+      eq(JSON.parse(post.slice(post.indexOf("{"))), { title: subject, head: branch, base: "trunk", body: "Cambios de la rama" });
+      eq(await run(`return document.querySelector(".pr-branch").textContent`), `${branch} → trunk`);
+    });
+
+    await test("con una PR ya abierta para esa rama GitHub lo rechaza y Pulso lo explica; con destino igual a la rama avisa antes de enviar", async () => {
+      await run(`document.querySelector(".pr-back").click(); return 1`);
+      await waitFor(`return document.querySelectorAll("#prs-body .pr-row").length === 3`, "la lista con la nueva");
+      await run(`document.getElementById("prs-new").click(); return 1`);
+      await waitFor(`return !!document.querySelector(".modal-form")`, "el formulario");
+      await clickBtn("Crear");
+      await waitFor(`return document.querySelector(".modal-title")?.textContent === "No se pudo crear la pull request"`, "el error", 15000);
+      ok((await run(`return document.querySelector(".modal-msg").textContent`)).includes("Ya hay una pull request abierta"));
+      await clickBtn("Entendido");
+      const branch = git("rev-parse", "--abbrev-ref", "HEAD").trim();
+      writes.length = 0;
+      await run(`document.getElementById("prs-new").click(); return 1`);
+      await waitFor(`return !!document.querySelector(".modal-form")`, "el formulario otra vez");
+      await run(`const f = [...document.querySelectorAll(".modal-form .modal-input")]; f[2].value = ${JSON.stringify(branch)}; f[2].dispatchEvent(new Event("input", { bubbles: true })); return 1`);
+      await clickBtn("Crear");
+      await waitFor(`return document.querySelector(".modal-title")?.textContent === "Aún no se puede crear"`, "el aviso previo");
+      await clickBtn("Entendido");
+      eq(writes.length, 0, "no se envió nada");
     });
 
     await test("sin token no se intenta escribir y Esc cierra el tablero", async () => {

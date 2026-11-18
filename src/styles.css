@@ -631,3 +631,72 @@ main { position: relative; }
 .foot-btn:hover, .foot-btn:focus-visible { color: var(--fg); background: var(--hover); outline: none; }
 .foot-btn-line { border-color: var(--border); color: var(--fg); }
 .foot-btn-line:hover, .foot-btn-line:focus-visible { border-color: var(--accent); }
+
+/* Control de código: pestañas Cambios / Historial */
+#view-git .seg { padding-top: 2px; }
+#scm-history { display: none; }
+#view-git.history-mode #scm-history { display: block; flex: 1; min-height: 0; overflow: auto; padding-bottom: 8px; }
+#view-git.history-mode #scm-compose, #view-git.history-mode #scm-list { display: none !important; }
+.hist-filter { display: flex; align-items: center; gap: 4px; margin: 0 12px 6px 14px; padding: 3px 4px 3px 10px; background: var(--hover); border-radius: 6px; font-size: 12px; }
+.hist-filter span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11px; }
+.hist-row { position: relative; }
+.hist-head { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 6px 30px 6px 20px; background: none; border: 0; border-left: 2px solid transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
+.hist-head:hover, .hist-head:focus-visible { background: var(--hover); outline: none; }
+.hist-head[aria-expanded="true"] { background: var(--hover); border-left-color: var(--accent); }
+.hist-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hist-meta { font-size: 11px; color: var(--muted); }
+.hist-hash { font: 11px var(--mono); }
+.hist-refs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.hist-ref { padding: 0 7px; border-radius: 999px; font-size: 10px; border: 1px solid var(--border); color: var(--muted); }
+.hist-ref.head { color: var(--fg); border-color: var(--accent); }
+.hist-ref.tag { color: #e9bc43; border-color: color-mix(in srgb, #e9bc43 45%, transparent); }
+.hist-copy { position: absolute; top: 4px; right: 6px; display: none; width: 22px; height: 22px; }
+.hist-row:hover .hist-copy, .hist-row:focus-within .hist-copy { display: grid; }
+.hist-files { padding: 2px 0 6px; background: var(--hover); }
+.hist-note { padding: 4px 20px 4px 34px; font-size: 11px; color: var(--muted); }
+.hist-file { display: flex; align-items: center; gap: 8px; width: 100%; padding: 3px 12px 3px 24px; background: none; border: 0; color: var(--fg); font: 12px var(--ui); text-align: left; cursor: pointer; }
+.hist-file:hover, .hist-file:focus-visible { background: var(--selected); outline: none; }
+.hist-st { flex: none; width: 14px; text-align: center; font: 600 11px var(--mono); }
+.hist-st.st-M { color: var(--git-modified, #e2c08d); }
+.hist-st.st-A { color: var(--git-added, #73c991); }
+.hist-st.st-D { color: var(--git-deleted, #c74e39); }
+.hist-st.st-R { color: var(--accent); }
+.hist-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hist-more { width: calc(100% - 24px); margin: 8px 12px 0; justify-content: center; }
+/* Culpa en línea: discreta, al final de la línea del cursor */
+.blame-inline { color: var(--muted); opacity: .8; font-style: italic; }
+
+/* Pull requests */
+#prs-repo { padding: 2px 20px 8px; color: var(--muted); font: 12px var(--mono); }
+#prs-body { flex: 1; min-height: 0; overflow: auto; }
+.pr-row { display: flex; flex-direction: column; gap: 3px; width: 100%; padding: 8px 14px 8px 20px; background: none; border: 0; border-left: 2px solid transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
+.pr-row:hover, .pr-row:focus-visible { background: var(--hover); border-left-color: var(--accent); outline: none; }
+.pr-row-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.pr-row-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-row-meta { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-left: 16px; }
+.pr-row-meta code { font: 11px var(--mono); }
+.pr-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #85878a; }
+.pr-dot.open { background: #4ec98b; }
+.pr-dot.draft { background: #85878a; }
+.pr-dot.merged { background: #b27bf1; }
+.pr-dot.closed { background: #f0616d; }
+.pr-detail { display: flex; flex-direction: column; gap: 8px; padding: 0 14px 12px 20px; }
+.pr-back { display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; margin-left: -6px; padding: 3px 6px; background: none; border: 0; border-radius: 6px; color: var(--muted); font: 12px var(--ui); cursor: pointer; }
+.pr-back svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.pr-back:hover, .pr-back:focus-visible { color: var(--fg); background: var(--hover); outline: none; }
+.pr-title { display: flex; align-items: flex-start; gap: 8px; font-size: 14px; font-weight: 600; line-height: 1.35; }
+.pr-title .pr-dot { margin-top: 6px; }
+.pr-chip { align-self: flex-start; padding: 1px 9px; border-radius: 999px; font-size: 11px; border: 1px solid var(--border); color: var(--muted); }
+.pr-chip.open { color: #4ec98b; border-color: color-mix(in srgb, #4ec98b 45%, transparent); }
+.pr-chip.merged { color: #b27bf1; border-color: color-mix(in srgb, #b27bf1 45%, transparent); }
+.pr-chip.closed { color: #f0616d; border-color: color-mix(in srgb, #f0616d 45%, transparent); }
+.pr-meta { font-size: 12px; color: var(--muted); }
+.pr-branch { font: 11px var(--mono); color: var(--fg); background: var(--hover); padding: 3px 8px; border-radius: 6px; overflow-wrap: anywhere; }
+.pr-stats { font-size: 12px; color: var(--muted); }
+.pr-add { color: var(--git-added, #73c991); }
+.pr-del { color: var(--git-deleted, #c74e39); }
+.pr-body { max-height: 160px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; font-size: 12px; color: var(--fg); padding: 8px 10px; background: var(--hover); border-radius: 6px; }
+.pr-files-title { margin-top: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.pr-files { display: flex; flex-direction: column; margin: 0 -14px 0 -20px; }
+.pr-files .hist-file { padding-left: 20px; padding-right: 14px; }
+.pr-counts { margin-left: auto; flex: none; font: 11px var(--mono); }

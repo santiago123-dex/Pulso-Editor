@@ -667,6 +667,10 @@ pub fn run() {
             gitops::git_discard,
             gitops::git_push,
             gitops::git_pull,
+            gitops::git_log,
+            gitops::git_commit_files,
+            gitops::git_commit_sources,
+            gitops::git_blame,
             githubauth::github_credential,
             githubauth::open_external
         ])

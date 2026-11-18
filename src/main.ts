@@ -23,6 +23,9 @@ import { openBoard } from "./board";
 import { initIssues, loadIssues } from "./issues";
 import { initProblems, setProblemsVisible } from "./problems";
 import { pickScript } from "./scripts";
+import { initHistory, showFileHistory } from "./history";
+import { initBlame, toggleBlame } from "./blame";
+import { initPrs, newPull, setPrsVisible } from "./prs";
 import { setChatVisible } from "./repoChat";
 import { initLsp, setLspWorkspace } from "./lsp";
 import { getLspState, lspDetail, lspLabel, onLspState } from "./lspState";
@@ -78,20 +81,21 @@ const inTauri = "__TAURI_INTERNALS__" in window;
 hooks.focusEditor = () => focusedEditor()?.focus();
 
 // ---------- Vistas de la barra lateral ----------
-type View = "explorer" | "search" | "git" | "issues" | "problems" | "chat";
+type View = "explorer" | "search" | "git" | "issues" | "problems" | "chat" | "prs";
 let currentView: View = "explorer";
 
 function showView(view: View | "settings") {
   if (view === "settings") { toggleSettings(); return; }
   closeSettings();
   const app = $("app");
-  if (view === currentView && !app.classList.contains("no-sidebar")) { app.classList.add("no-sidebar"); setProblemsVisible(false); setChatVisible(false); return; }
+  if (view === currentView && !app.classList.contains("no-sidebar")) { app.classList.add("no-sidebar"); setProblemsVisible(false); setChatVisible(false); setPrsVisible(false); return; }
   app.classList.remove("no-sidebar");
   currentView = view;
   document.querySelectorAll<HTMLElement>(".act[data-view]").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
-  for (const v of ["explorer", "search", "git", "issues", "problems", "chat"] as View[]) $(`view-${v}`).hidden = v !== view;
+  for (const v of ["explorer", "search", "git", "issues", "problems", "chat", "prs"] as View[]) $(`view-${v}`).hidden = v !== view;
   setProblemsVisible(view === "problems");
   setChatVisible(view === "chat");
+  setPrsVisible(view === "prs");
   if (view === "issues") void loadIssues();
   if (view === "git") void refreshScm();
 }
@@ -407,6 +411,9 @@ register(
   { id: "view.explorer", label: "Ver: Explorador", key: "Ctrl+Shift+E", run: () => showView("explorer") },
   { id: "view.search", label: "Ver: Buscar en archivos", key: "Ctrl+Shift+F", run: () => { showView("search"); focusSearch(selectionText()); } },
   { id: "view.git", label: "Ver: Control de código fuente (Git)", key: "Ctrl+Shift+G", keywords: "git source control commit cambios stage preparar", run: () => showView("git") },
+  { id: "git.history", label: "Git: Historial de commits", keywords: "git historial log commits", run: () => { showView("git"); document.querySelector<HTMLButtonElement>('#scm-tabs [data-tab="history"]')?.click(); } },
+  { id: "git.blame", label: "Git: Alternar culpa (blame) en línea", keywords: "git blame culpa autor linea quien", run: toggleBlame },
+  { id: "git.fileHistory", label: "Git: Historial del archivo activo", keywords: "git historial archivo file history log", run: () => { showView("git"); showFileHistory(); } },
   { id: "git.commit", label: "Git: Confirmar los cambios preparados (commit)", keywords: "git commit confirmar", run: () => { showView("git"); void commitStaged(); } },
   { id: "git.branch", label: "Git: Cambiar de rama o crear una nueva…", keywords: "git branch rama checkout switch crear", run: () => void pickBranch() },
   { id: "git.pull", label: "Git: Traer cambios del remoto (pull)", keywords: "git pull traer descargar", run: () => void pullChanges() },
@@ -414,6 +421,8 @@ register(
   { id: "git.stageAll", label: "Git: Preparar todos los cambios", keywords: "git stage add preparar todo", run: () => void stage([]) },
   { id: "git.unstageAll", label: "Git: Quitar todo de lo preparado", keywords: "git unstage reset quitar", run: () => void unstage([]) },
   { id: "task.script", label: "Tareas: Ejecutar un script de package.json", keywords: "npm run script tarea test build dev pnpm yarn bun", run: () => void pickScript() },
+  { id: "view.prs", label: "Ver: Pull requests", keywords: "pull request pr github revisar", run: () => showView("prs") },
+  { id: "git.newPull", label: "Git: Nueva pull request desde la rama actual", keywords: "pull request pr crear github", run: () => { showView("prs"); void newPull(); } },
   { id: "view.chat", label: "Ver: Chat del equipo", keywords: "chat mensajes equipo conversacion", run: () => showView("chat") },
   { id: "view.problems", label: "Ver: Problemas (errores y avisos)", key: "Ctrl+Shift+M", keywords: "problems errores avisos diagnosticos", run: () => showView("problems") },
   { id: "view.issues", label: "Ver: Issues de GitHub", key: "Ctrl+Shift+I", run: () => showView("issues") },
@@ -644,6 +653,9 @@ initSearch();
 initTerminal();
 initIssues();
 initScm();
+initHistory();
+initBlame();
+initPrs();
 initProblems(() => showView("problems"));
 initSettingsPage(() => void loadIssues());
 syncSettingsUI();

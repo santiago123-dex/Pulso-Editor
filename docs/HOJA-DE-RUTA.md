@@ -22,8 +22,8 @@ La prueba `test:lsp:ui` ya comprueba una compilación de desarrollo en WebView2 
 
 ## Prioridad 3: Git y flujo de trabajo
 
-1. Hecho: vista de diferencias, preparar/quitar, commits, ramas, descartar, push y pull (ver Funciones). Falta preparar por fragmentos, corregir el último commit y probar push/pull contra un remoto real con autenticación.
-2. Historial, borrar y renombrar ramas, merge/rebase y asistencia para conflictos.
+1. Hecho: vista de diferencias, preparar/quitar, commits, ramas, descartar, push y pull, historial (de todo el repositorio y de un archivo) y culpa en línea (ver Funciones). Falta preparar por fragmentos, corregir el último commit y probar push/pull contra un remoto real con autenticación.
+2. Hecho: historial y culpa en línea, y pull requests (lista, detalle con diferencias y crear). Falta borrar y renombrar ramas, merge/rebase, asistencia para conflictos, y en las pull requests: fusionar, revisar, comentar, resultados de comprobaciones y forks.
 3. Tablero kanban hecho (ver Funciones; probado solo contra un GitHub simulado): faltan probarlo con GitHub real, columnas personalizadas o GitHub Projects, orden dentro de la columna, comentarios y asignados editables, y webhooks para sincronizar al instante. Además, paginación y filtros del listado lateral de issues, pull requests y la relación entre una issue y los cambios locales.
 4. Hecho: panel de problemas de los archivos abiertos, formateo por LSP y ejecución de scripts de package.json. Falta analizar el proyecto completo, formateadores y linters externos (Prettier, ESLint), una vista de resultados de pruebas y depuración.
 
