@@ -19,6 +19,7 @@ import {
   type Layout,
 } from "./groups";
 import { fileIcon, loadIconManifest } from "./icons";
+import { openBoard } from "./board";
 import { initIssues, loadIssues } from "./issues";
 import { initLsp, setLspWorkspace } from "./lsp";
 import { getLspState, lspDetail, lspLabel, onLspState } from "./lspState";
@@ -408,6 +409,7 @@ register(
   { id: "git.stageAll", label: "Git: Preparar todos los cambios", keywords: "git stage add preparar todo", run: () => void stage([]) },
   { id: "git.unstageAll", label: "Git: Quitar todo de lo preparado", keywords: "git unstage reset quitar", run: () => void unstage([]) },
   { id: "view.issues", label: "Ver: Issues de GitHub", key: "Ctrl+Shift+I", run: () => showView("issues") },
+  { id: "view.board", label: "Issues: Abrir el tablero kanban", keywords: "kanban tablero board issues github", run: () => void openBoard() },
   { id: "view.settings", label: "Ver: Configuración", key: "Ctrl+,", run: () => showView("settings") },
   { id: "view.zoomIn", label: "Ver: Aumentar la fuente", key: "Ctrl+=", run: zoom(1) },
   { id: "view.zoomOut", label: "Ver: Reducir la fuente", key: "Ctrl+-", run: zoom(-1) },
@@ -525,6 +527,7 @@ const MENUS: MenuDef[] = [
     { cmd: "view.search", label: "Buscar" },
     { cmd: "view.git", label: "Control de código fuente" },
     { cmd: "view.issues", label: "Issues de GitHub" },
+    { cmd: "view.board", label: "Tablero kanban de issues" },
     { cmd: "view.settings", label: "Configuración" },
     "sep",
     { cmd: "layout.split", label: "Dividir el editor" },

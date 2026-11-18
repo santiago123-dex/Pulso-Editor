@@ -58,6 +58,24 @@ Autenticación: push y pull usan las credenciales que Git ya tenga en tu equipo 
 
 Límites: no hay preparar por fragmentos, historial, borrar o renombrar ramas, merge ni rebase, ni resolución asistida de conflictos (los archivos en conflicto se abren para editarlos y se marcan como resueltos al prepararlos). La comparación de un archivo sin preparar usa lo guardado en disco, no los cambios sin guardar del editor. Un renombrado detectado por git se prepara y se quita junto con el nombre anterior. Para repositorios con identidad sin configurar, git decide el resultado.
 
+### Tablero kanban de issues
+
+El botón del tablero en la vista de Issues (o «Issues: Abrir el tablero kanban» en la paleta) muestra las issues del remoto `origin` de GitHub en tres columnas:
+
+- **Por hacer**: issues abiertas sin la etiqueta de progreso.
+- **En curso**: issues abiertas que llevan la etiqueta de progreso (por defecto `in progress`, sin distinguir mayúsculas; se cambia en Configuración → GitHub).
+- **Hecho**: issues cerradas.
+
+Las tarjetas muestran número, título, etiquetas, a quién está asignada (o quién la abrió) y los comentarios; el icono de la esquina abre la issue en GitHub. Las pull requests no aparecen. Se cargan hasta 300 issues abiertas y 100 cerradas, las más recientemente actualizadas primero, y se avisa si hay más.
+
+**Arrastrar una tarjeta modifica GitHub**: a «En curso» añade la etiqueta; de «En curso» a «Por hacer» la quita; a «Hecho» quita la etiqueta y cierra la issue; de «Hecho» a otra columna reabre la issue (y etiqueta si va a «En curso»). La primera vez en cada repositorio pide confirmación. Necesita un token con permiso de escritura en las issues; sin token no se intenta nada. La tarjeta se mueve al instante y, si GitHub rechaza el cambio, Pulso explica el motivo (token inválido, sin permiso, límite de la API) y vuelve a leer el estado real.
+
+**Crear y editar**: «Nueva issue» (cabecera) o el `+` de «Por hacer» y «En curso» abren un formulario con título (obligatorio), descripción y etiquetas separadas por comas, y crean la issue en GitHub; en «En curso» nace con la etiqueta de progreso. Pulsar una tarjeta abre su edición con los datos actuales y solo envía a GitHub lo que cambió (no escribe nada si no tocaste nada). Las etiquetas del formulario reemplazan a las actuales: quitar o poner la etiqueta de progreso cambia la columna.
+
+**Sincronización con GitHub**: lo que pasa en GitHub llega al tablero al pulsar «Recargar», al volver a la ventana (si pasaron al menos 5 s desde la última lectura) y, solo con token, cada minuto mientras el tablero está abierto. Sin token no hay recarga periódica, porque la API sin autenticar permite solo 60 consultas por hora. La recarga automática no actúa con un diálogo abierto, un arrastre o un cambio en curso, ni con la ventana oculta, y no repinta si nada cambió. No usa webhooks, así que no es instantánea.
+
+Límites: columnas fijas (no hay columnas personalizadas ni GitHub Projects), sin orden manual dentro de una columna, sin cambiar el estado desde el formulario (se hace arrastrando), sin comentarios ni asignados editables, y se probó contra un servidor de GitHub simulado, no contra GitHub real.
+
 Para repositorios privados se puede configurar un token en Ajustes. Pulso intenta guardarlo en el almacén de credenciales del sistema y migra el token de la ubicación antigua; si el almacén falla, se conserva en memoria durante la sesión.
 
 ## Personalización

@@ -1,10 +1,18 @@
 import { invoke } from "@tauri-apps/api/core";
 import { fetchIssues, parseRemote, type Issue } from "./github";
+import { openBoard } from "./board";
 import { $, h, sel } from "./util";
 import { ws } from "./workspace";
 
 function message(text: string) {
   return h("li", "empty", text);
+}
+
+/** Propietario y nombre del repositorio de GitHub de la carpeta abierta, o null si no hay carpeta o remoto. */
+export async function currentRepo(): Promise<{ owner: string; repo: string } | null> {
+  if (!ws.root) return null;
+  try { return parseRemote(await invoke<string>("git_remote", { path: ws.root })); }
+  catch { return null; }
 }
 
 export async function loadIssues() {
@@ -58,4 +66,5 @@ function render(issues: Issue[]) {
 export function initIssues() {
   $("refresh-issues").onclick = () => void loadIssues();
   sel("issue-state").onchange = () => void loadIssues();
+  $("open-board").onclick = () => void openBoard();
 }

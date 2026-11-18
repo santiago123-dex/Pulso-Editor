@@ -158,3 +158,130 @@ describe("fetchIssues", () => {
     await expect(g.fetchIssues("a", "b", "open")).rejects.toThrow("404");
   });
 });
+
+describe("issues: paginación y cambios", () => {
+  type Call = { method: string; url: string; body?: string; auth?: string };
+  const calls: Call[] = [];
+  const pages = new Map<string, unknown[]>();
+  let status = 200;
+  let statusFor: Record<string, number> = {};
+
+  function stubFetch() {
+    calls.length = 0;
+    vi.stubGlobal("fetch", async (url: string, init: { method?: string; body?: string; headers?: Record<string, string> } = {}) => {
+      calls.push({ method: init.method ?? "GET", url, body: init.body, auth: init.headers?.Authorization });
+      const key = `${init.method ?? "GET"} ${new URL(url).pathname}`;
+      const st = statusFor[key] ?? status;
+      const page = new URL(url).searchParams.get("page") ?? "1";
+      return { ok: st >= 200 && st < 300, status: st, json: async () => pages.get(`${new URL(url).searchParams.get("state")}-${page}`) ?? [] };
+    });
+  }
+  const issue = (n: number, pr = false) => ({ number: n, title: `t${n}`, state: "open", html_url: "", user: { login: "u" }, labels: [], comments: 0, ...(pr ? { pull_request: {} } : {}) });
+  beforeEach(() => { pages.clear(); status = 200; statusFor = {}; stubFetch(); });
+
+  it("junta las páginas hasta recibir una incompleta y descarta las PR", async () => {
+    pages.set("open-1", Array.from({ length: 100 }, (_, i) => issue(i + 1, i === 0)));
+    pages.set("open-2", [issue(101), issue(102)]);
+    const g = await fresh();
+    const r = await g.fetchAllIssues("a", "b", "open");
+    expect(r.issues).toHaveLength(101);
+    expect(r.truncated).toBe(false);
+    expect(calls.map((c) => new URL(c.url).searchParams.get("page"))).toEqual(["1", "2"]);
+    expect(calls[0].url).toContain("per_page=100");
+  });
+
+  it("se detiene en el máximo y avisa de que hay más", async () => {
+    for (let p = 1; p <= 5; p++) pages.set(`closed-${p}`, Array.from({ length: 100 }, (_, i) => issue(p * 1000 + i)));
+    const g = await fresh();
+    const r = await g.fetchAllIssues("a", "b", "closed", 200);
+    expect(r.issues).toHaveLength(200);
+    expect(r.truncated).toBe(true);
+    expect(calls).toHaveLength(2);
+  });
+
+  it("envía el token y explica los fallos en español", async () => {
+    const g = await fresh();
+    await g.setToken("ghp_x");
+    pages.set("open-1", [issue(1)]);
+    await g.fetchAllIssues("a", "b", "open");
+    expect(calls[0].auth).toBe("Bearer ghp_x");
+    status = 404;
+    await expect(g.fetchAllIssues("a", "b", "open")).rejects.toThrow(/no encontró el repositorio/);
+    status = 401;
+    await expect(g.fetchAllIssues("a", "b", "open")).rejects.toThrow(/rechazó el token/);
+    expect(g.explainStatus(403, true)).toContain("permiso de escritura");
+    expect(g.explainStatus(403, false)).not.toContain("escritura");
+    expect(g.explainStatus(500, false)).toBe("GitHub respondió 500");
+  });
+
+  it("añadir y quitar etiquetas y cambiar el estado usan los endpoints correctos", async () => {
+    const g = await fresh();
+    await g.addLabel("o", "r", 7, "in progress");
+    await g.removeLabel("o", "r", 7, "in progress");
+    await g.setIssueState("o", "r", 7, "closed");
+    expect(calls.map((c) => `${c.method} ${new URL(c.url).pathname}`)).toEqual([
+      "POST /repos/o/r/issues/7/labels",
+      "DELETE /repos/o/r/issues/7/labels/in%20progress",
+      "PATCH /repos/o/r/issues/7",
+    ]);
+    expect(JSON.parse(calls[0].body!)).toEqual({ labels: ["in progress"] });
+    expect(JSON.parse(calls[2].body!)).toEqual({ state: "closed" });
+  });
+
+  it("quitar una etiqueta que ya no está no es un error, pero un 403 sí", async () => {
+    const g = await fresh();
+    statusFor = { "DELETE /repos/o/r/issues/7/labels/x": 404 };
+    await expect(g.removeLabel("o", "r", 7, "x")).resolves.toBeUndefined();
+    statusFor = { "PATCH /repos/o/r/issues/7": 403 };
+    await expect(g.setIssueState("o", "r", 7, "open")).rejects.toThrow(/permiso de escritura/);
+  });
+
+  it("la dirección de la API solo cambia con la clave de pruebas", async () => {
+    const g = await fresh();
+    h.store.set("pulso.githubApi", "http://127.0.0.1:9999/");
+    await g.addLabel("o", "r", 1, "x");
+    expect(calls[0].url.startsWith("http://127.0.0.1:9999/repos/o/r/issues/1/labels")).toBe(true);
+    h.store.delete("pulso.githubApi");
+    await g.addLabel("o", "r", 1, "x");
+    expect(calls[1].url.startsWith("https://api.github.com/")).toBe(true);
+  });
+});
+
+describe("issues: crear y editar", () => {
+  const sent: { method: string; url: string; body: unknown }[] = [];
+  let reply: { status: number; json: unknown } = { status: 201, json: { number: 9, title: "x" } };
+  beforeEach(() => {
+    sent.length = 0;
+    reply = { status: 201, json: { number: 9, title: "x" } };
+    vi.stubGlobal("fetch", async (url: string, init: { method: string; body?: string }) => {
+      sent.push({ method: init.method, url, body: init.body ? JSON.parse(init.body) : undefined });
+      return { ok: reply.status < 300, status: reply.status, json: async () => reply.json };
+    });
+  });
+
+  it("crear envía título, descripción y etiquetas y devuelve la issue de GitHub", async () => {
+    const g = await fresh();
+    const issue = await g.createIssue("o", "r", { title: "Hola", body: "texto", labels: ["in progress"] });
+    expect(issue.number).toBe(9);
+    expect(sent[0].method).toBe("POST");
+    expect(new URL(sent[0].url).pathname).toBe("/repos/o/r/issues");
+    expect(sent[0].body).toEqual({ title: "Hola", body: "texto", labels: ["in progress"] });
+  });
+
+  it("editar solo envía lo que cambia", async () => {
+    const g = await fresh();
+    reply = { status: 200, json: { number: 4, title: "Nuevo" } };
+    await g.updateIssue("o", "r", 4, { title: "Nuevo" });
+    expect(sent[0].method).toBe("PATCH");
+    expect(new URL(sent[0].url).pathname).toBe("/repos/o/r/issues/4");
+    expect(sent[0].body).toEqual({ title: "Nuevo" });
+  });
+
+  it("explica los fallos de escritura", async () => {
+    const g = await fresh();
+    reply = { status: 403, json: {} };
+    await expect(g.createIssue("o", "r", { title: "t", body: "", labels: [] })).rejects.toThrow(/permiso de escritura/);
+    reply = { status: 422, json: {} };
+    await expect(g.updateIssue("o", "r", 1, { title: "" })).rejects.toThrow(/datos no válidos/);
+  });
+});

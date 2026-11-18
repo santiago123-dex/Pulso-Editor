@@ -7,6 +7,7 @@
 // El script usa una carpeta temporal, no toca tus proyectos y restaura la sesión y la configuración al terminar.
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 
@@ -91,6 +92,8 @@ const write = (rel, text) => { fs.mkdirSync(path.dirname(`${ROOT}/${rel}`), { re
 const leftoverTmp = () => fs.readdirSync(ROOT, { recursive: true }).filter((f) => String(f).endsWith(".tmp"));
 
 // ---------- Preparación ----------
+// El token real del usuario se conserva: algunas pruebas lo reemplazan y siempre se restaura al terminar.
+const savedToken = await run(`return await window.__TAURI_INTERNALS__.invoke("secret_get", { name: "github-token" })`).catch(() => null);
 const saved = await run(`return { session: localStorage.getItem("pulso.session"), settings: localStorage.getItem("pulso.settings"), recent: localStorage.getItem("pulso.recent"), lastRoot: localStorage.getItem("pulso.lastRoot") }`);
 fs.rmSync(ROOT, { recursive: true, force: true });
 write("a.txt", "hola mundo\nsegunda hola linea\n");
@@ -741,6 +744,246 @@ try {
     await clickBtn("Entendido");
   });
 
+
+  console.log("\nTablero kanban de issues (servidor de GitHub falso, sin red)");
+  const mockIssues = [
+    { number: 1, title: "Primera tarea", state: "open", labels: [], user: { login: "ana" }, comments: 2, html_url: "https://example.test/1", assignees: [] },
+    { number: 2, title: "En marcha", state: "open", labels: [{ name: "in progress", color: "fbca04" }, { name: "bug", color: "d73a4a" }], user: { login: "bo" }, comments: 0, html_url: "https://example.test/2", assignees: [{ login: "carla" }] },
+    { number: 3, title: "Ya hecha", state: "closed", labels: [], user: { login: "ana" }, comments: 1, html_url: "https://example.test/3", assignees: [] },
+    { number: 4, title: "Una PR que no debe salir", state: "open", labels: [], user: { login: "bo" }, comments: 0, html_url: "https://example.test/4", pull_request: {} },
+  ];
+  const writes = [];
+  let failNext = null;
+  const server = http.createServer((req, res) => {
+    const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, content-type, x-github-api-version, accept", "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS" };
+    if (req.method === "OPTIONS") { res.writeHead(204, cors); res.end(); return; }
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      const url = new URL(req.url, "http://x");
+      const send = (code, data) => { res.writeHead(code, { ...cors, "Content-Type": "application/json" }); res.end(JSON.stringify(data ?? {})); };
+      if (req.headers.authorization !== "Bearer e2e-token") { send(401, { message: "Bad credentials" }); return; }
+      let m;
+      if (req.method === "GET" && (m = url.pathname.match(/^\/repos\/e2e\/demo\/issues$/))) {
+        const state = url.searchParams.get("state");
+        send(200, mockIssues.filter((i) => i.state === state));
+        return;
+      }
+      if (req.method !== "GET") {
+        writes.push(`${req.method} ${url.pathname}${body ? " " + body : ""}`);
+        if (failNext) { const code = failNext; failNext = null; send(code, { message: "falló a propósito" }); return; }
+      }
+      if (req.method === "POST" && url.pathname === "/repos/e2e/demo/issues") {
+        const d = JSON.parse(body);
+        const n = 10 + mockIssues.length;
+        const created = { number: n, title: d.title, body: d.body, state: "open", labels: (d.labels || []).map((name) => ({ name, color: "ededed" })), user: { login: "yo" }, comments: 0, html_url: "https://example.test/" + n, assignees: [] };
+        mockIssues.push(created);
+        send(201, created); return;
+      }
+      if ((m = url.pathname.match(/^\/repos\/e2e\/demo\/issues\/(\d+)\/labels$/)) && req.method === "POST") {
+        const i = mockIssues.find((x) => x.number === Number(m[1]));
+        for (const name of JSON.parse(body).labels) if (!i.labels.some((l) => l.name === name)) i.labels.push({ name, color: "ededed" });
+        send(200, i.labels); return;
+      }
+      if ((m = url.pathname.match(/^\/repos\/e2e\/demo\/issues\/(\d+)\/labels\/(.+)$/)) && req.method === "DELETE") {
+        const i = mockIssues.find((x) => x.number === Number(m[1]));
+        const name = decodeURIComponent(m[2]);
+        if (!i.labels.some((l) => l.name === name)) { send(404, {}); return; }
+        i.labels = i.labels.filter((l) => l.name !== name);
+        send(200, i.labels); return;
+      }
+      if ((m = url.pathname.match(/^\/repos\/e2e\/demo\/issues\/(\d+)$/)) && req.method === "PATCH") {
+        const i = mockIssues.find((x) => x.number === Number(m[1]));
+        const patch = JSON.parse(body);
+        if (patch.state) i.state = patch.state;
+        if (patch.title !== undefined) i.title = patch.title;
+        if (patch.body !== undefined) i.body = patch.body;
+        if (patch.labels) i.labels = patch.labels.map((name) => ({ name, color: "ededed" }));
+        send(200, i); return;
+      }
+      send(404, {});
+    });
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const API = `http://127.0.0.1:${server.address().port}`;
+  const colOf = (n) => run(`return document.querySelector('.board-card[data-number="${n}"]')?.closest(".board-col")?.dataset.col ?? null`);
+  const dropOn = (n, col) => run(`
+    const card = document.querySelector('.board-card[data-number="${n}"]');
+    const dt = new DataTransfer();
+    card.dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: dt }));
+    const target = document.querySelector('.board-col[data-col="${col}"]');
+    target.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: dt }));
+    target.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+    return 1`);
+  const openBoard = async () => {
+    await run(`document.getElementById("open-board").click(); return 1`);
+    await waitFor(`return !document.getElementById("board-view").hidden && document.querySelectorAll("#board-view .board-card").length > 0`, "las tarjetas del tablero");
+  };
+
+  try {
+    await test("el tablero agrupa las issues en Por hacer / En curso / Hecho y ignora las PR", async () => {
+      git("remote", "set-url", "origin", "https://github.com/e2e/demo.git");
+      await invoke("secret_set", { name: "github-token", value: "e2e-token" });
+      await run(`localStorage.setItem("pulso.githubApi", ${JSON.stringify(API)}); localStorage.removeItem("pulso.boardWriteOk:e2e/demo"); return 1`);
+      await bootApp(gitSession());
+      await key("i", { ctrl: true, shift: true });
+      await openBoard();
+      eq(await colOf(1), "todo");
+      eq(await colOf(2), "doing");
+      eq(await colOf(3), "done");
+      eq(await colOf(4), null, "las PR no son issues");
+      eq(await run(`return [...document.querySelectorAll(".board-col-count")].map(c => c.textContent)`), ["1", "1", "1"]);
+      eq(await run(`return document.querySelector('.board-card[data-number="2"] .board-card-foot').textContent`), "carla", "muestra a quien está asignada");
+    });
+
+    await test("arrastrar a «En curso» pide confirmar la primera vez, añade la etiqueta y mueve la tarjeta", async () => {
+      await dropOn(1, "doing");
+      await waitFor(`return !!document.querySelector(".modal")`, "la confirmación de escritura");
+      eq((await dialog()).title, "Mover tarjetas modifica GitHub");
+      await clickBtn("Cancelar");
+      await wait(300);
+      eq(writes.length, 0, "cancelar no escribe nada");
+      eq(await colOf(1), "todo");
+      await dropOn(1, "doing");
+      await waitFor(`return !!document.querySelector(".modal")`, "la confirmación otra vez");
+      await clickBtn("Entendido, continuar");
+      await waitFor(`return document.querySelector('.board-card[data-number="1"]')?.closest(".board-col")?.dataset.col === "doing"`, "la tarjeta en curso");
+      await waitFor(`return true`, "");
+      eq(writes, ['POST /repos/e2e/demo/issues/1/labels {"labels":["in progress"]}']);
+      ok(mockIssues[0].labels.some((l) => l.name === "in progress"), "GitHub (falso) recibió la etiqueta");
+    });
+
+    await test("a «Hecho» quita la etiqueta y cierra; a «Por hacer» reabre sin volver a preguntar", async () => {
+      writes.length = 0;
+      await dropOn(2, "done");
+      await waitFor(`return document.querySelector('.board-card[data-number="2"]')?.closest(".board-col")?.dataset.col === "done"`, "la tarjeta hecha");
+      await wait(500);
+      eq(writes, ["DELETE /repos/e2e/demo/issues/2/labels/in%20progress", 'PATCH /repos/e2e/demo/issues/2 {"state":"closed"}']);
+      eq(mockIssues[1].state, "closed");
+      writes.length = 0;
+      await dropOn(3, "todo");
+      await waitFor(`return document.querySelector('.board-card[data-number="3"]')?.closest(".board-col")?.dataset.col === "todo"`, "la tarjeta reabierta");
+      await wait(500);
+      eq(writes, ['PATCH /repos/e2e/demo/issues/3 {"state":"open"}']);
+      eq(await run(`return !!document.querySelector(".modal")`), false, "ya no vuelve a pedir confirmación");
+    });
+
+    await test("soltar en la misma columna no escribe y un fallo de GitHub se explica y deja el estado real", async () => {
+      writes.length = 0;
+      await dropOn(3, "todo");
+      await wait(400);
+      eq(writes.length, 0);
+      failNext = 403;
+      await dropOn(3, "doing");
+      await waitFor(`return !!document.querySelector(".modal")`, "el diálogo de error");
+      const d = await dialog();
+      eq(d.title, "No se pudo mover #3");
+      ok((await run(`return document.querySelector(".modal-msg").textContent`)).includes("permiso de escritura"));
+      await clickBtn("Entendido");
+      await waitFor(`return document.querySelector('.board-card[data-number="3"]')?.closest(".board-col")?.dataset.col === "todo"`, "la tarjeta vuelve a su sitio");
+      eq(mockIssues[2].labels.length, 0, "GitHub no cambió");
+    });
+
+    const fillForm = (v) => run(`
+      const f = [...document.querySelectorAll(".modal-form .modal-input")];
+      const set = (el, val) => { if (val === undefined) return; el.value = val; el.dispatchEvent(new Event("input", { bubbles: true })); };
+      set(f[0], ${JSON.stringify(v.title)}); set(f[1], ${JSON.stringify(v.body)}); set(f[2], ${JSON.stringify(v.labels)});
+      return f.map(x => x.value)`);
+
+    await test("«Nueva issue» crea la issue en GitHub y la tarjeta aparece en la columna", async () => {
+      writes.length = 0;
+      await run(`document.querySelector('.board-col[data-col="todo"] .board-col-add').click(); return 1`);
+      await waitFor(`return !!document.querySelector(".modal-form")`, "el formulario");
+      eq((await dialog()).title, "Nueva issue en «Por hacer»");
+      await clickBtn("Crear");
+      await waitFor(`return document.querySelector(".modal-err")?.textContent.includes("título")`, "que exija el título");
+      await fillForm({ title: "Creada desde Pulso", body: "Primera línea\nSegunda línea", labels: "bug, ui, BUG" });
+      await clickBtn("Crear");
+      await waitFor(`return [...document.querySelectorAll(".board-card-title")].some(t => t.textContent === "Creada desde Pulso")`, "la tarjeta nueva");
+      eq(writes.length, 1);
+      ok(writes[0].startsWith("POST /repos/e2e/demo/issues "), writes[0]);
+      eq(JSON.parse(writes[0].slice(writes[0].indexOf("{"))), { title: "Creada desde Pulso", body: "Primera línea\nSegunda línea", labels: ["bug", "ui"] });
+      eq(await run(`return [...document.querySelectorAll(".board-card")].find(c => c.querySelector(".board-card-title").textContent === "Creada desde Pulso").closest(".board-col").dataset.col`), "todo");
+      ok(mockIssues.some((i) => i.title === "Creada desde Pulso"), "GitHub (falso) la guardó");
+    });
+
+    await test("crear desde «En curso» añade la etiqueta de progreso", async () => {
+      writes.length = 0;
+      await run(`document.querySelector('.board-col[data-col="doing"] .board-col-add').click(); return 1`);
+      await waitFor(`return !!document.querySelector(".modal-form")`, "el formulario");
+      await fillForm({ title: "Ya empezada", labels: "ui" });
+      await clickBtn("Crear");
+      await waitFor(`return [...document.querySelectorAll(".board-card-title")].some(t => t.textContent === "Ya empezada")`, "la tarjeta");
+      eq(JSON.parse(writes[0].slice(writes[0].indexOf("{"))).labels, ["ui", "in progress"]);
+      eq(await run(`return [...document.querySelectorAll(".board-card")].find(c => c.querySelector(".board-card-title").textContent === "Ya empezada").closest(".board-col").dataset.col`), "doing");
+    });
+
+    await test("pulsar una tarjeta abre su edición con los datos actuales y guarda solo lo que cambió", async () => {
+      writes.length = 0;
+      await run(`document.querySelector('.board-card[data-number="1"] .board-card-title').click(); return 1`);
+      await waitFor(`return !!document.querySelector(".modal-form")`, "el formulario de edición");
+      eq((await dialog()).title, "Editar #1");
+      eq(await run(`return [...document.querySelectorAll(".modal-form .modal-input")].map(x => x.value)`), ["Primera tarea", "", "in progress"], "trae título, descripción y etiquetas");
+      await clickBtn("Cancelar");
+      await wait(300);
+      eq(writes.length, 0);
+      // Guardar sin tocar nada tampoco escribe.
+      await run(`document.querySelector('.board-card[data-number="1"] .board-card-title').click(); return 1`);
+      await waitFor(`return !!document.querySelector(".modal-form")`, "el formulario otra vez");
+      await clickBtn("Guardar");
+      await wait(400);
+      eq(writes.length, 0, "sin cambios no se escribe nada");
+      await run(`document.querySelector('.board-card[data-number="1"] .board-card-title').click(); return 1`);
+      await waitFor(`return !!document.querySelector(".modal-form")`, "el formulario por tercera vez");
+      await fillForm({ title: "Primera tarea (editada)", body: "con descripción", labels: "in progress, docs" });
+      await clickBtn("Guardar");
+      await waitFor(`return [...document.querySelectorAll(".board-card-title")].some(t => t.textContent === "Primera tarea (editada)")`, "el título nuevo en la tarjeta");
+      eq(writes.length, 1);
+      eq(JSON.parse(writes[0].slice(writes[0].indexOf("{"))), { title: "Primera tarea (editada)", body: "con descripción", labels: ["in progress", "docs"] });
+      eq(mockIssues.find((i) => i.number === 1).title, "Primera tarea (editada)");
+    });
+
+    await test("al volver a la ventana el tablero trae lo creado en GitHub y no repinta si nada cambió", async () => {
+      await run(`localStorage.setItem("pulso.boardMinGap", "300"); return 1`);
+      mockIssues.push({ number: 99, title: "Creada directamente en GitHub", state: "open", labels: [], user: { login: "otra" }, comments: 0, html_url: "https://example.test/99", assignees: [] });
+      await wait(500);
+      await run(`window.dispatchEvent(new Event("focus")); return 1`);
+      await waitFor(`return [...document.querySelectorAll(".board-card-title")].some(t => t.textContent === "Creada directamente en GitHub")`, "la issue creada en GitHub", 15000);
+      eq(await run(`return document.querySelector('.board-card[data-number="99"]').closest(".board-col").dataset.col`), "todo");
+      // Sin cambios en GitHub, las tarjetas existentes siguen siendo las mismas (no hay parpadeo ni se pierde el foco).
+      await run(`document.querySelector('.board-card[data-number="2"]').__marca = "intacta"; return 1`);
+      await wait(500);
+      await run(`window.dispatchEvent(new Event("focus")); return 1`);
+      await wait(1200);
+      eq(await run(`return document.querySelector('.board-card[data-number="2"]')?.__marca ?? null`), "intacta", "el tablero no se repintó");
+      // Un cambio hecho fuera sí se refleja: alguien la cierra en GitHub.
+      mockIssues.find((i) => i.number === 99).state = "closed";
+      await wait(500);
+      await run(`window.dispatchEvent(new Event("focus")); return 1`);
+      await waitFor(`return document.querySelector('.board-card[data-number="99"]')?.closest(".board-col")?.dataset.col === "done"`, "la issue cerrada en GitHub pasa a Hecho", 15000);
+      await run(`localStorage.removeItem("pulso.boardMinGap"); return 1`);
+    });
+
+    await test("sin token no se intenta escribir y Esc cierra el tablero", async () => {
+      await invoke("secret_delete", { name: "github-token" });
+      await bootApp(gitSession());
+      writes.length = 0;
+      // Sin token la lectura también falla: el tablero lo explica en vez de quedarse vacío.
+      await run(`document.querySelector('.act[data-view="git"]').click(); return 1`);
+      await key("i", { ctrl: true, shift: true });
+      await run(`document.getElementById("open-board").click(); return 1`);
+      await waitFor(`return document.querySelector("#board-view .board-msg")?.textContent.includes("token")`, "el aviso de token", 15000);
+      eq(writes.length, 0);
+      await key("Escape");
+      await waitFor(`return document.getElementById("board-view").hidden`, "cerrar con Esc");
+    });
+  } finally {
+    server.close();
+    await run(`localStorage.removeItem("pulso.githubApi"); localStorage.removeItem("pulso.boardWriteOk:e2e/demo"); return 1`).catch(() => {});
+    if (savedToken) await invoke("secret_set", { name: "github-token", value: savedToken }).catch(() => {});
+    else await invoke("secret_delete", { name: "github-token" }).catch(() => {});
+  }
+
   await test("fuera de un repositorio el panel lo explica en vez de fallar", async () => {
     await bootApp(session([["a.txt"]]));
     await key("g", { ctrl: true, shift: true });
@@ -749,6 +992,8 @@ try {
   });
 } finally {
   // Deja la app como estaba.
+  if (savedToken) await invoke("secret_set", { name: "github-token", value: savedToken }).catch(() => {});
+  else await invoke("secret_delete", { name: "github-token" }).catch(() => {});
   await run(`${saved.session == null ? 'localStorage.removeItem("pulso.session")' : `localStorage.setItem("pulso.session", ${JSON.stringify(saved.session)})`};
              ${saved.settings == null ? 'localStorage.removeItem("pulso.settings")' : `localStorage.setItem("pulso.settings", ${JSON.stringify(saved.settings)})`};
              ${saved.recent == null ? 'localStorage.removeItem("pulso.recent")' : `localStorage.setItem("pulso.recent", ${JSON.stringify(saved.recent)})`};

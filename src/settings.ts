@@ -30,6 +30,8 @@ export interface Settings {
   terminalCursor: "block" | "bar" | "underline";
   /** Ya se ofreció adaptar la terminal a la configuración que el usuario tiene. */
   terminalAdapted: boolean;
+  /** Etiqueta de GitHub que coloca una issue en la columna «En curso» del tablero. */
+  boardProgressLabel: string;
   /** Atajos personalizados: id de comando -> combinación ("" = sin atajo). */
   keybindings: Record<string, string>;
   /** Temas importados de VS Code. */
@@ -57,6 +59,7 @@ export const DEFAULTS: Settings = {
   terminalScheme: "",
   terminalCursor: "block",
   terminalAdapted: false,
+  boardProgressLabel: "in progress",
   keybindings: {},
   customThemes: {},
 };

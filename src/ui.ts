@@ -115,6 +115,59 @@ export function promptText(o: {
   });
 }
 
+export interface FormField { key: string; label: string; value?: string; multiline?: boolean; placeholder?: string; required?: boolean }
+
+/** Formulario con varios campos; devuelve los valores (sin espacios en los extremos) o null si se cancela. */
+export function showForm(o: { title: string; fields: FormField[]; submitLabel?: string; hint?: string }): Promise<Record<string, string> | null> {
+  return new Promise((resolve) => {
+    const box = h("div", "modal modal-form");
+    box.append(h("div", "modal-title", o.title));
+    const inputs = new Map<string, HTMLInputElement | HTMLTextAreaElement>();
+    for (const f of o.fields) {
+      const wrap = h("label", "form-field");
+      wrap.append(h("span", "form-label", f.label + (f.required ? " *" : "")));
+      const input = f.multiline ? h("textarea", "modal-input form-area") : h("input", "modal-input");
+      if (input instanceof HTMLInputElement) input.type = "text";
+      if (input instanceof HTMLTextAreaElement) input.rows = 6;
+      input.value = f.value ?? "";
+      input.placeholder = f.placeholder ?? "";
+      input.spellcheck = false;
+      wrap.append(input);
+      box.append(wrap);
+      inputs.set(f.key, input);
+    }
+    if (o.hint) box.append(h("div", "form-hint", o.hint));
+    const err = h("div", "modal-err");
+    const row = h("div", "modal-btns");
+    const cancel = h("button", "mbtn", "Cancelar");
+    const ok = h("button", "mbtn primary", o.submitLabel ?? "Aceptar");
+    row.append(cancel, ok);
+    box.append(err, row);
+    let close = () => {};
+    const done = (v: Record<string, string> | null) => { close(); resolve(v); };
+    const submit = () => {
+      const values: Record<string, string> = {};
+      for (const f of o.fields) {
+        const v = inputs.get(f.key)!.value.trim();
+        if (f.required && !v) { err.textContent = `Escribe ${f.label.toLowerCase()}`; inputs.get(f.key)!.focus(); return; }
+        values[f.key] = v;
+      }
+      done(values);
+    };
+    cancel.onclick = () => done(null);
+    ok.onclick = submit;
+    for (const input of inputs.values()) {
+      input.oninput = () => { err.textContent = ""; };
+      input.onkeydown = (e) => {
+        const multiline = input instanceof HTMLTextAreaElement;
+        if (e.key === "Enter" && (!multiline || e.ctrlKey || e.metaKey)) { e.preventDefault(); submit(); }
+      };
+    }
+    close = openModal(box, () => done(null));
+    inputs.values().next().value?.focus();
+  });
+}
+
 // ---------- Menú contextual ----------
 export type MenuItem =
   | { label: string; hint?: string; run: () => void; danger?: boolean; disabled?: boolean }

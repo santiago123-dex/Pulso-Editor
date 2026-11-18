@@ -243,8 +243,16 @@ function buildGithub() {
     onTokenChange();
   };
   syncers.push(() => { token.value = getToken(); });
-  addSection("github", "GitHub", "Conexión con tus repositorios para ver issues.", [
-    row("Token de acceso", "Necesario para repos privados. Se guarda en el Administrador de credenciales del sistema, no en un archivo.", token, "token github"),
+  const label = h("input", "sp-text");
+  label.id = "st-board-label";
+  label.type = "text";
+  label.placeholder = "in progress";
+  label.spellcheck = false;
+  label.onchange = () => { state.settings.boardProgressLabel = label.value.trim() || "in progress"; commit(); };
+  syncers.push(() => { label.value = state.settings.boardProgressLabel; });
+  addSection("github", "GitHub", "Conexión con tus repositorios para ver issues y moverlas en el tablero.", [
+    row("Token de acceso", "Necesario para repos privados y para mover tarjetas del tablero (permiso de escritura en issues). Se guarda en el Administrador de credenciales del sistema, no en un archivo.", token, "token github"),
+    row("Etiqueta de «En curso»", "Una issue abierta con esta etiqueta aparece en la columna «En curso» del tablero. Sin ella está «Por hacer»; cerrada, «Hecho».", label, "tablero kanban etiqueta in progress en curso"),
   ]);
 }
 

@@ -163,6 +163,9 @@
               <option value="closed">Cerradas</option>
               <option value="all">Todas</option>
             </select>
+            <button class="icon-btn" id="open-board" title="Abrir el tablero kanban">
+              <svg viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10" rx="1"/><rect x="17" y="4" width="4" height="13" rx="1"/></svg>
+            </button>
             <button class="icon-btn" id="refresh-issues" title="Recargar">
               <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg>
             </button>
@@ -177,6 +180,7 @@
       <main>
         <div id="groups" data-dir="row"></div>
         <div id="diff-view" hidden></div>
+        <div id="board-view" hidden></div>
         <section id="panel" hidden>
           <div id="panel-sash"></div>
           <div class="panel-head">
