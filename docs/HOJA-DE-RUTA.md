@@ -4,7 +4,7 @@ Estas son propuestas, no funciones ya implementadas. El orden es una recomendaci
 
 ## Prioridad 1: confianza y pruebas en Windows
 
-1. Probar el instalador y la aplicación instalada en un Windows limpio, con y sin Node, Git y WebView2 disponibles. Ya se probó en el equipo de desarrollo, con y sin Node y Git en el `PATH` (ver [Distribución](DISTRIBUCION.md)); falta un Windows limpio, el MSI, la firma y acotar la CSP.
+1. Probar el instalador y la aplicación instalada en un Windows limpio, con y sin Node, Git y WebView2 disponibles. Ya se probó en el equipo de desarrollo, con y sin Node y Git en el `PATH` (ver [Distribución](DISTRIBUCION.md)); falta un Windows limpio, el MSI y la firma. La CSP ya está acotada (solo scripts propios, conexiones a la API de GitHub y avatares de GitHub).
 2. Ampliar pruebas de recuperación y guardado ante cierres inesperados, permisos, disco lleno, archivos grandes, enlaces y operaciones simultáneas.
 3. Hecho: las copias pendientes se escriben al perder el foco. Falta avisar de fallos de manera persistente y evaluar límites de almacenamiento y privacidad de las copias.
 4. Hecho: un cambio de fecha con el mismo contenido ya no se trata como conflicto. Falta mostrar las diferencias al resolver un conflicto, y estudiar mecanismos que reduzcan la carrera entre comprobar y reemplazar. No prometer protección absoluta sin pruebas por plataforma.
@@ -31,7 +31,7 @@ La prueba `test:lsp:ui` ya comprueba una compilación de desarrollo en WebView2 
 
 - Búsqueda que respete `.gitignore` y ofrezca filtros glob configurables.
 - Rendimiento: ya hay medición (`npm run perf`, ver [Rendimiento](RENDIMIENTO.md)). Falta perfilar los picos al escribir en archivos muy grandes, acotar la memoria del servidor de lenguaje y medir en compilación de producción y con proyectos reales antes de fijar metas.
-- Revisar la política CSP y acotar los comandos nativos expuestos a la interfaz para reducir el impacto de una eventual inyección de código.
+- Hecho: política CSP estricta. Falta acotar los comandos nativos de archivos (hoy aceptan cualquier ruta, como cualquier editor local) para reducir el impacto de una eventual inyección de código.
 - Perfiles, accesibilidad y pruebas de uso con distintos tamaños de ventana.
 - Sistema de extensibilidad definido y acotado antes de prometer compatibilidad con extensiones de VS Code.
 - Hecho: asistente de IA con Claude Code (ver Funciones). Falta Codex y otros proveedores, claves de API propias, aprobar permisos desde Pulso, mostrar los cambios propuestos como diferencias antes de aplicarlos, adjuntar issues, pull requests y diffs, y flujos como issue → plan → cambios → revisión.
