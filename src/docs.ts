@@ -211,10 +211,23 @@ async function resolveConflict(d: Doc): Promise<boolean> {
       message: `${baseName(d.path)} se modificó fuera del editor después de abrirlo. Si guardas ahora, esos cambios se perderán.`,
       buttons: [
         { label: "Cancelar", value: "cancel" },
+        { label: "Ver diferencias", value: "diff" },
         { label: "Cargar la versión del disco", value: "reload" },
         { label: "Sobrescribir con la mía", value: "overwrite", danger: true },
       ],
     });
+    if (r === "diff") {
+      const disk = await invoke<string>("read_file", { path: d.path });
+      const { openDiffRequest } = await import("./diffView");
+      await openDiffRequest({
+        title: `${baseName(d.path)} (conflicto)`,
+        sub: "Disco (externo) ↔ Editor (tus cambios sin guardar)",
+        path: d.path,
+        openPath: d.path,
+        load: async () => ({ original: disk, modified: d.model.getValue(), binary: false }),
+      });
+      return false;
+    }
     if (r === "overwrite") return await saveDoc(d, true);
     if (r === "reload") {
       await reloadDoc(d.path);

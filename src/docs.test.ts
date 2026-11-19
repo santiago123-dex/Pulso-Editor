@@ -73,6 +73,9 @@ vi.mock("./ui", () => ({
   setStatus: vi.fn(),
   showDialog: vi.fn(async (o: unknown) => { h.dialog.shown.push(o); return h.dialog.answers.shift() ?? "cancel"; }),
 }));
+vi.mock("./diffView", () => ({
+  openDiffRequest: vi.fn(async () => {}),
+}));
 
 import {
   checkExternal, cloneDoc, disposeDoc, docs, flushBackups, isDirty, loadDoc, offerRecovery, onDocsChange, reloadDoc, removeBackup, restoreFromBackup, saveDoc, setBeforeSave,
@@ -177,6 +180,19 @@ describe("guardar", () => {
     expect(await saveDoc(d)).toBe(false);
     expect(model(P).getValue()).toBe("externo");
     expect(isDirty(d)).toBe(false);
+  });
+
+  it("ante un conflicto y 'Ver diferencias' abre el visor comparando disco contra editor", async () => {
+    const d = await loadDoc(P);
+    edit(P, "mio");
+    externalWrite(P, "externo");
+    h.dialog.answers = ["diff"];
+    expect(await saveDoc(d)).toBe(false);
+    const { openDiffRequest } = await import("./diffView");
+    expect(openDiffRequest).toHaveBeenCalledTimes(1);
+    const req = vi.mocked(openDiffRequest).mock.calls[0][0];
+    expect(await req.load()).toEqual({ original: "externo", modified: "mio", binary: false });
+    expect(isDirty(d)).toBe(true);
   });
 
   it("si solo cambió la fecha (mismo contenido) guarda sin preguntar", async () => {
