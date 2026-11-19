@@ -2,6 +2,7 @@ import { ago, buildItems, insertMention, lastSpoke, MAX_MESSAGE, mentionAt, ment
 import { openExternal } from "./external";
 import { getAccount, getToken, isAuthProblem } from "./github";
 import { connectButton } from "./githubConnect";
+import { openFile } from "./groups";
 import { currentRepo } from "./issues";
 import { githubChatStore as store, type ChatRepo, type ChatRoom } from "./repoChatApi";
 import { setStatus, showDialog } from "./ui";
@@ -260,7 +261,23 @@ function mount(ui: { root: HTMLElement; head: HTMLElement; body: HTMLElement; to
     for (const part of splitBody(body)) {
       if (part.kind === "text") b.append(document.createTextNode(part.text));
       else if (part.kind === "mention") b.append(h("span", `chat-mention-tag${part.text.slice(1).toLowerCase() === st.me.toLowerCase() ? " is-me" : ""}`, part.text));
-      else {
+      else if (part.kind === "issue" && part.issue) {
+        const a = h("button", "chat-ref", part.text);
+        a.type = "button";
+        a.title = `Abrir issue #${part.issue} en GitHub`;
+        a.onclick = () => void openExternal(`https://github.com/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/issues/${part.issue}`);
+        b.append(a);
+      } else if (part.kind === "file" && part.path && part.line) {
+        const a = h("button", "chat-ref chat-file-ref", part.text);
+        a.type = "button";
+        a.title = `Abrir ${part.path} en la línea ${part.line}`;
+        a.onclick = () => {
+          if (!ws.root) return;
+          if (isFull()) setFull(false);
+          void openFile(`${ws.root}/${part.path}`, { line: part.line });
+        };
+        b.append(a);
+      } else {
         const a = h("a", "chat-link", part.text);
         a.href = part.text; a.rel = "noreferrer";
         a.onclick = (e) => { e.preventDefault(); void openExternal(part.text); };

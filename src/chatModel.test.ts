@@ -88,6 +88,16 @@ describe("splitBody y menciones", () => {
   it("javascript: u otros esquemas no se tratan como enlace", () => {
     expect(splitBody("javascript:alert(1)").every((p) => p.kind === "text")).toBe(true);
   });
+  it("reconoce referencias a #issues y archivo:línea sin confundir horas ni rutas con ..", () => {
+    const parts = splitBody("Mira src/lsp.ts:42 y #128 a las 10:30, nunca ../secreto.ts:1");
+    expect(parts.filter((p) => p.kind === "file")).toEqual([
+      { text: "src/lsp.ts:42", kind: "file", path: "src/lsp.ts", line: 42 },
+    ]);
+    expect(parts.filter((p) => p.kind === "issue")).toEqual([
+      { text: "#128", kind: "issue", issue: 128 },
+    ]);
+    expect(parts.map((p) => p.text).join("")).toBe("Mira src/lsp.ts:42 y #128 a las 10:30, nunca ../secreto.ts:1");
+  });
 });
 
 describe("autocompletar @", () => {

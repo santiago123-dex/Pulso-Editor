@@ -53,12 +53,18 @@ export function unreadCount(comments: readonly ChatComment[], lastSeenId: number
   return comments.filter((c) => c.id > lastSeenId && !sameLogin(c.user?.login, me)).length;
 }
 
-export interface BodyPart { text: string; kind: "text" | "mention" | "link" }
+export interface BodyPart {
+  text: string;
+  kind: "text" | "mention" | "link" | "issue" | "file";
+  issue?: number;
+  path?: string;
+  line?: number;
+}
 
-/** Parte un mensaje en texto, @menciones y enlaces https para pintarlos sin usar HTML. */
+/** Parte un mensaje en texto, @menciones, enlaces https, #issues y referencias archivo:línea sin usar HTML. */
 export function splitBody(body: string): BodyPart[] {
   const parts: BodyPart[] = [];
-  const re = /(https?:\/\/[^\s<>"']+)|(^|[^\w@])(@[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))(?![\w-])/g;
+  const re = /(https?:\/\/[^\s<>"']+)|(^|[^\w@])(@[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))(?![\w-])|(^|[\s(])(#[1-9]\d{0,6})(?![\w-])|(^|[\s(`"'])((?:[\w.-]+\/)*[\w.-]+\.[A-Za-z][A-Za-z0-9]{0,7}):(\d{1,6})(?![\w.:/])/g;
   let last = 0;
   for (let m = re.exec(body); m; m = re.exec(body)) {
     if (m[1]) {
@@ -68,11 +74,22 @@ export function splitBody(body: string): BodyPart[] {
       parts.push({ text: url, kind: "link" });
       last = m.index + url.length;
       re.lastIndex = last;
-    } else {
+    } else if (m[3]) {
       const start = m.index + m[2].length;
       if (start > last) parts.push({ text: body.slice(last, start), kind: "text" });
       parts.push({ text: m[3], kind: "mention" });
       last = start + m[3].length;
+    } else if (m[5]) {
+      const start = m.index + m[4].length;
+      if (start > last) parts.push({ text: body.slice(last, start), kind: "text" });
+      parts.push({ text: m[5], kind: "issue", issue: Number(m[5].slice(1)) });
+      last = start + m[5].length;
+    } else if (m[7]) {
+      const start = m.index + m[6].length;
+      if (m[7].includes("..")) continue;
+      if (start > last) parts.push({ text: body.slice(last, start), kind: "text" });
+      parts.push({ text: `${m[7]}:${m[8]}`, kind: "file", path: m[7], line: Number(m[8]) });
+      last = start + m[7].length + 1 + m[8].length;
     }
   }
   if (last < body.length) parts.push({ text: body.slice(last), kind: "text" });
