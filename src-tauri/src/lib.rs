@@ -687,7 +687,10 @@ pub fn run() {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.unminimize();
                 let _ = w.show();
+                // Windows no deja que un proceso en segundo plano robe el foco; subirla un instante por encima del resto sí la trae al frente.
+                let _ = w.set_always_on_top(true);
                 let _ = w.set_focus();
+                let _ = w.set_always_on_top(false);
             }
             let _ = app.emit("cli-open", targets);
         }))
