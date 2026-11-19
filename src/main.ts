@@ -27,6 +27,7 @@ import { initHistory, showFileHistory } from "./history";
 import { initBlame, toggleBlame } from "./blame";
 import { initPrs, newPull, setPrsVisible } from "./prs";
 import { initAi, setAiVisible, startNewConversation } from "./aiChat";
+import { customizeActivityBar, initActivityBar, resetActivityBar } from "./activityBar";
 import { setChatVisible } from "./repoChat";
 import { initLsp, setLspWorkspace } from "./lsp";
 import { getLspState, lspDetail, lspLabel, onLspState } from "./lspState";
@@ -101,7 +102,10 @@ function showView(view: View | "settings") {
   if (view === "issues") void loadIssues();
   if (view === "git") void refreshScm();
 }
-document.querySelectorAll<HTMLElement>(".act[data-view]").forEach((b) => (b.onclick = () => showView(b.dataset.view as View)));
+initActivityBar({
+  onSelect: (view) => showView(view as View | "settings"),
+  activeView: () => currentView,
+});
 
 const resizer = $("resizer");
 resizer.onmousedown = (e) => {
@@ -410,6 +414,8 @@ register(
   { id: "layout.focus4", label: "Diseño: Ir al grupo 4", key: "Ctrl+4", run: () => focusGroup(3) },
 
   { id: "view.sidebar", label: "Ver: Mostrar u ocultar la barra lateral", key: "Ctrl+B", run: () => { $("app").classList.toggle("no-sidebar"); } },
+  { id: "view.activityCustomize", label: "Ver: Organizar botones de la barra lateral…", keywords: "barra lateral actividad iconos ordenar ocultar personalizar", run: customizeActivityBar },
+  { id: "view.activityReset", label: "Ver: Restablecer botones de la barra lateral", keywords: "barra lateral actividad iconos restablecer orden", run: resetActivityBar },
   { id: "view.explorer", label: "Ver: Explorador", key: "Ctrl+Shift+E", run: () => showView("explorer") },
   { id: "view.search", label: "Ver: Buscar en archivos", key: "Ctrl+Shift+F", run: () => { showView("search"); focusSearch(selectionText()); } },
   { id: "view.git", label: "Ver: Control de código fuente (Git)", key: "Ctrl+Shift+G", keywords: "git source control commit cambios stage preparar", run: () => showView("git") },

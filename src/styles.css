@@ -35,9 +35,16 @@ button, select, input { font: inherit; color: inherit; }
 #activitybar { grid-area: act; background: var(--activity); display: flex; flex-direction: column; align-items: center; padding: 4px 0; border-right: 1px solid var(--border); }
 #activitybar .spacer { flex: 1; }
 .act { width: 48px; height: 46px; background: none; border: 0; border-left: 2px solid transparent; color: var(--muted); cursor: pointer; display: grid; place-items: center; }
+.act[hidden] { display: none; }
 .act svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .act:hover { color: var(--fg); }
 .act.active { color: var(--fg); border-left-color: var(--accent); }
+.act:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.act.dragging { opacity: .45; }
+#activitybar.act-reordering { cursor: grabbing; }
+.act.drop-before::before, .act.drop-after::after { content: ""; position: absolute; left: 8px; right: 8px; height: 2px; border-radius: 1px; background: var(--accent); pointer-events: none; }
+.act.drop-before::before { top: 0; }
+.act.drop-after::after { bottom: 0; }
 
 /* ---------- Barra lateral ---------- */
 #sidebar { grid-area: side; background: var(--sidebar); min-width: 0; overflow: hidden; }
