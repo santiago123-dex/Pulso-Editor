@@ -226,6 +226,38 @@ fn recovery_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("recovery"))
 }
 
+const AI_HISTORY_MAX: usize = 20_000_000;
+
+fn ai_history_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("ai-chats.json"))
+}
+
+fn ai_history_read_in(file: &Path) -> String {
+    fs::read_to_string(file).unwrap_or_default()
+}
+
+fn ai_history_write_in(file: &Path, text: &str) -> Result<(), String> {
+    if text.len() > AI_HISTORY_MAX { return Err("El historial del asistente es demasiado grande.".into()); }
+    if serde_json::from_str::<serde_json::Value>(text).map(|v| !v.is_array()).unwrap_or(true) {
+        return Err("El historial del asistente no tiene un formato válido.".into());
+    }
+    if let Some(dir) = file.parent() { fs::create_dir_all(dir).map_err(|e| e.to_string())?; }
+    write_atomic(file, text.as_bytes()).map_err(|e| e.to_string())
+}
+
+/// Conversaciones del asistente de IA: viven en un archivo de los datos de la aplicación, no en localStorage (que comparte cuota con los ajustes).
+#[tauri::command]
+async fn ai_history_read(app: tauri::AppHandle) -> Result<String, String> {
+    let file = ai_history_file(&app)?;
+    tauri::async_runtime::spawn_blocking(move || ai_history_read_in(&file)).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn ai_history_write(app: tauri::AppHandle, text: String) -> Result<(), String> {
+    let file = ai_history_file(&app)?;
+    tauri::async_runtime::spawn_blocking(move || ai_history_write_in(&file, &text)).await.map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 async fn backup_write(app: tauri::AppHandle, path: String, contents: String, base_mtime: u64) -> Result<(), String> {
     let dir = recovery_dir(&app)?;
@@ -544,7 +576,8 @@ struct GitInfo {
 }
 
 fn git_out(path: &str, args: &[&str]) -> Option<String> {
-    let out = background_command("git").arg("-C").arg(path).args(args).output().ok()?;
+    // Solo lectura: sin candados opcionales, para que consultar el estado nunca haga fallar un commit que la persona haga a la vez.
+    let out = background_command("git").env("GIT_OPTIONAL_LOCKS", "0").arg("-C").arg(path).args(args).output().ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
@@ -633,6 +666,8 @@ pub fn run() {
             write_file,
             file_mtime,
             backup_write,
+            ai_history_read,
+            ai_history_write,
             backup_remove,
             backup_list,
             secret_get,
@@ -676,16 +711,21 @@ pub fn run() {
             githubauth::github_credential,
             githubauth::open_external,
             aichat::ai_detect,
+            aichat::ai_detect_provider,
+            aichat::ai_detect_all,
+            aichat::ai_usage,
+            aichat::ai_extra_usage,
             aichat::ai_send,
             aichat::ai_stop
         ])
         .build(tauri::generate_context!())
         .expect("error al iniciar Pulso Editor")
         .run(|app, event| {
-            // Al salir se cierran las terminales para no dejar shells huérfanas.
+            // Al salir se cierran las terminales, LSP y procesos de IA para no dejar procesos huérfanos.
             if let tauri::RunEvent::Exit = event {
                 app.state::<term::TermState>().kill_all();
                 app.state::<lsp::LspState>().stop();
+                app.state::<aichat::AiState>().stop_all();
             }
         });
 }

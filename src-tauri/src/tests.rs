@@ -418,3 +418,16 @@ fn search_uses_unsaved_content_of_open_documents() {
     let disk = search_files_sync(norm(&t.0), "disco".into(), true, false, false, vec![], &unsaved).unwrap();
     assert!(disk.is_empty(), "el contenido antiguo del disco ya no debe aparecer");
 }
+
+#[test]
+fn el_historial_de_ia_se_guarda_en_un_archivo_y_rechaza_lo_que_no_es_una_lista() {
+    let dir = std::env::temp_dir().join(format!("pulso-ai-hist-{}", std::process::id()));
+    let file = dir.join("ai-chats.json");
+    assert_eq!(ai_history_read_in(&file), "");
+    ai_history_write_in(&file, r#"[{"id":"a"}]"#).unwrap();
+    assert_eq!(ai_history_read_in(&file), r#"[{"id":"a"}]"#);
+    assert!(ai_history_write_in(&file, "{}").is_err());
+    assert!(ai_history_write_in(&file, "no es json").is_err());
+    assert_eq!(ai_history_read_in(&file), r#"[{"id":"a"}]"#, "un intento inválido no pisa lo guardado");
+    let _ = std::fs::remove_dir_all(&dir);
+}

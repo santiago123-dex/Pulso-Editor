@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Turn } from "./aiModel";
-import { chatsFor, deleteChat, loadChats, MAX_BYTES, MAX_CHATS, newChatId, saveChat, titleFrom, type SavedChat, type Store } from "./aiStore";
+import { chatsFor, deleteChat, loadChats, MAX_BYTES, MAX_CHATS, newChatId, pickHistory, saveChat, titleFrom, type SavedChat, type Store } from "./aiStore";
 
 const memory = (): Store & { data: Map<string, string> } => {
   const data = new Map<string, string>();
@@ -76,5 +76,20 @@ describe("chatsFor", () => {
     const list = [chat("a", 1, { cwd: "C:/Proyecto/" }), chat("b", 2, { cwd: "C:/otro" })];
     expect(chatsFor(list, "c:\\proyecto").map((c) => c.id)).toEqual(["a"]);
     expect(chatsFor(list, "D:/x")).toEqual([]);
+  });
+});
+
+describe("migración del historial a archivo", () => {
+  const one = '[{"id":"a"}]';
+  it("usa el archivo si ya tiene conversaciones", () => {
+    expect(pickHistory(one, '[{"id":"viejo"}]')).toEqual({ text: one, migrated: false });
+  });
+  it("trae lo de localStorage la primera vez, y solo una vez", () => {
+    expect(pickHistory("", one)).toEqual({ text: one, migrated: true });
+    expect(pickHistory("[]", one)).toEqual({ text: one, migrated: true });
+  });
+  it("ignora contenido dañado o que no es una lista", () => {
+    expect(pickHistory("{roto", "{}")).toEqual({ text: "[]", migrated: false });
+    expect(pickHistory(null, null)).toEqual({ text: "[]", migrated: false });
   });
 });

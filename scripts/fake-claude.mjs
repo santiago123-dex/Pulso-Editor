@@ -19,6 +19,16 @@ if (args[0] === "auth" && args[1] === "status") {
   process.exit(0);
 }
 
+if (args.includes("/usage")) {
+  const soon = new Date(Date.now() + 3 * 86400_000);
+  const day = `${soon.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" })} ${soon.getUTCDate()}`;
+  const result = `Current session: 34% used · resets 11:59pm (UTC)
+Current week (all models): 20% used · resets ${day}, 4pm (UTC)
+`;
+  console.log(JSON.stringify({ is_error: false, result }));
+  process.exit(0);
+}
+
 let prompt = "";
 for await (const chunk of process.stdin) prompt += chunk;
 fs.appendFileSync(LOG, JSON.stringify({ args, prompt, cwd: process.cwd() }) + "\n");

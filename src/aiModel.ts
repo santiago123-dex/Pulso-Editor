@@ -2,6 +2,8 @@
  * Modelo de una conversación con Claude Code a partir de su salida `stream-json`: una función pura que va
  * convirtiendo cada evento en mensajes, bloques de herramientas, uso del plan y resultado. Sin DOM ni procesos.
  */
+export type AiProvider = "claude" | "codex" | "gemini";
+
 export type Block =
   | { kind: "text"; text: string }
   | { kind: "thinking"; text: string }
@@ -39,6 +41,18 @@ const str = (v: unknown): string => (typeof v === "string" ? v : "");
 /** Evento propio: la persona envió este mensaje. */
 export const userEvent = (text: string): AiEvent => ({ type: "pulso_user", text });
 /** Evento propio: el proceso terminó. */
+/** Traduce los errores conocidos de las herramientas a algo accionable; el resto se deja tal cual. */
+export function friendlyToolError(stderr: string): string {
+  const s = stderr.trim();
+  if (/IneligibleTierError|no longer supported for Gemini Code Assist/i.test(s)) {
+    return "Google ya no permite usar Gemini CLI con cuentas personales: lo migró a Antigravity. Para seguir usando Gemini aquí hace falta una clave de API de Gemini (variable GEMINI_API_KEY) o una cuenta de Workspace/Vertex.";
+  }
+  if (/not running in a trusted directory/i.test(s)) {
+    return "Gemini CLI no confía en esta carpeta. Ábrela una vez con `gemini` en una terminal y acepta la confianza.";
+  }
+  return s;
+}
+
 export const exitEvent = (code: number | null, stderr: string): AiEvent => ({ type: "pulso_exit", code, stderr });
 
 function blockFrom(raw: unknown): Block | null {
@@ -156,7 +170,7 @@ export function reduce(prev: Conversation, ev: AiEvent): Conversation {
       c.running = false;
       for (const t of c.messages) t.done = true;
       const stderr = str(ev.stderr).trim();
-      c.error = ev.code === null ? "La conversación se detuvo." : stderr || `La herramienta terminó con el código ${String(ev.code)} sin responder.`;
+      c.error = ev.code === null ? "La conversación se detuvo." : friendlyToolError(stderr) || `La herramienta terminó con el código ${String(ev.code)} sin responder.`;
       return c;
     }
     default:
@@ -181,15 +195,342 @@ export function toolSummary(b: Extract<Block, { kind: "tool" }>): string {
     case "Glob": return `Buscó archivos${str(i.pattern) ? ` «${str(i.pattern)}»` : ""}`;
     case "Grep": return `Buscó${str(i.pattern) ? ` «${str(i.pattern)}»` : " en los archivos"}`;
     case "Bash": return "Quiso ejecutar un comando";
+    case "Command": return str(i.command) ? `Ejecutó ${str(i.command)}` : "Ejecutó un comando";
     case "WebFetch": case "WebSearch": return "Consultó la web";
     default: return b.name || "Usó una herramienta";
   }
+}
+
+function mapGeminiToolName(raw: string): string {
+  switch (raw) {
+    case "read_file": case "read_many_files": return "Read";
+    case "write_file": return "Write";
+    case "replace": case "edit_file": return "Edit";
+    case "list_directory": case "glob": return "Glob";
+    case "search_file_content": case "grep": return "Grep";
+    case "run_shell_command": return "Command";
+    case "google_web_search": case "web_fetch": return "WebSearch";
+    default: return raw || "Tool";
+  }
+}
+
+/**
+ * Normaliza líneas JSONL de Codex CLI y Gemini CLI al formato `AiEvent` común.
+ * Para Claude Code devuelve el evento original sin cambios.
+ */
+export function createProviderNormalizer(provider: AiProvider, fallbackModel = ""): (raw: AiEvent) => AiEvent[] {
+  if (provider === "claude") return (raw) => [raw];
+
+  let turnStart = Date.now();
+  let gemSeq = 0;
+  let gemMsgId = "";
+  let gemText = "";
+  let codexToolSeq = 0;
+
+  const codexRateLimitEvent = (rlRaw: unknown): AiEvent | null => {
+    const rl = obj(rlRaw);
+    const p = obj(rl.primary);
+    const s = obj(rl.secondary);
+    if (typeof p.used_percent !== "number" && typeof s.used_percent !== "number") return null;
+    return {
+      type: "rate_limit_event",
+      rate_limit_info: {
+        unifiedWindows: {
+          five_hour: typeof p.used_percent === "number" ? { utilization: p.used_percent / 100, resetsAt: typeof p.resets_at === "number" ? p.resets_at : 0 } : undefined,
+          seven_day: typeof s.used_percent === "number" ? { utilization: s.used_percent / 100, resetsAt: typeof s.resets_at === "number" ? s.resets_at : 0 } : undefined,
+        },
+      },
+    };
+  };
+
+  return (raw: AiEvent): AiEvent[] => {
+    if (provider === "codex") {
+      switch (raw.type) {
+        case "event_msg": {
+          const pl = obj(raw.payload);
+          if (str(pl.type) === "token_count") {
+            const rl = codexRateLimitEvent(pl.rate_limits);
+            if (rl) return [rl];
+          }
+          return [];
+        }
+        case "thread.started":
+          turnStart = Date.now();
+          return [{ type: "system", subtype: "init", session_id: str(raw.thread_id), model: fallbackModel }];
+        case "turn.started":
+          turnStart = Date.now();
+          return [];
+        case "item.started":
+        case "item.completed": {
+          const item = obj(raw.item);
+          const kind = str(item.type);
+          const id = str(item.id) || `cx_${++codexToolSeq}`;
+          const done = raw.type === "item.completed";
+          if (kind === "agent_message" && done && str(item.text)) {
+            return [{ type: "assistant", message: { id, content: [{ type: "text", text: str(item.text) }] } }];
+          }
+          if (kind === "reasoning" && done && str(item.text)) {
+            return [{ type: "assistant", message: { id, content: [{ type: "thinking", thinking: str(item.text) }] } }];
+          }
+          if (kind === "command_execution") {
+            const cmd = str(item.command);
+            const evs: AiEvent[] = [{ type: "assistant", message: { id, content: [{ type: "tool_use", id, name: "Command", input: { command: cmd } }] } }];
+            if (done) {
+              const exitCode = typeof item.exit_code === "number" ? item.exit_code : 0;
+              const isErr = str(item.status) === "failed" || exitCode !== 0;
+              evs.push({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, content: str(item.aggregated_output) || (isErr ? `Código ${exitCode}` : "ok"), is_error: isErr }] } });
+            }
+            return evs;
+          }
+          if (kind === "file_change" && done) {
+            const changes = Array.isArray(item.changes) ? item.changes : [];
+            const evs: AiEvent[] = [];
+            changes.forEach((ch, idx) => {
+              const cObj = obj(ch);
+              const fp = str(cObj.path);
+              const act = str(cObj.kind) === "add" ? "Write" : "Edit";
+              const tid = `${id}_${idx}`;
+              evs.push({ type: "assistant", message: { id: tid, content: [{ type: "tool_use", id: tid, name: act, input: { file_path: fp, kind: str(cObj.kind) } }] } });
+              evs.push({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: tid, content: `${str(cObj.kind) || "update"} ${fp}`, is_error: str(item.status) === "failed" }] } });
+            });
+            return evs;
+          }
+          if (kind === "mcp_tool_call" || kind === "web_search") {
+            const name = str(item.tool) || (kind === "web_search" ? "WebSearch" : "MCP");
+            const input = kind === "web_search" ? { query: str(item.query) } : obj(item.arguments);
+            const evs: AiEvent[] = [{ type: "assistant", message: { id, content: [{ type: "tool_use", id, name, input }] } }];
+            if (done) {
+              const isErr = str(item.status) === "failed" || !!item.error;
+              const out = item.error ? JSON.stringify(item.error) : str(item.result) || JSON.stringify(item.result ?? "ok");
+              evs.push({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, content: out, is_error: isErr }] } });
+            }
+            return evs;
+          }
+          return [];
+        }
+        case "turn.completed": {
+          const out: AiEvent[] = [];
+          const rl = codexRateLimitEvent(raw.rate_limits);
+          if (rl) out.push(rl);
+          out.push({ type: "result", subtype: "success", is_error: false, duration_ms: Math.max(0, Date.now() - turnStart), total_cost_usd: 0, result: "ok" });
+          return out;
+        }
+        case "turn.failed":
+          return [{ type: "result", subtype: "error", is_error: true, result: str(obj(raw.error).message) || "La ejecución de Codex falló." }];
+        case "error":
+          return [{ type: "result", subtype: "error", is_error: true, result: str(raw.message) || "Error de Codex CLI." }];
+        default:
+          return [];
+      }
+    }
+
+    // Gemini CLI (`--output-format stream-json`)
+    switch (raw.type) {
+      case "init":
+        turnStart = Date.now();
+        gemMsgId = "";
+        gemText = "";
+        return [{ type: "system", subtype: "init", session_id: str(raw.session_id), model: str(raw.model) || fallbackModel }];
+      case "message": {
+        if (str(raw.role) !== "assistant") return [];
+        const chunk = str(raw.content);
+        if (!chunk) return [];
+        if (!gemMsgId) gemMsgId = `gm_${++gemSeq}`;
+        gemText = raw.delta === true ? gemText + chunk : chunk;
+        return [{ type: "assistant", message: { id: gemMsgId, content: [{ type: "text", text: gemText }] } }];
+      }
+      case "tool_use": {
+        gemMsgId = "";
+        gemText = "";
+        const id = str(raw.tool_id) || `gt_${++gemSeq}`;
+        const name = mapGeminiToolName(str(raw.tool_name));
+        return [{ type: "assistant", message: { id, content: [{ type: "tool_use", id, name, input: obj(raw.parameters) }] } }];
+      }
+      case "tool_result": {
+        const id = str(raw.tool_id);
+        const isErr = str(raw.status) === "error";
+        const content = str(raw.output) || str(obj(raw.error).message) || (isErr ? "Error en herramienta" : "ok");
+        return [{ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, content, is_error: isErr }] } }];
+      }
+      case "error": {
+        const msg = str(raw.message);
+        if (!msg) return [];
+        return [{ type: "result", subtype: "error", is_error: true, result: msg }];
+      }
+      case "result": {
+        const ok = str(raw.status) === "success";
+        const stats = obj(raw.stats);
+        const duration = typeof stats.duration_ms === "number" ? stats.duration_ms : Math.max(0, Date.now() - turnStart);
+        return [{ type: "result", subtype: ok ? "success" : "error", is_error: !ok, duration_ms: duration, total_cost_usd: 0, result: ok ? "ok" : str(obj(raw.error).message) || "Gemini terminó con error." }];
+      }
+      default:
+        return [];
+    }
+  };
 }
 
 /** ¿El error indica que falta iniciar sesión? */
 export const isAuthError = (text: string): boolean => /not logged in|please run \/login|\/login|invalid api key|authentication|unauthorized|sign in|oauth|401/i.test(text);
 
 export function percent(w: UsageWindow | undefined): string { return w ? `${Math.round(Math.min(1, Math.max(0, w.utilization)) * 100)} %` : "—"; }
+
+/** Proporción usada de una ventana (0..1). */
+export function usedRatio(w: UsageWindow | undefined): number {
+  return w ? Math.max(0, Math.min(1, w.utilization)) : 0;
+}
+
+/** Porcentaje usado legible («67%», «44%» o «—»). */
+export function usedPercent(w: UsageWindow | undefined): string {
+  return w ? `${Math.round(usedRatio(w) * 100)}%` : "—";
+}
+
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+/** Diferencia (ms) entre la hora local de `tz` y UTC en el instante dado. */
+function tzOffsetMs(utcMs: number, tz: string): number {
+  const f = new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric" });
+  const p: Record<string, number> = {};
+  for (const x of f.formatToParts(new Date(utcMs))) if (x.type !== "literal") p[x.type] = Number(x.value);
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(utcMs / 1000) * 1000;
+}
+
+/** Instante UTC (ms) de una fecha y hora de pared en la zona `tz` (o la del sistema si no se conoce). */
+function wallToUtc(y: number, mo: number, d: number, h: number, mi: number, tz: string | undefined): number {
+  const guess = Date.UTC(y, mo, d, h, mi);
+  if (!tz) return new Date(y, mo, d, h, mi).getTime();
+  try {
+    const first = guess - tzOffsetMs(guess, tz);
+    return guess - tzOffsetMs(first, tz);
+  } catch { return new Date(y, mo, d, h, mi).getTime(); }
+}
+
+function tzDateParts(utcMs: number, tz: string | undefined): { year: number; month: number; day: number } {
+  const validTz = tz && /^[\w/+-]+$/.test(tz) ? tz : undefined;
+  try {
+    const p: Record<string, number> = {};
+    for (const x of new Intl.DateTimeFormat("en-US", { timeZone: validTz, year: "numeric", month: "numeric", day: "numeric" }).formatToParts(new Date(utcMs))) {
+      if (x.type !== "literal") p[x.type] = Number(x.value);
+    }
+    if (p.year && p.month && p.day) return { year: p.year, month: p.month - 1, day: p.day };
+  } catch { /* cae a la fecha local */ }
+  const d = new Date(utcMs);
+  return { year: d.getFullYear(), month: d.getMonth(), day: d.getDate() };
+}
+
+/** «Nov 18, 12pm (America/Bogota)» o «12:30pm (UTC)» → segundos Unix; 0 si no se entiende. */
+export function parseResetText(raw: string, nowMs = Date.now()): number {
+  const zone = /\(([^)]+)\)\s*$/.exec(raw.trim());
+  const tz = zone?.[1].trim();
+  const m = /^(?:([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2}),\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i.exec(raw.trim());
+  if (!m) return 0;
+  let h = Number(m[3]) % 12;
+  if (m[5].toLowerCase() === "pm") h += 12;
+  const mi = m[4] ? Number(m[4]) : 0;
+  const base = tzDateParts(nowMs, tz);
+  if (m[1]) {
+    const mo = MONTHS.indexOf(m[1].toLowerCase());
+    if (mo < 0) return 0;
+    let ms = wallToUtc(base.year, mo, Number(m[2]), h, mi, tz);
+    if (ms < nowMs - 7 * 86400_000) ms = wallToUtc(base.year + 1, mo, Number(m[2]), h, mi, tz);
+    return Math.round(ms / 1000);
+  }
+  let ms = wallToUtc(base.year, base.month, base.day, h, mi, tz);
+  while (ms <= nowMs) ms += 86400_000;
+  return Math.round(ms / 1000);
+}
+
+/** Lee el texto de `/usage` («Current session: 68% used · resets Nov 18, 12pm (America/Bogota)»). */
+export function parseUsageText(text: string, nowMs = Date.now()): PlanUsage {
+  const win = (label: RegExp): UsageWindow | undefined => {
+    const m = label.exec(text);
+    if (!m) return undefined;
+    return { utilization: Math.min(1, Math.max(0, Number(m[1]) / 100)), resetsAt: m[2] ? parseResetText(m[2], nowMs) : 0 };
+  };
+  return {
+    fiveHour: win(/^\s*Current session:\s*(\d+(?:\.\d+)?)%\s*used(?:\s*(?:[·•|,–-]\s*|\s+)resets\s+(.+?))?\s*$/im),
+    sevenDay: win(/^\s*Current week\s*\(all models\):\s*(\d+(?:\.\d+)?)%\s*used(?:\s*(?:[·•|,–-]\s*|\s+)resets\s+(.+?))?\s*$/im),
+  };
+}
+
+/** Descarta ventanas cuyo reinicio ya venció para no mostrar cifras viejas. */
+export function pruneUsage(u: PlanUsage, nowMs = Date.now()): PlanUsage {
+  const valid = (w: UsageWindow | undefined) => (w && (!w.resetsAt || w.resetsAt * 1000 > nowMs) ? w : undefined);
+  return { fiveHour: valid(u.fiveHour), sevenDay: valid(u.sevenDay) };
+}
+
+/** Hora exacta de restablecimiento en español: «Se restablece a las 12:00 p. m.» o «Se restablece el dom, 4:00 p. m.». */
+export function resetClockText(w: UsageWindow | undefined, nowMs = Date.now()): string {
+  if (!w?.resetsAt) return "";
+  const targetMs = w.resetsAt * 1000;
+  if (targetMs <= nowMs) return "Se restablece ahora";
+  const d = new Date(targetMs);
+  const now = new Date(nowMs);
+  const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  const time = d.toLocaleTimeString("es", { hour: "numeric", minute: "2-digit" });
+  if (sameDay) return `Se restablece a las ${time}`;
+  const day = d.toLocaleDateString("es", { weekday: "short" }).replace(/\.$/, "");
+  return `Se restablece el ${day}, ${time}`;
+}
+
+/** Convierte un identificador técnico («claude-sonnet-5-5-20260514») en nombre específico legible («Claude Sonnet 5.5»). */
+export function formatModelName(raw: string): string {
+  const s = raw.trim();
+  if (!s) return "";
+  const clean = s.replace(/-\d{8}$/, "");
+  const m = /^claude-(sonnet|opus|haiku)-(\d+)(?:-(\d+))?$/i.exec(clean);
+  if (m) {
+    const fam = m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase();
+    const ver = m[3] ? `${m[2]}.${m[3]}` : m[2];
+    return `Claude ${fam} ${ver}`;
+  }
+  const legacy = /^claude-(\d+)-(\d+)-(sonnet|opus|haiku)$/i.exec(clean);
+  if (legacy) {
+    const fam = legacy[3].charAt(0).toUpperCase() + legacy[3].slice(1).toLowerCase();
+    return `Claude ${fam} ${legacy[1]}.${legacy[2]}`;
+  }
+  const gem = /^gemini-(.+)$/i.exec(s);
+  if (gem) {
+    return `Gemini ${gem[1].split("-").map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(" ")}`;
+  }
+  const gpt = /^(gpt-[a-z0-9.-]+|o\d+[a-z0-9-]*)$/i.exec(s);
+  if (gpt) {
+    return gpt[1].replace(/^gpt/i, "GPT").replace(/-codex$/i, " Codex");
+  }
+  return s;
+}
+
+/** Formato compacto de reinicio para el panel de uso: «6d 23h», «4h 19m», «15m» o «ahora». */
+export function resetCountdown(w: UsageWindow | undefined, nowMs = Date.now()): string {
+  if (!w?.resetsAt) return "";
+  const s = Math.round(w.resetsAt - nowMs / 1000);
+  if (s <= 0) return "ahora";
+  if (s < 3600) return `${Math.max(1, Math.round(s / 60))}m`;
+  if (s < 86400) {
+    const h = Math.floor(s / 3600);
+    const m = Math.round((s % 3600) / 60);
+    return m ? `${h}h ${m}m` : `${h}h`;
+  }
+  const d = Math.floor(s / 86400);
+  const h = Math.round((s % 86400) / 3600);
+  return h ? `${d}d ${h}h` : `${d}d`;
+}
+
+/** Rutas únicas modificadas con éxito en una conversación (último turno o completa). */
+export function touchedFiles(messages: readonly Turn[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const t of messages) {
+    for (const b of t.blocks) {
+      if (b.kind !== "tool" || b.error || !isFileChange(b)) continue;
+      const p = str(b.input.file_path) || str(b.input.notebook_path) || str(b.input.path);
+      if (!p) continue;
+      const normP = p.replace(/\\/g, "/");
+      const key = normP.toLowerCase();
+      if (!seen.has(key)) { seen.add(key); out.push(normP); }
+    }
+  }
+  return out;
+}
 
 /** «en 2 h 10 min», «en 3 d» o «ya». */
 export function resetIn(w: UsageWindow | undefined, nowMs = Date.now()): string {

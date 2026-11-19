@@ -3,6 +3,8 @@ export interface EditorContext {
   /** Ruta del archivo abierto, relativa a la carpeta del proyecto si está dentro. */
   file?: string;
   selection?: { text: string; startLine: number; endLine: number };
+  /** Archivos extra adjuntados manualmente por la persona. */
+  extraFiles?: string[];
 }
 
 export const MAX_SELECTION = 20_000;
@@ -18,6 +20,9 @@ export function fenceFor(text: string): string {
 export function buildPrompt(text: string, ctx: EditorContext): string {
   const parts: string[] = [];
   if (ctx.file) parts.push(`- Archivo abierto: ${ctx.file}`);
+  for (const extra of ctx.extraFiles ?? []) {
+    if (extra && extra !== ctx.file) parts.push(`- Archivo adjunto: ${extra}`);
+  }
   if (ctx.selection && ctx.selection.text.trim()) {
     const { startLine, endLine } = ctx.selection;
     const cut = ctx.selection.text.length > MAX_SELECTION;

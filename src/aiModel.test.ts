@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emptyConversation, exitEvent, isAuthError, isFileChange, MAX_RESULT, percent, planLabel, reduce, resetIn, toolSummary, userEvent, type AiEvent, type Block, type Conversation } from "./aiModel";
+import { createProviderNormalizer, emptyConversation, exitEvent, formatModelName, isAuthError, isFileChange, MAX_RESULT, percent, planLabel, friendlyToolError, parseResetText, parseUsageText, pruneUsage, reduce, resetClockText, resetCountdown, resetIn, toolSummary, touchedFiles, usedPercent, usedRatio, userEvent, type AiEvent, type Block, type Conversation } from "./aiModel";
 
 const run = (events: AiEvent[], start: Conversation = emptyConversation()) => events.reduce(reduce, start);
 const se = (event: unknown): AiEvent => ({ type: "stream_event", event });
@@ -165,4 +165,134 @@ describe("etiquetas del plan", () => {
     expect(resetIn(undefined, NOW)).toBe("");
   });
   it("capitaliza el nombre del plan", () => { expect(planLabel("pro")).toBe("Pro"); expect(planLabel("")).toBe(""); });
+  it("calcula el porcentaje usado, descarta ventanas vencidas, formatea modelos y archivos modificados", () => {
+    const w = (u: number, s: number) => ({ utilization: u, resetsAt: NOW / 1000 + s });
+    expect(usedRatio(w(0.67, 10))).toBeCloseTo(0.67);
+    expect(usedPercent(w(0.67, 10))).toBe("67%");
+    expect(usedPercent(undefined)).toBe("—");
+    expect(pruneUsage({ fiveHour: w(0.5, -10), sevenDay: w(0.44, 3600) }, NOW)).toEqual({
+      fiveHour: undefined,
+      sevenDay: w(0.44, 3600),
+    });
+    expect(resetClockText(w(0.5, 3600), NOW)).toContain("Se restablece");
+    expect(resetCountdown(w(0.1, 6 * 86400 + 23 * 3600), NOW)).toBe("6d 23h");
+    expect(resetCountdown(w(0.1, 4 * 3600 + 19 * 60), NOW)).toBe("4h 19m");
+    expect(resetCountdown(w(0.1, 600), NOW)).toBe("10m");
+    expect(resetCountdown(w(0.1, -1), NOW)).toBe("ahora");
+    expect(formatModelName("claude-sonnet-5-5-20260514")).toBe("Claude Sonnet 5.5");
+    expect(formatModelName("claude-sonnet-4-8")).toBe("Claude Sonnet 4.8");
+    expect(formatModelName("claude-3-7-sonnet-20250219")).toBe("Claude Sonnet 3.7");
+    expect(touchedFiles([
+      {
+        id: "1",
+        role: "assistant",
+        done: true,
+        blocks: [
+          { kind: "tool", id: "a", name: "Read", input: { file_path: "a.ts" }, json: "", result: "ok" },
+          { kind: "tool", id: "b", name: "Edit", input: { file_path: "src\\b.ts" }, json: "", result: "ok" },
+          { kind: "tool", id: "c", name: "Write", input: { file_path: "src/b.ts" }, json: "", result: "ok" },
+          { kind: "tool", id: "d", name: "Edit", input: { file_path: "src/fail.ts" }, json: "", result: "err", error: true },
+        ],
+      },
+    ])).toEqual(["src/b.ts"]);
+  });
+});
+
+describe("uso real del plan (/usage)", () => {
+  const NOW = Date.UTC(2026, 10, 18, 15, 0, 0); // 10:00 en Bogotá
+  const text = [
+    "You are currently using your subscription",
+    "",
+    "Current session: 68% used · resets Nov 18, 12pm (America/Bogota)",
+    "Current week (all models): 44% used · resets Nov 22, 4pm (America/Bogota)",
+  ].join("\n");
+
+  it("lee los porcentajes y los reinicios con su zona horaria", () => {
+    const u = parseUsageText(text, NOW);
+    expect(u.fiveHour?.utilization).toBeCloseTo(0.68);
+    expect(u.sevenDay?.utilization).toBeCloseTo(0.44);
+    expect(u.fiveHour?.resetsAt).toBe(Date.UTC(2026, 10, 18, 17, 0, 0) / 1000);
+    expect(u.sevenDay?.resetsAt).toBe(Date.UTC(2026, 10, 22, 21, 0, 0) / 1000);
+  });
+
+  it("una hora sin fecha es la próxima vez que ocurra", () => {
+    expect(parseResetText("12:30pm (UTC)", NOW)).toBe(Date.UTC(2026, 10, 19, 12, 30, 0) / 1000);
+    expect(parseResetText("11pm (UTC)", NOW)).toBe(Date.UTC(2026, 10, 18, 23, 0, 0) / 1000);
+    // Cerca de medianoche entre zonas horarias, usa el día de la zona indicada y no el del reloj local.
+    const lateBogota = Date.UTC(2026, 10, 19, 2, 0, 0); // 21:00 del 18 en Bogotá, 02:00 del 19 en UTC
+    expect(parseResetText("11pm (America/Bogota)", lateBogota)).toBe(Date.UTC(2026, 10, 19, 4, 0, 0) / 1000);
+    expect(parseResetText("11pm (UTC)", lateBogota)).toBe(Date.UTC(2026, 10, 19, 23, 0, 0) / 1000);
+  });
+
+  it("tolera separadores alternos en /usage", () => {
+    const alt = "Current session: 12% used - resets 11pm (UTC)\nCurrent week (all models): 8% used | resets Nov 22, 4pm (UTC)";
+    const u = parseUsageText(alt, NOW);
+    expect(u.fiveHour?.utilization).toBeCloseTo(0.12);
+    expect(u.sevenDay?.utilization).toBeCloseTo(0.08);
+    expect(u.fiveHour?.resetsAt).toBe(Date.UTC(2026, 10, 18, 23, 0, 0) / 1000);
+  });
+
+  it("si no entiende el texto no inventa nada", () => {
+    expect(parseUsageText("nada que ver", NOW)).toEqual({ fiveHour: undefined, sevenDay: undefined });
+    expect(parseResetText("pronto", NOW)).toBe(0);
+  });
+});
+
+describe("adaptadores para Codex CLI y Gemini CLI", () => {
+  it("normaliza eventos de Codex CLI (hilo, razonamiento, cambios y fin)", () => {
+    const norm = createProviderNormalizer("codex", "gpt-5.4");
+    const raw: AiEvent[] = [
+      { type: "thread.started", thread_id: "th_99" },
+      { type: "item.completed", item: { id: "i1", type: "reasoning", text: "Analizo el módulo." } },
+      { type: "item.completed", item: { id: "i2", type: "file_change", status: "completed", changes: [{ path: "src/app.ts", kind: "update" }] } },
+      { type: "item.completed", item: { id: "i3", type: "agent_message", text: "Listo." } },
+      { type: "event_msg", payload: { type: "token_count", rate_limits: { primary: { used_percent: 25, resets_at: 1900000100 }, secondary: { used_percent: 14, resets_at: 1900500000 } } } },
+      { type: "turn.completed" },
+    ];
+    let convo = reduce(emptyConversation(), userEvent("mejora app.ts"));
+    for (const r of raw) for (const ev of norm(r)) convo = reduce(convo, ev);
+    expect(convo.sessionId).toBe("th_99");
+    expect(convo.model).toBe("gpt-5.4");
+    expect(convo.touched).toBe(1);
+    expect(convo.outcome?.ok).toBe(true);
+    expect(convo.usage.fiveHour?.utilization).toBeCloseTo(0.25);
+    expect(convo.usage.sevenDay?.utilization).toBeCloseTo(0.14);
+    expect(touchedFiles(convo.messages)).toEqual(["src/app.ts"]);
+    expect(formatModelName("gpt-5.3-codex")).toBe("GPT-5.3 Codex");
+  });
+
+  it("normaliza eventos de Gemini CLI (deltas, herramientas y estadísticas)", () => {
+    const norm = createProviderNormalizer("gemini");
+    const raw: AiEvent[] = [
+      { type: "init", session_id: "gem_1", model: "gemini-2.5-pro" },
+      { type: "message", role: "user", content: "ignorar" },
+      { type: "tool_use", tool_id: "t1", tool_name: "read_file", parameters: { file_path: "src/a.ts" } },
+      { type: "tool_result", tool_id: "t1", status: "success", output: "ok" },
+      { type: "message", role: "assistant", content: "Hola ", delta: true },
+      { type: "message", role: "assistant", content: "mundo", delta: true },
+      { type: "result", status: "success", stats: { duration_ms: 420 } },
+    ];
+    let convo = reduce(emptyConversation(), userEvent("lee a.ts"));
+    for (const r of raw) for (const ev of norm(r)) convo = reduce(convo, ev);
+    expect(convo.sessionId).toBe("gem_1");
+    expect(convo.model).toBe("gemini-2.5-pro");
+    expect(convo.outcome?.ok).toBe(true);
+    expect(convo.outcome?.durationMs).toBe(420);
+    expect(formatModelName("gemini-2.5-pro")).toBe("Gemini 2.5 Pro");
+    const assistantTurns = convo.messages.filter((m) => m.role === "assistant");
+    expect(assistantTurns.some((t) => t.blocks.some((b) => b.kind === "text" && b.text === "Hola mundo"))).toBe(true);
+    expect(assistantTurns.some((t) => t.blocks.some((b) => b.kind === "tool" && b.name === "Read"))).toBe(true);
+  });
+});
+
+describe("errores conocidos de las herramientas", () => {
+  it("explica que Gemini CLI ya no sirve con cuentas personales", () => {
+    const msg = friendlyToolError("An unexpected critical error occurred:IneligibleTierError: This client is no longer supported for Gemini Code Assist for individuals.");
+    expect(msg).toContain("Antigravity");
+    expect(msg).toContain("GEMINI_API_KEY");
+  });
+  it("explica la carpeta no confiable y deja el resto tal cual", () => {
+    expect(friendlyToolError("Gemini CLI is not running in a trusted directory.")).toContain("no confía");
+    expect(friendlyToolError("  boom  ")).toBe("boom");
+  });
 });

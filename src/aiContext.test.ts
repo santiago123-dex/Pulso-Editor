@@ -24,6 +24,10 @@ describe("buildPrompt", () => {
   it("solo el archivo, sin selección", () => {
     expect(buildPrompt("m", { file: "a.ts" })).toBe("Contexto del editor de Pulso (lo ve la persona):\n- Archivo abierto: a.ts\n\nMensaje:\nm");
   });
+  it("incluye archivos adjuntos extra sin duplicar el archivo abierto", () => {
+    const p = buildPrompt("revisa", { file: "src/a.ts", extraFiles: ["src/a.ts", "src/b.ts"] });
+    expect(p).toBe("Contexto del editor de Pulso (lo ve la persona):\n- Archivo abierto: src/a.ts\n- Archivo adjunto: src/b.ts\n\nMensaje:\nrevisa");
+  });
 });
 
 describe("chipLabels", () => {

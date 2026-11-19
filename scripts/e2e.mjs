@@ -1341,11 +1341,17 @@ try {
     const aiDone = () => waitFor(`const b = document.querySelector("#view-ai .ai-body"); return document.querySelectorAll("#view-ai .ai-user").length > ${aiBefore} && !document.querySelector(".ai-working") && !!b.lastElementChild?.matches(".ai-outcome, .ai-error")`, "que termine la respuesta", 20000);
     const openAi = async () => { await run(`document.querySelector('.act[data-view="ai"]').click(); return 1`); await waitFor(`return !!document.querySelector("#view-ai .ai-shell")`, "el asistente"); };
 
+    // La herramienta falsa imita a Claude Code: se fija ese proveedor y al terminar se devuelve el que la persona tenía elegido.
+    const prevProvider = await run(`return localStorage.getItem("pulso.ai.provider")`);
+    // El historial de conversaciones vive en un archivo de la aplicación: se aparta el de la persona y se restaura al terminar.
+    const prevHistory = fakeOn ? await invoke("ai_history_read").catch(() => "") : "";
     if (fakeOn) {
+      await invoke("ai_history_write", { text: "[]" });
+      await run(`localStorage.setItem("pulso.ai.provider", "claude"); return 1`);
       await test("sin sesión iniciada el asistente ofrece iniciarla, y al volver a comprobar queda listo", async () => {
         fs.writeFileSync(FAKE_STATE, JSON.stringify({ loggedIn: false }));
         fs.rmSync(FAKE_LOG, { force: true });
-        await run(`for (const k of ["pulso.ai.mode", "pulso.ai.editOk", "pulso.ai.chats", "pulso.ai.model", "pulso.ai.usage"]) localStorage.removeItem(k); return 1`);
+        await run(`for (const k of ["pulso.ai.mode", "pulso.ai.editOk", "pulso.ai.chats", "pulso.ai.model", "pulso.ai.usage", "pulso.ai.usage.v2"]) localStorage.removeItem(k); return 1`);
         await bootApp(gitSession());
         await openAi();
         await waitFor(`return document.querySelector("#view-ai .ai-setup")?.textContent.includes("no hay una sesión iniciada")`, "el aviso de sesión", 15000);
@@ -1428,6 +1434,7 @@ try {
       });
 
       await test("las conversaciones se guardan, se listan por proyecto y se reabren tras reiniciar", async () => {
+        await wait(800); // el historial se escribe en el archivo con un pequeño retraso
         await bootApp(gitSession());
         await openAi();
         await waitFor(`return !document.querySelector("#view-ai .ai-compose").hidden`, "el asistente");
@@ -1451,8 +1458,11 @@ try {
         await key("Escape");
         await waitFor(`return document.getElementById("view-ai").classList.contains("ai-docked")`, "Esc vuelve");
       });
-      await run(`for (const k of ["pulso.ai.mode", "pulso.ai.editOk", "pulso.ai.chats", "pulso.ai.model", "pulso.ai.usage", "pulso.aiFull"]) localStorage.removeItem(k); return 1`);
+      await run(`for (const k of ["pulso.ai.mode", "pulso.ai.editOk", "pulso.ai.chats", "pulso.ai.model", "pulso.ai.usage", "pulso.ai.usage.v2", "pulso.aiFull"]) localStorage.removeItem(k); return 1`);
       fs.rmSync(FAKE_STATE, { force: true });
+      await wait(800);
+      await invoke("ai_history_write", { text: prevHistory || "[]" });
+      await run(`${prevProvider ? `localStorage.setItem("pulso.ai.provider", ${JSON.stringify(prevProvider)})` : `localStorage.removeItem("pulso.ai.provider")`}; return 1`);
     }
 
     await test("sin token no se intenta escribir y Esc cierra el tablero", async () => {
