@@ -7,6 +7,8 @@ import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
+import { listen } from "@tauri-apps/api/event";
+import { planCliOpen, type CliTarget } from "./cliOpen";
 import { commands, initKeys, keyOf, register } from "./commands";
 import { checkExternal, dirtyDocs, discardDirtyBackups, docs, flushBackups, offerRecovery, onDocSaved, saveDoc } from "./docs";
 import { autoConnect, initToken } from "./github";
@@ -153,6 +155,20 @@ async function openWorkspace(raw: string, layout?: Layout | null): Promise<boole
   updateStatus();
   persist();
   return true;
+}
+
+// ---------- Línea de comandos: `pulso archivo`, `pulso carpeta`, `pulso -g archivo:línea` ----------
+async function applyCliTargets(targets: CliTarget[]) {
+  if (!targets.length) return;
+  const plan = planCliOpen(targets, ws.root);
+  if (plan.folder && !(await openWorkspace(plan.folder))) return;
+  for (const f of plan.files) await openFile(f.path, { line: f.line, col: f.col });
+  if (plan.missing.length) setStatus(`No existe: ${plan.missing.join(", ")}`, 8000);
+}
+
+async function installCliCommand() {
+  try { setStatus(await invoke<string>("install_cli_command"), 10000); }
+  catch (e) { setStatus(`No se pudo instalar el comando pulso: ${e}`, 10000); }
 }
 
 async function closeWorkspace() {
@@ -386,6 +402,7 @@ const selectionText = () => {
 
 register(
   { id: "file.openFolder", label: "Archivo: Abrir carpeta…", key: "Ctrl+O", run: pickFolder },
+  { id: "cli.install", label: "Instalar el comando «pulso» en la terminal", run: installCliCommand },
   { id: "file.openRecent", label: "Archivo: Abrir carpeta reciente…", run: pickRecent },
   { id: "file.closeFolder", label: "Archivo: Cerrar carpeta", run: closeWorkspace },
   { id: "file.newFile", label: "Archivo: Nuevo archivo…", key: "Ctrl+N", run: () => newEntry("file") },
@@ -716,7 +733,8 @@ void (async () => {
     rerenderGroups();
     if (!inTauri) return;
     // Sin sesión guardada se reabre la última carpeta usada, como hacen los editores habituales.
-    const root = startupSession?.root ?? startupLastRoot;
+    const cliTargets = await invoke<CliTarget[]>("cli_startup_targets").catch(() => [] as CliTarget[]);
+    const root = cliTargets.some((t) => t.kind === "dir") ? null : startupSession?.root ?? startupLastRoot;
     if (root) {
       const ok = await openWorkspace(root, startupSession?.root ? (startupSession.layout as Layout) : null);
       if (!ok) { clearSession(); clearLastRoot(); }
@@ -725,6 +743,9 @@ void (async () => {
     // o quedaría tapándolo hasta el límite de 12 s.
     persister.markReady();
     revealApp();
+    // Si se vuelve a lanzar `pulso ...`, la instancia única nos manda las rutas por aquí.
+    await listen<CliTarget[]>("cli-open", (e) => void applyCliTargets(e.payload));
+    await applyCliTargets(cliTargets);
     await offerRecovery(openFile);
   } finally {
     persister.markReady();

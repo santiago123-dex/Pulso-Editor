@@ -53,6 +53,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "windows": { "nsis": { "installerHooks": "installer-hooks.nsh" } },
     "resources": {
       "../scripts/lsp-no-console.cjs": "lsp/no-console.cjs",
       "../node_modules/typescript-language-server/lib/cli.mjs": "lsp/node_modules/typescript-language-server/lib/cli.mjs",

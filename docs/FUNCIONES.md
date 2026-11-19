@@ -8,6 +8,7 @@ Este inventario describe la implementación presente en el repositorio. Las prop
 - El explorador permite crear, renombrar, mover y enviar archivos o carpetas a la papelera; ofrece menús contextuales y permite mostrar un elemento en el explorador del sistema.
 - El editor admite pestañas fijadas, reapertura de pestañas y hasta cuatro grupos, en disposición horizontal o vertical. Un documento abierto en varios grupos comparte su contenido.
 - Hay paleta de comandos, apertura rápida de archivos, navegación atrás/adelante y atajos editables.
+- Línea de comandos: `pulso carpeta`, `pulso archivo` y `pulso -g archivo:línea:columna` (también varias rutas a la vez). Solo hay una ventana: si Pulso ya está abierto, las rutas se abren en ella y se le da el foco. Una carpeta pasa a ser el espacio de trabajo; un archivo suelto sin carpeta abierta abre la carpeta que lo contiene. El comando «Instalar el comando «pulso» en la terminal» (Windows) crea `pulso.cmd` junto al programa y lo añade al PATH del usuario; hay que abrir una terminal nueva.
 - El explorador oculta `.git`, `node_modules` y `target`. La apertura rápida recorre hasta 20.000 archivos y omite, además, varios directorios de compilación habituales.
 
 ## Edición y búsqueda

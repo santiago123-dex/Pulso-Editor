@@ -8,7 +8,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 mod term;
 mod userconf;
@@ -16,6 +16,7 @@ mod lsp;
 mod gitops;
 mod githubauth;
 mod aichat;
+mod cli;
 
 /// Los procesos auxiliares no deben abrir ventanas de consola en Windows.
 fn background_command(program: &str) -> Command {
@@ -653,14 +654,51 @@ fn git_remote_sync(path: String) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+/// Argumentos con los que se lanzó este proceso (`pulso archivo`, `pulso -g archivo:línea`).
+#[tauri::command]
+fn cli_startup_targets() -> Vec<cli::CliTarget> {
+    cli::startup_targets()
+}
+
+/// Crea `pulso.cmd` junto al ejecutable y añade esa carpeta al PATH del usuario, para escribir `pulso .` en cualquier terminal.
+#[tauri::command]
+fn install_cli_command() -> Result<String, String> {
+    #[cfg(not(windows))]
+    { return Err("En este sistema enlaza el ejecutable a mano (por ejemplo: ln -s /ruta/pulso-editor ~/.local/bin/pulso).".into()); }
+    #[cfg(windows)]
+    {
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        let dir = exe.parent().ok_or("No se encontró la carpeta del programa")?.to_path_buf();
+        let name = exe.file_name().and_then(|n| n.to_str()).unwrap_or("pulso-editor.exe");
+        std::fs::write(dir.join("pulso.cmd"), format!("@echo off\r\nstart \"\" \"%~dp0{name}\" %*\r\n")).map_err(|e| e.to_string())?;
+        let script = "$d = $args[0]; $p = [Environment]::GetEnvironmentVariable('Path','User'); $parts = @(); if ($p) { $parts = $p -split ';' | Where-Object { $_ }; }; if ($parts -notcontains $d) { [Environment]::SetEnvironmentVariable('Path', (($parts + $d) -join ';'), 'User'); 'added' } else { 'present' }";
+        let out = background_command("powershell").args(["-NoProfile", "-NonInteractive", "-Command", script, &dir.to_string_lossy()])
+            .output().map_err(|e| e.to_string())?;
+        if !out.status.success() { return Err(String::from_utf8_lossy(&out.stderr).trim().to_string()); }
+        Ok(format!("Listo: `pulso` quedó disponible en {}. Abre una terminal nueva para usarlo.", dir.display()))
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
+        // Una sola ventana: si se vuelve a lanzar `pulso archivo`, los argumentos llegan a la que ya está abierta.
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            let targets = cli::parse_args(&args[1.min(args.len())..], std::path::Path::new(&cwd));
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+            let _ = app.emit("cli-open", targets);
+        }))
         .manage(term::TermState::default())
         .manage(lsp::LspState::default())
         .manage(aichat::AiState::default())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             list_dir,
+            cli_startup_targets,
+            install_cli_command,
             list_files,
             read_file,
             write_file,
