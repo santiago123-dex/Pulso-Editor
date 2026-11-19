@@ -1,7 +1,9 @@
+import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
 import { dirtyDocs, docs, isDirty, reloadDoc } from "./docs";
 import { openFile } from "./groups";
 import { fileIcon } from "./icons";
+import { computeLineReplacements } from "./searchReplace";
 import { setStatus, showDialog } from "./ui";
 import { $, baseName, dirName, h, inp } from "./util";
 import { rel, ws } from "./workspace";
@@ -116,27 +118,23 @@ function paint() {
 
 async function replaceIn(paths: string[]) {
   const o = opts();
-  if (!o.query) return;
+  if (!o.query || !paths.length) return;
   const replacement = inp("sr").value;
   const dirty = paths.filter((p) => { const d = docs.get(p); return d && isDirty(d); });
-  const ok = paths.filter((p) => !dirty.includes(p));
-  if (!ok.length) {
-    await showDialog({
-      title: "Nada que reemplazar",
-      message: "Los archivos con coincidencias tienen cambios sin guardar. Guárdalos o descártalos y vuelve a buscar.",
-      buttons: [{ label: "Entendido", value: "ok" }],
-    });
-    return;
-  }
-  const total = ok.reduce((n, p) => n + (results.get(p)?.length ?? 0), 0);
+  const total = paths.reduce((n, p) => n + (results.get(p)?.length ?? 0), 0);
   const MAX_LIST = 12;
-  const lines = ok.slice(0, MAX_LIST).map((p) => `  ${rel(p)} — ${results.get(p)?.length ?? 0}`);
-  if (ok.length > MAX_LIST) lines.push(`  … y ${ok.length - MAX_LIST} archivo(s) más`);
+  const lines = paths.slice(0, MAX_LIST).map((p) => {
+    const d = docs.get(p);
+    const mark = d && isDirty(d) ? " (en editor, sin guardar)" : "";
+    return `  ${rel(p)} — ${results.get(p)?.length ?? 0}${mark}`;
+  });
+  if (paths.length > MAX_LIST) lines.push(`  … y ${paths.length - MAX_LIST} archivo(s) más`);
+  const diskOnly = paths.length > dirty.length;
   const r = await showDialog({
     title: "Reemplazar",
-    message: `«${o.query}» → «${replacement}»\n\n${total} coincidencia(s) en ${ok.length} archivo(s):\n${lines.join("\n")}` +
-      (dirty.length ? `\n\nSe omitirán por tener cambios sin guardar:\n${dirty.map((p) => "  " + rel(p)).join("\n")}` : "") +
-      "\n\nLos archivos se modifican en disco y esta acción no se puede deshacer desde Pulso.",
+    message: `«${o.query}» → «${replacement}»\n\n${total} coincidencia(s) en ${paths.length} archivo(s):\n${lines.join("\n")}` +
+      (dirty.length ? "\n\nLos archivos abiertos sin guardar se editarán en el editor (puedes deshacer con Ctrl+Z)." : "") +
+      (diskOnly ? "\nLos demás archivos se modifican en disco y esa parte no se puede deshacer desde Pulso." : ""),
     buttons: [
       { label: "Cancelar", value: "cancel" },
       { label: "Reemplazar", value: "ok", danger: true },
@@ -145,7 +143,25 @@ async function replaceIn(paths: string[]) {
   if (r !== "ok") return;
   let changed = 0, done = 0;
   const failed: string[] = [];
-  for (const path of ok) {
+  for (const path of paths) {
+    const open = docs.get(path);
+    if (open && isDirty(open)) {
+      try {
+        const res = computeLineReplacements(open.model.getValue(), { ...o, replacement });
+        if (res.count > 0) {
+          open.model.pushEditOperations(
+            [],
+            res.edits.map((e) => ({ range: new monaco.Range(e.lineNumber, 1, e.lineNumber, e.endColumn), text: e.text })),
+            () => null,
+          );
+          changed += res.count;
+        }
+        done++;
+      } catch (e) {
+        failed.push(`  ${rel(path)}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      continue;
+    }
     try {
       changed += await invoke<number>("replace_in_file", {
         path, query: o.query, replacement,
