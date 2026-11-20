@@ -2,10 +2,20 @@
 name = "pulso-editor"
 version = "0.1.0"
 edition = "2021"
+default-run = "pulso-editor"
 
 [lib]
 name = "pulso_editor_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "pulso-editor"
+path = "src/main.rs"
+
+# El comando de la terminal (`pulso`): asistente de IA y apertura de la ventana. Es una aplicación de consola.
+[[bin]]
+name = "pulso"
+path = "src/bin/pulso.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

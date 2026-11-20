@@ -15,8 +15,10 @@ mod userconf;
 mod lsp;
 mod gitops;
 mod githubauth;
-mod aichat;
+pub mod aichat;
 mod cli;
+pub mod termchat;
+pub mod termui;
 
 /// Los procesos auxiliares no deben abrir ventanas de consola en Windows.
 fn background_command(program: &str) -> Command {
@@ -660,7 +662,7 @@ fn cli_startup_targets() -> Vec<cli::CliTarget> {
     cli::startup_targets()
 }
 
-/// Crea `pulso.cmd` junto al ejecutable y añade esa carpeta al PATH del usuario, para escribir `pulso .` en cualquier terminal.
+/// Añade la carpeta del programa (donde está `pulso.exe`) al PATH del usuario, para escribir `pulso .` en cualquier terminal.
 #[tauri::command]
 fn install_cli_command() -> Result<String, String> {
     #[cfg(not(windows))]
@@ -669,8 +671,8 @@ fn install_cli_command() -> Result<String, String> {
     {
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
         let dir = exe.parent().ok_or("No se encontró la carpeta del programa")?.to_path_buf();
-        let name = exe.file_name().and_then(|n| n.to_str()).unwrap_or("pulso-editor.exe");
-        std::fs::write(dir.join("pulso.cmd"), format!("@echo off\r\nstart \"\" \"%~dp0{name}\" %*\r\n")).map_err(|e| e.to_string())?;
+        if !dir.join("pulso.exe").exists() { return Err("No se encontró pulso.exe junto a Pulso Editor (¿es una compilación de desarrollo?).".into()); }
+        let _ = std::fs::remove_file(dir.join("pulso.cmd"));
         let script = "$d = $args[0]; $p = [Environment]::GetEnvironmentVariable('Path','User'); $parts = @(); if ($p) { $parts = $p -split ';' | Where-Object { $_ }; }; if ($parts -notcontains $d) { [Environment]::SetEnvironmentVariable('Path', (($parts + $d) -join ';'), 'User'); 'added' } else { 'present' }";
         let out = background_command("powershell").args(["-NoProfile", "-NonInteractive", "-Command", script, &dir.to_string_lossy()])
             .output().map_err(|e| e.to_string())?;
