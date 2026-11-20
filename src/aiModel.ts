@@ -2,7 +2,7 @@
  * Modelo de una conversación con Claude Code a partir de su salida `stream-json`: una función pura que va
  * convirtiendo cada evento en mensajes, bloques de herramientas, uso del plan y resultado. Sin DOM ni procesos.
  */
-export type AiProvider = "claude" | "codex" | "gemini";
+export type AiProvider = "claude" | "codex" | "antigravity";
 
 export type Block =
   | { kind: "text"; text: string }
@@ -186,45 +186,47 @@ const baseName = (p: string) => p.replace(/\\/g, "/").split("/").pop() ?? p;
 /** Frase corta de lo que hizo una herramienta: «Leyó a.ts», «Editó b.ts»… */
 export function toolSummary(b: Extract<Block, { kind: "tool" }>): string {
   const i = b.input;
-  const file = str(i.file_path) || str(i.notebook_path) || str(i.path);
+  const file = str(i.file_path) || str(i.notebook_path) || str(i.path) || str(i.Path) || str(i.TargetFile) || str(i.DirectoryPath);
+  const pat = str(i.pattern) || str(i.Pattern) || str(i.Query);
+  const cmd = str(i.command) || str(i.CommandLine);
   switch (b.name) {
     case "Read": return file ? `Leyó ${baseName(file)}` : "Leyó un archivo";
     case "Edit": case "MultiEdit": return file ? `Editó ${baseName(file)}` : "Editó un archivo";
     case "Write": return file ? `Escribió ${baseName(file)}` : "Escribió un archivo";
     case "NotebookEdit": return file ? `Editó ${baseName(file)}` : "Editó un cuaderno";
-    case "Glob": return `Buscó archivos${str(i.pattern) ? ` «${str(i.pattern)}»` : ""}`;
-    case "Grep": return `Buscó${str(i.pattern) ? ` «${str(i.pattern)}»` : " en los archivos"}`;
+    case "Glob": return pat ? `Buscó archivos «${pat}»` : file ? `Exploró ${baseName(file)}` : "Buscó archivos";
+    case "Grep": return `Buscó${pat ? ` «${pat}»` : " en los archivos"}`;
     case "Bash": return "Quiso ejecutar un comando";
-    case "Command": return str(i.command) ? `Ejecutó ${str(i.command)}` : "Ejecutó un comando";
+    case "Command": return cmd ? `Ejecutó ${cmd}` : "Ejecutó un comando";
     case "WebFetch": case "WebSearch": return "Consultó la web";
     default: return b.name || "Usó una herramienta";
   }
 }
 
-function mapGeminiToolName(raw: string): string {
+function mapAgyToolName(raw: string): string {
   switch (raw) {
-    case "read_file": case "read_many_files": return "Read";
-    case "write_file": return "Write";
-    case "replace": case "edit_file": return "Edit";
-    case "list_directory": case "glob": return "Glob";
-    case "search_file_content": case "grep": return "Grep";
-    case "run_shell_command": return "Command";
-    case "google_web_search": case "web_fetch": return "WebSearch";
+    case "read_file": case "read_many_files": case "view_file": return "Read";
+    case "write_file": case "write_to_file": return "Write";
+    case "replace": case "edit_file": case "replace_file_content": case "multi_replace_file_content": return "Edit";
+    case "list_directory": case "list_dir": case "glob": case "find_by_name": return "Glob";
+    case "search_file_content": case "grep": case "grep_search": return "Grep";
+    case "run_shell_command": case "run_command": return "Command";
+    case "google_web_search": case "web_fetch": case "search_web": case "read_url_content": return "WebSearch";
     default: return raw || "Tool";
   }
 }
 
 /**
- * Normaliza líneas JSONL de Codex CLI y Gemini CLI al formato `AiEvent` común.
+ * Normaliza líneas JSONL de Codex CLI y Antigravity CLI (`agy`) al formato `AiEvent` común.
  * Para Claude Code devuelve el evento original sin cambios.
  */
 export function createProviderNormalizer(provider: AiProvider, fallbackModel = ""): (raw: AiEvent) => AiEvent[] {
   if (provider === "claude") return (raw) => [raw];
 
   let turnStart = Date.now();
-  let gemSeq = 0;
-  let gemMsgId = "";
-  let gemText = "";
+  let agySeq = 0;
+  let agyStreamedText = false;
+  const agySteps = new Map<number, { id: string; text: string; kind: "text" | "thinking" | "tool" }>();
   let codexToolSeq = 0;
 
   const codexRateLimitEvent = (rlRaw: unknown): AiEvent | null => {
@@ -324,44 +326,88 @@ export function createProviderNormalizer(provider: AiProvider, fallbackModel = "
       }
     }
 
-    // Gemini CLI (`--output-format stream-json`)
-    switch (raw.type) {
-      case "init":
+    // Antigravity CLI (`agy --output-format stream-json`)
+    const agyEv = str(raw.event) || str(raw.type);
+    switch (agyEv) {
+      case "init": {
         turnStart = Date.now();
-        gemMsgId = "";
-        gemText = "";
-        return [{ type: "system", subtype: "init", session_id: str(raw.session_id), model: str(raw.model) || fallbackModel }];
-      case "message": {
-        if (str(raw.role) !== "assistant") return [];
-        const chunk = str(raw.content);
-        if (!chunk) return [];
-        if (!gemMsgId) gemMsgId = `gm_${++gemSeq}`;
-        gemText = raw.delta === true ? gemText + chunk : chunk;
-        return [{ type: "assistant", message: { id: gemMsgId, content: [{ type: "text", text: gemText }] } }];
+        agyStreamedText = false;
+        agySteps.clear();
+        const init = obj(raw.init);
+        return [{ type: "system", subtype: "init", session_id: str(raw.conversation_id) || str(raw.session_id), model: str(init.model) || str(raw.model) || fallbackModel }];
       }
-      case "tool_use": {
-        gemMsgId = "";
-        gemText = "";
-        const id = str(raw.tool_id) || `gt_${++gemSeq}`;
-        const name = mapGeminiToolName(str(raw.tool_name));
-        return [{ type: "assistant", message: { id, content: [{ type: "tool_use", id, name, input: obj(raw.parameters) }] } }];
-      }
-      case "tool_result": {
-        const id = str(raw.tool_id);
-        const isErr = str(raw.status) === "error";
-        const content = str(raw.output) || str(obj(raw.error).message) || (isErr ? "Error en herramienta" : "ok");
-        return [{ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, content, is_error: isErr }] } }];
-      }
-      case "error": {
-        const msg = str(raw.message);
-        if (!msg) return [];
-        return [{ type: "result", subtype: "error", is_error: true, result: msg }];
+      case "step_update": {
+        const su = obj(raw.step_update);
+        const idx = typeof su.step_index === "number" ? su.step_index : ++agySeq;
+        const stepType = str(su.step_type);
+        const state = str(su.state);
+        if (stepType === "user_input") return [];
+        if (stepType === "error_message") {
+          const msg = str(su.text) || str(su.text_delta) || str(su.error);
+          return msg ? [{ type: "result", subtype: "error", is_error: true, result: msg }] : [];
+        }
+        if (stepType === "thinking" || stepType === "thought") {
+          const delta = str(su.thinking_delta) || str(su.text_delta) || str(su.text);
+          if (!delta) return [];
+          const prev = agySteps.get(idx) ?? { id: `agy_t_${idx}`, text: "", kind: "thinking" as const };
+          prev.text = su.text_delta || su.thinking_delta ? prev.text + delta : delta;
+          agySteps.set(idx, prev);
+          return [{ type: "assistant", message: { id: prev.id, content: [{ type: "thinking", thinking: prev.text }] } }];
+        }
+        if (stepType === "agent_response") {
+          const delta = str(su.text_delta) || str(su.text);
+          if (!delta) return [];
+          agyStreamedText = true;
+          const prev = agySteps.get(idx) ?? { id: `agy_m_${idx}`, text: "", kind: "text" as const };
+          prev.text = su.text_delta ? prev.text + delta : delta;
+          agySteps.set(idx, prev);
+          return [{ type: "assistant", message: { id: prev.id, content: [{ type: "text", text: prev.text }] } }];
+        }
+        const ti = obj(su.tool_info);
+        const toolNameRaw = str(ti.name) || str(su.tool_name) || str(su.name) || (stepType && stepType !== "planner_response" && stepType !== "tool" ? stepType : "");
+        if (toolNameRaw) {
+          const id = str(su.tool_id) || `agy_tool_${idx}`;
+          const name = mapAgyToolName(toolNameRaw);
+          const input = obj(ti.parameters ?? su.input ?? su.parameters ?? su.arguments);
+          const evs: AiEvent[] = [{ type: "assistant", message: { id, content: [{ type: "tool_use", id, name, input }] } }];
+          if (state === "DONE" || state === "ERROR") {
+            const errObj = obj(ti.error ?? su.error);
+            const errMsg = str(errObj.message) || str(ti.error) || str(su.error);
+            const isErr = state === "ERROR" || su.is_error === true || !!errMsg;
+            const out = str(ti.output) || str(ti.result) || str(su.output) || str(su.result) || errMsg || (isErr ? "Error" : "ok");
+            evs.push({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, content: out, is_error: isErr }] } });
+          }
+          return evs;
+        }
+        return [];
       }
       case "result": {
-        const ok = str(raw.status) === "success";
-        const stats = obj(raw.stats);
-        const duration = typeof stats.duration_ms === "number" ? stats.duration_ms : Math.max(0, Date.now() - turnStart);
-        return [{ type: "result", subtype: ok ? "success" : "error", is_error: !ok, duration_ms: duration, total_cost_usd: 0, result: ok ? "ok" : str(obj(raw.error).message) || "Gemini terminó con error." }];
+        const res = obj(raw.result ?? raw);
+        const sid = str(res.conversation_id) || str(raw.conversation_id);
+        const denied = Array.isArray(res.denied_actions) ? res.denied_actions : [];
+        const finalText = str(res.response);
+        const blockedHeadless = denied.length > 0 && !agyStreamedText && !finalText;
+        const ok = str(res.status).toUpperCase() === "SUCCESS" && !blockedHeadless;
+        const durSec = typeof res.duration_seconds === "number" ? res.duration_seconds : 0;
+        const durationMs = durSec > 0 ? Math.round(durSec * 1000) : Math.max(0, Date.now() - turnStart);
+        const out: AiEvent[] = [];
+        if (!agyStreamedText && finalText) {
+          out.push({ type: "assistant", message: { id: `agy_final_${++agySeq}`, content: [{ type: "text", text: finalText }] } });
+        }
+        const errMsg = blockedHeadless
+          ? "Antigravity necesitó permiso para ejecutar un comando y no puede pedir confirmación en este modo."
+          : friendlyToolError(str(res.error) || "Antigravity terminó con error.");
+        out.push({
+          type: "result",
+          subtype: ok ? "success" : "error",
+          is_error: !ok,
+          session_id: sid || undefined,
+          duration_ms: durationMs,
+          total_cost_usd: 0,
+          permission_denials: denied,
+          result: ok ? "ok" : errMsg,
+        });
+        return out;
       }
       default:
         return [];
@@ -382,6 +428,23 @@ export function usedRatio(w: UsageWindow | undefined): number {
 /** Porcentaje usado legible («67%», «44%» o «—»). */
 export function usedPercent(w: UsageWindow | undefined): string {
   return w ? `${Math.round(usedRatio(w) * 100)}%` : "—";
+}
+
+/** Proporción restante de una ventana (0..1). */
+export function remainingRatio(w: UsageWindow | undefined): number {
+  return w ? Math.max(0, Math.min(1, 1 - usedRatio(w))) : 1;
+}
+
+/** Porcentaje disponible legible («87%», «100%» o «—»). */
+export function remainingPercent(w: UsageWindow | undefined): string {
+  return w ? `${Math.round(remainingRatio(w) * 100)}%` : "—";
+}
+
+/** Convierte una fecha ISO-8601 («2026-11-25T15:17:00Z») a segundos Unix; 0 si no es válida. */
+export function resetTimeFromIso(iso: string): number {
+  if (!iso?.trim()) return 0;
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? Math.round(ms / 1000) : 0;
 }
 
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
@@ -492,6 +555,10 @@ export function formatModelName(raw: string): string {
   if (gem) {
     return `Gemini ${gem[1].split("-").map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(" ")}`;
   }
+  const oss = /^gpt-oss-(\d+[a-z]*)-([a-z]+)$/i.exec(s);
+  if (oss) {
+    return `GPT-OSS ${oss[1].toUpperCase()} (${oss[2].charAt(0).toUpperCase() + oss[2].slice(1)})`;
+  }
   const gpt = /^(gpt-[a-z0-9.-]+|o\d+[a-z0-9-]*)$/i.exec(s);
   if (gpt) {
     return gpt[1].replace(/^gpt/i, "GPT").replace(/-codex$/i, " Codex");
@@ -522,7 +589,7 @@ export function touchedFiles(messages: readonly Turn[]): string[] {
   for (const t of messages) {
     for (const b of t.blocks) {
       if (b.kind !== "tool" || b.error || !isFileChange(b)) continue;
-      const p = str(b.input.file_path) || str(b.input.notebook_path) || str(b.input.path);
+      const p = str(b.input.file_path) || str(b.input.notebook_path) || str(b.input.path) || str(b.input.Path) || str(b.input.TargetFile);
       if (!p) continue;
       const normP = p.replace(/\\/g, "/");
       const key = normP.toLowerCase();

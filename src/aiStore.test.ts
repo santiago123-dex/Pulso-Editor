@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Turn } from "./aiModel";
-import { chatsFor, deleteChat, loadChats, MAX_BYTES, MAX_CHATS, newChatId, pickHistory, saveChat, titleFrom, type SavedChat, type Store } from "./aiStore";
+import { chatsFor, deleteChat, loadChats, MAX_BYTES, MAX_CHATS, mergeChats, newChatId, pickHistory, saveChat, titleFrom, type SavedChat, type Store } from "./aiStore";
 
 const memory = (): Store & { data: Map<string, string> } => {
   const data = new Map<string, string>();
@@ -68,6 +68,13 @@ describe("guardar y cargar", () => {
     expect(loadChats(s).map((c) => c.id)).toEqual(["ok"]);
     const roto: Store = { getItem: () => null, setItem: () => { throw new Error("lleno"); } };
     expect(() => saveChat(chat("a", 1), roto)).not.toThrow();
+  });
+});
+
+describe("mergeChats", () => {
+  it("conserva la versión más reciente al recuperar cierres en ejecución", () => {
+    const merged = mergeChats([chat("a", 10, { title: "viejo" }), chat("b", 5)], [chat("a", 20, { title: "en curso" }), chat("c", 15)]);
+    expect(merged.map((c) => [c.id, c.title])).toEqual([["a", "en curso"], ["c", "c"], ["b", "b"]]);
   });
 });
 

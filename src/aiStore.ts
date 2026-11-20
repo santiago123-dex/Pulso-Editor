@@ -7,6 +7,7 @@ export interface SavedChat { id: string; title: string; cwd: string; sessionId: 
 export interface Store { getItem(k: string): string | null; setItem(k: string, v: string): void }
 
 const KEY = "pulso.ai.chats";
+const EMERGENCY_KEY = "pulso.ai.emergency";
 export const MAX_CHATS = 30;
 export const MAX_BYTES = 1_500_000;
 const SAVED_RESULT = 600;
@@ -27,10 +28,26 @@ export function pickHistory(fileText: string | null, legacyText: string | null):
 let cache = "[]";
 let timer = 0;
 
+/** Combina historiales conservando la versión más reciente de cada conversación y respetando el límite máximo. */
+export function mergeChats(base: readonly SavedChat[], extra: readonly SavedChat[]): SavedChat[] {
+  const byId = new Map<string, SavedChat>();
+  for (const c of [...base, ...extra]) {
+    const prev = byId.get(c.id);
+    if (!prev || c.updatedAt >= prev.updatedAt) byId.set(c.id, c);
+  }
+  return Array.from(byId.values()).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_CHATS);
+}
+
 async function flush(): Promise<void> {
   window.clearTimeout(timer);
   timer = 0;
   try { await invoke("ai_history_write", { text: cache }); } catch { /* sin disco: la conversación sigue en pantalla */ }
+}
+
+/** Guarda de inmediato en disco y en copia de respaldo síncrona (útil al cerrar mientras ejecuta). */
+export function flushHistoryNow(): void {
+  try { localStorage.setItem(EMERGENCY_KEY, cache); } catch { /* nada que hacer */ }
+  void flush();
 }
 
 /** Historial en memoria respaldado por un archivo; las escrituras se agrupan para no tocar el disco en cada fragmento de respuesta. */
@@ -39,21 +56,28 @@ export const historyStore: Store = {
   setItem: (_k, v) => { cache = v; if (!timer) timer = window.setTimeout(() => void flush(), 400); },
 };
 
-/** Carga el historial del archivo (y trae el de localStorage si es la primera vez). Llamar una vez al iniciar. */
+/** Carga el historial del archivo (y recupera si quedó una copia de emergencia al cerrar en plena ejecución). */
 export async function initHistory(): Promise<void> {
   let fileText: string | null = null;
   try { fileText = await invoke<string>("ai_history_read"); } catch { /* sin archivo todavía */ }
   let legacy: string | null = null;
   try { legacy = localStorage.getItem(KEY); } catch { /* sin acceso */ }
+  let emergency: string | null = null;
+  try { emergency = localStorage.getItem(EMERGENCY_KEY); } catch { /* sin acceso */ }
   const pick = pickHistory(fileText, legacy);
   cache = pick.text;
-  if (pick.migrated) {
-    await flush();
-    try { localStorage.removeItem(KEY); } catch { /* nada que hacer */ }
-  } else if (legacy !== null) {
-    try { localStorage.removeItem(KEY); } catch { /* nada que hacer */ }
+  let dirty = pick.migrated;
+  if (isList(emergency) && hasChats(emergency)) {
+    const merged = mergeChats(loadChats({ getItem: () => cache, setItem: () => {} }), JSON.parse(emergency) as SavedChat[]);
+    cache = JSON.stringify(merged);
+    dirty = true;
   }
+  if (dirty) await flush();
+  if (legacy !== null) try { localStorage.removeItem(KEY); } catch { /* nada que hacer */ }
+  if (emergency !== null) try { localStorage.removeItem(EMERGENCY_KEY); } catch { /* nada que hacer */ }
   window.addEventListener("blur", () => { if (timer) void flush(); });
+  window.addEventListener("pagehide", flushHistoryNow);
+  window.addEventListener("beforeunload", flushHistoryNow);
 }
 
 /** Identificador seguro para pasarlo a la herramienta y usarlo como clave. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createProviderNormalizer, emptyConversation, exitEvent, formatModelName, isAuthError, isFileChange, MAX_RESULT, percent, planLabel, friendlyToolError, parseResetText, parseUsageText, pruneUsage, reduce, resetClockText, resetCountdown, resetIn, toolSummary, touchedFiles, usedPercent, usedRatio, userEvent, type AiEvent, type Block, type Conversation } from "./aiModel";
+import { createProviderNormalizer, emptyConversation, exitEvent, formatModelName, isAuthError, isFileChange, MAX_RESULT, percent, planLabel, friendlyToolError, parseResetText, parseUsageText, pruneUsage, reduce, remainingPercent, resetClockText, resetCountdown, resetIn, resetTimeFromIso, toolSummary, touchedFiles, usedPercent, usedRatio, userEvent, type AiEvent, type Block, type Conversation } from "./aiModel";
 
 const run = (events: AiEvent[], start: Conversation = emptyConversation()) => events.reduce(reduce, start);
 const se = (event: unknown): AiEvent => ({ type: "stream_event", event });
@@ -261,27 +261,31 @@ describe("adaptadores para Codex CLI y Gemini CLI", () => {
     expect(formatModelName("gpt-5.3-codex")).toBe("GPT-5.3 Codex");
   });
 
-  it("normaliza eventos de Gemini CLI (deltas, herramientas y estadísticas)", () => {
-    const norm = createProviderNormalizer("gemini");
-    const raw: AiEvent[] = [
-      { type: "init", session_id: "gem_1", model: "gemini-2.5-pro" },
-      { type: "message", role: "user", content: "ignorar" },
-      { type: "tool_use", tool_id: "t1", tool_name: "read_file", parameters: { file_path: "src/a.ts" } },
-      { type: "tool_result", tool_id: "t1", status: "success", output: "ok" },
-      { type: "message", role: "assistant", content: "Hola ", delta: true },
-      { type: "message", role: "assistant", content: "mundo", delta: true },
-      { type: "result", status: "success", stats: { duration_ms: 420 } },
-    ];
+  it("normaliza eventos de Antigravity CLI (stream-json, pasos y cuotas restantes)", () => {
+    const norm = createProviderNormalizer("antigravity", "gemini-4-hydrogen-high");
+    const raw = [
+      { type: "init", event: "init", conversation_id: "agy_1", init: { cwd: "." } },
+      { type: "step_update", event: "step_update", step_update: { step_index: 0, state: "DONE", step_type: "user_input" } },
+      { type: "step_update", event: "step_update", step_update: { step_index: 1, state: "ACTIVE", step_type: "tool", tool_name: "read_file", tool_info: { name: "read_file", parameters: { Path: "src/a.ts" } } } },
+      { type: "step_update", event: "step_update", step_update: { step_index: 1, state: "DONE", step_type: "tool", tool_name: "read_file", tool_info: { name: "read_file", parameters: { Path: "src/a.ts" }, output: "ok" } } },
+      { type: "step_update", event: "step_update", step_update: { step_index: 2, state: "ACTIVE", step_type: "agent_response", text_delta: "Hola " } },
+      { type: "step_update", event: "step_update", step_update: { step_index: 2, state: "DONE", step_type: "agent_response", text_delta: "mundo" } },
+      { type: "result", event: "result", result: { conversation_id: "agy_1", status: "SUCCESS", response: "Hola mundo", duration_seconds: 1.5 } },
+    ] as unknown as AiEvent[];
     let convo = reduce(emptyConversation(), userEvent("lee a.ts"));
     for (const r of raw) for (const ev of norm(r)) convo = reduce(convo, ev);
-    expect(convo.sessionId).toBe("gem_1");
-    expect(convo.model).toBe("gemini-2.5-pro");
+    expect(convo.sessionId).toBe("agy_1");
+    expect(convo.model).toBe("gemini-4-hydrogen-high");
     expect(convo.outcome?.ok).toBe(true);
-    expect(convo.outcome?.durationMs).toBe(420);
-    expect(formatModelName("gemini-2.5-pro")).toBe("Gemini 2.5 Pro");
+    expect(convo.outcome?.durationMs).toBe(1500);
+    expect(formatModelName("gemini-4-hydrogen-high")).toBe("Gemini 4 Hydrogen High");
+    expect(formatModelName("gpt-oss-120b-medium")).toBe("GPT-OSS 120B (Medium)");
+    expect(remainingPercent({ utilization: 0.13, resetsAt: 0 })).toBe("87%");
+    expect(resetTimeFromIso("2026-11-25T15:17:00Z")).toBe(1795619820);
     const assistantTurns = convo.messages.filter((m) => m.role === "assistant");
     expect(assistantTurns.some((t) => t.blocks.some((b) => b.kind === "text" && b.text === "Hola mundo"))).toBe(true);
-    expect(assistantTurns.some((t) => t.blocks.some((b) => b.kind === "tool" && b.name === "Read"))).toBe(true);
+    const readTool = assistantTurns.flatMap((t) => t.blocks).find((b) => b.kind === "tool" && b.name === "Read");
+    expect(readTool?.kind === "tool" && toolSummary(readTool)).toBe("Leyó a.ts");
   });
 });
 

@@ -8,7 +8,7 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
     process::Stdio,
-    sync::{Arc, Mutex},
+    sync::{mpsc, Arc, Mutex},
     thread,
     time::{Duration, Instant},
 };
@@ -70,32 +70,37 @@ pub struct CodexQuota {
 }
 
 #[derive(Serialize, Debug, PartialEq, Default, Clone)]
-pub struct GeminiModelStat {
-    pub model: String,
-    pub requests: u64,
-    pub tokens: u64,
+pub struct AntigravityBucket {
+    pub id: String,
+    pub name: String,
+    pub window: String,
+    pub remaining_fraction: f64,
+    pub reset_time: String,
 }
 
 #[derive(Serialize, Debug, PartialEq, Default, Clone)]
-pub struct GeminiUsage {
-    pub requests_24h: u64,
-    pub tokens_24h: u64,
-    pub requests_7d: u64,
-    pub tokens_7d: u64,
-    pub models: Vec<GeminiModelStat>,
+pub struct AntigravityQuotaGroup {
+    pub name: String,
+    pub description: String,
+    pub buckets: Vec<AntigravityBucket>,
+}
+
+#[derive(Serialize, Debug, PartialEq, Default, Clone)]
+pub struct AntigravityUsage {
+    pub groups: Vec<AntigravityQuotaGroup>,
 }
 
 #[derive(Serialize, Debug, PartialEq, Default, Clone)]
 pub struct ExtraUsage {
     pub codex: Option<CodexQuota>,
-    pub gemini: Option<GeminiUsage>,
+    pub antigravity: Option<AntigravityUsage>,
 }
 
 #[derive(Serialize, Debug, PartialEq, Default, Clone)]
 pub struct AllAiTools {
     pub claude: AiTool,
     pub codex: AiTool,
-    pub gemini: AiTool,
+    pub antigravity: AiTool,
 }
 
 /// Lee la salida JSON de `claude auth status`. No se devuelve el correo ni la organización: Pulso no los necesita.
@@ -270,7 +275,9 @@ fn extra_bin_dirs() -> Vec<PathBuf> {
     }
     if let Some(local) = std::env::var_os("LOCALAPPDATA") {
         let local = PathBuf::from(local);
+        dirs.push(local.join("agy").join("bin"));
         dirs.push(local.join("Programs").join("OpenAI").join("Codex").join("bin"));
+        dirs.push(local.join("Microsoft").join("WindowsApps"));
         dirs.push(local.join("pnpm"));
         dirs.push(local.join("Programs").join("nodejs"));
     }
@@ -279,6 +286,9 @@ fn extra_bin_dirs() -> Vec<PathBuf> {
             let p = PathBuf::from(v);
             dirs.push(if var == "BUN_INSTALL" { p.join("bin") } else { p });
         }
+    }
+    if cfg!(windows) {
+        dirs.push(PathBuf::from(r"C:\nvm4w\nodejs"));
     }
     if let Some(home) = user_home() {
         dirs.push(home.join(".bun").join("bin"));
@@ -300,7 +310,7 @@ fn node_program(hint_dir: &Path) -> String {
         }
     }
     if cfg!(windows) {
-        for fixed in [r"C:\Program Files\nodejs\node.exe", r"C:\Program Files (x86)\nodejs\node.exe"] {
+        for fixed in [r"C:\nvm4w\nodejs\node.exe", r"C:\Program Files\nodejs\node.exe", r"C:\Program Files (x86)\nodejs\node.exe"] {
             if Path::new(fixed).is_file() { return fixed.to_string(); }
         }
     }
@@ -308,7 +318,7 @@ fn node_program(hint_dir: &Path) -> String {
 }
 
 /// Resuelve una CLI global buscando ejecutables nativos y paquetes npm `.js`/`.cmd` fuera del `PATH` heredado de GUI.
-fn resolve_cli(name: &str, env_var: &str, npm_pkg: Option<&str>) -> (String, Vec<String>) {
+pub fn resolve_cli(name: &str, env_var: &str, npm_pkg: Option<&str>) -> (String, Vec<String>) {
     if cfg!(debug_assertions) {
         if let Ok(p) = std::env::var(env_var) {
             if !p.trim().is_empty() { return (p, Vec::new()); }
@@ -350,7 +360,7 @@ fn with_prefix(prefix: &[String], rest: &[&str]) -> Vec<String> {
     all
 }
 
-/// Lee los modelos disponibles de la cuenta ChatGPT en `~/.codex/models_cache.json`.
+/// Lee los modelos disponibles de la cuenta ChatGPT en `~/.codex/models_cache.json` (respaldo sin `app-server`).
 pub fn read_codex_models_from(home: Option<&Path>) -> Vec<AiModelInfo> {
     let Some(path) = home.map(|h| h.join(".codex").join("models_cache.json")) else { return Vec::new(); };
     let Ok(raw) = std::fs::read_to_string(path) else { return Vec::new(); };
@@ -370,46 +380,145 @@ pub fn read_codex_models_from(home: Option<&Path>) -> Vec<AiModelInfo> {
     out
 }
 
-/// ¿Es un identificador de modelo para chatear? Descarta embeddings, imágenes, voz en vivo, variantes internas y generaciones retiradas.
-fn is_chat_gemini_model(id: &str) -> bool {
-    const NOISE: [&str; 9] = ["embedding", "-base", "customtools", "-image", "-live", "computer-use", "9001", "-001", "tts"];
-    if NOISE.iter().any(|n| id.contains(n)) || id.ends_with('-') { return false; }
-    if id.starts_with("gemini-2.0") || id.starts_with("gemini-1") { return false; }
-    true
+#[derive(Debug, Default)]
+struct CodexServerSnapshot {
+    logged_in: bool,
+    auth_method: String,
+    plan: String,
+    models: Vec<AiModelInfo>,
+    quota: Option<CodexQuota>,
 }
 
-/// Descubre los modelos `gemini-*` y `auto-gemini-*` que conoce la versión instalada de `@google/gemini-cli`
-/// (están repartidos por los trozos de `bundle/*.js`). Los más nuevos primero.
-pub fn discover_gemini_models_from(dirs: &[PathBuf]) -> Vec<AiModelInfo> {
-    let Ok(re) = regex::Regex::new(r#"["'`]((?:auto-gemini-\d+(?:\.\d+)?|gemini-\d+(?:\.\d+)?-[a-z0-9.-]+))["'`]"#) else { return Vec::new(); };
-    let mut ids: Vec<String> = Vec::new();
-    for dir in dirs {
-        let google = dir.join("node_modules").join("@google");
-        // Versiones recientes: trozos en bundle/*.js. Anteriores: models.js dentro de gemini-cli-core.
-        let mut files: Vec<PathBuf> = std::fs::read_dir(google.join("gemini-cli").join("bundle"))
-            .map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.extension().and_then(|x| x.to_str()) == Some("js")).collect())
-            .unwrap_or_default();
-        for core in [google.join("gemini-cli-core"), google.join("gemini-cli").join("node_modules").join("@google").join("gemini-cli-core")] {
-            let p = core.join("dist").join("src").join("config").join("models.js");
-            if p.is_file() { files.push(p); }
-        }
-        for p in files {
-            let Ok(meta) = std::fs::metadata(&p) else { continue };
-            if meta.len() > 40_000_000 { continue; }
-            let Ok(raw) = std::fs::read_to_string(&p) else { continue };
-            for cap in re.captures_iter(&raw) {
-                let id = cap[1].to_string();
-                if is_chat_gemini_model(&id) && !ids.contains(&id) { ids.push(id); }
-            }
-        }
-        if !ids.is_empty() { break; }
-    }
-    let version = |s: &str| -> Vec<u32> {
-        s.trim_start_matches("auto-").trim_start_matches("gemini-").split('-').next().unwrap_or("")
-            .split('.').filter_map(|n| n.parse().ok()).collect()
+/// Interpreta `account/read` del protocolo JSON-RPC de `codex app-server`.
+pub fn parse_codex_app_account(v: &serde_json::Value) -> (bool, String, String) {
+    let Some(acc) = v.get("result").and_then(|r| r.get("account")).filter(|a| !a.is_null()) else {
+        return (false, String::new(), String::new());
     };
-    ids.sort_by(|a, b| version(b).cmp(&version(a)).then(a.cmp(b)));
-    ids.into_iter().map(|id| AiModelInfo { id, label: String::new(), note: String::new() }).collect()
+    let kind = acc.get("type").and_then(|x| x.as_str()).unwrap_or("");
+    let plan = acc.get("planType").and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
+    match kind {
+        "chatgpt" => (true, "chatgpt".into(), if plan.is_empty() { "ChatGPT".into() } else { plan }),
+        "apiKey" => (true, "api_key".into(), "API".into()),
+        "" => (false, String::new(), String::new()),
+        _ => (true, kind.to_string(), plan),
+    }
+}
+
+/// Interpreta `model/list` de `codex app-server`: visibles primero, luego los ocultos/heredados etiquetados.
+pub fn parse_codex_app_models(v: &serde_json::Value) -> Vec<AiModelInfo> {
+    let Some(arr) = v.get("result").and_then(|r| r.get("data")).and_then(|d| d.as_array()) else {
+        return Vec::new();
+    };
+    let mut visible = Vec::new();
+    let mut hidden = Vec::new();
+    for m in arr {
+        let Some(id) = m.get("model").or_else(|| m.get("id")).and_then(|x| x.as_str()).map(str::trim).filter(|s| !s.is_empty()) else { continue; };
+        let label = m.get("displayName").and_then(|x| x.as_str()).map(str::trim).filter(|s| !s.is_empty()).unwrap_or(id).to_string();
+        let desc = m.get("description").and_then(|x| x.as_str()).map(str::trim).unwrap_or("");
+        let is_hidden = m.get("hidden").and_then(|x| x.as_bool()).unwrap_or(false);
+        let note = if is_hidden {
+            if desc.is_empty() { "legacy".to_string() } else { format!("{desc} [legacy]") }
+        } else {
+            desc.to_string()
+        };
+        if !visible.iter().any(|x: &AiModelInfo| x.id == id) && !hidden.iter().any(|x: &AiModelInfo| x.id == id) {
+            let item = AiModelInfo { id: id.to_string(), label, note };
+            if is_hidden { hidden.push(item); } else { visible.push(item); }
+        }
+    }
+    visible.extend(hidden);
+    visible
+}
+
+fn parse_app_window(v: Option<&serde_json::Value>) -> Option<WindowQuota> {
+    let o = v?.as_object()?;
+    let used = o.get("usedPercent")?.as_f64()?;
+    let resets = o.get("resetsAt").and_then(|x| x.as_i64()).unwrap_or(0);
+    Some(WindowQuota { used_percent: used.clamp(0.0, 100.0), resets_at: resets })
+}
+
+/// Interpreta `account/rateLimits/read` de `codex app-server`.
+pub fn parse_codex_app_rate_limits(v: &serde_json::Value) -> Option<CodexQuota> {
+    let rl = v.get("result").and_then(|r| r.get("rateLimits"))?;
+    let five = parse_app_window(rl.get("primary"));
+    let week = parse_app_window(rl.get("secondary"));
+    if five.is_none() && week.is_none() { return None; }
+    let plan = rl.get("planType").and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
+    Some(CodexQuota { plan, five_hour: five, seven_day: week })
+}
+
+/// Consulta en vivo estado de cuenta, catálogo de modelos y cuotas reales vía `codex app-server` (el mismo motor de Codex Desktop).
+fn codex_app_server_snapshot(program: &str, prefix: &[String], want_models: bool, want_limits: bool) -> Option<CodexServerSnapshot> {
+    let args = with_prefix(prefix, &["app-server"]);
+    let mut child = background_command(program)
+        .args(&args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let mut stdin = child.stdin.take()?;
+    let stdout = child.stdout.take()?;
+    let (tx, rx) = mpsc::channel::<String>();
+    thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if !line.trim().is_empty() && tx.send(line).is_err() { break; }
+        }
+    });
+
+    let init = r#"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"pulso-editor","version":"0.1.0"},"capabilities":{"experimentalApi":true}}}"#;
+    if writeln!(stdin, "{init}").is_err() || stdin.flush().is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut snap = CodexServerSnapshot::default();
+    let mut initialized = false;
+    let mut got_acc = false;
+    let mut got_models = !want_models;
+    let mut got_limits = !want_limits;
+
+    while Instant::now() < deadline && !(got_acc && got_models && got_limits) {
+        let rem = deadline.saturating_duration_since(Instant::now());
+        let Ok(line) = rx.recv_timeout(rem.min(Duration::from_millis(200))) else { continue };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
+        let Some(id) = v.get("id").and_then(|x| x.as_u64()) else { continue };
+        match id {
+            1 if !initialized => {
+                initialized = true;
+                let _ = writeln!(stdin, r#"{{"method":"initialized","params":{{}}}}"#);
+                let _ = writeln!(stdin, r#"{{"id":2,"method":"account/read","params":{{}}}}"#);
+                if want_models {
+                    let _ = writeln!(stdin, r#"{{"id":3,"method":"model/list","params":{{"includeHidden":true}}}}"#);
+                }
+                if want_limits {
+                    let _ = writeln!(stdin, r#"{{"id":4,"method":"account/rateLimits/read","params":{{}}}}"#);
+                }
+                let _ = stdin.flush();
+            }
+            2 => {
+                (snap.logged_in, snap.auth_method, snap.plan) = parse_codex_app_account(&v);
+                got_acc = true;
+                if !snap.logged_in { break; }
+            }
+            3 => {
+                snap.models = parse_codex_app_models(&v);
+                got_models = true;
+            }
+            4 => {
+                snap.quota = parse_codex_app_rate_limits(&v);
+                got_limits = true;
+            }
+            _ => {}
+        }
+    }
+
+    drop(stdin);
+    let _ = child.kill();
+    let _ = child.wait();
+    initialized.then_some(snap)
 }
 
 fn parse_window_quota(v: Option<&serde_json::Value>) -> Option<WindowQuota> {
@@ -419,7 +528,7 @@ fn parse_window_quota(v: Option<&serde_json::Value>) -> Option<WindowQuota> {
     Some(WindowQuota { used_percent: used.clamp(0.0, 100.0), resets_at: resets })
 }
 
-/// Lee los límites reales de ChatGPT/Codex (`primary` 5 h, `secondary` semanal y `plan_type`) desde `~/.codex/sessions/**/*.jsonl`.
+/// Lee los límites reales de ChatGPT/Codex (`primary` 5 h, `secondary` semanal y `plan_type`) desde `~/.codex/sessions/**/*.jsonl` (respaldo offline).
 pub fn read_codex_quota_from(home: Option<&Path>) -> Option<CodexQuota> {
     let root = home?.join(".codex").join("sessions");
     if !root.is_dir() { return None; }
@@ -456,78 +565,49 @@ pub fn read_codex_quota_from(home: Option<&Path>) -> Option<CodexQuota> {
     None
 }
 
-/// Agrega uso local (peticiones y tokens por modelo en las últimas 24 h / 7 d) desde `~/.gemini/tmp/*/chats/`.
-pub fn read_gemini_usage_from(home: Option<&Path>, now_secs: u64) -> Option<GeminiUsage> {
-    let tmp = home?.join(".gemini").join("tmp");
-    if !tmp.is_dir() { return None; }
-    let mut chat_files: Vec<(u64, PathBuf)> = Vec::new();
-    if let Ok(projects) = std::fs::read_dir(&tmp) {
-        for proj in projects.flatten() {
-            let chats = proj.path().join("chats");
-            if !chats.is_dir() { continue; }
-            if let Ok(rd) = std::fs::read_dir(&chats) {
-                for f in rd.flatten() {
-                    let p = f.path();
-                    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
-                    if !matches!(ext, "json" | "jsonl") { continue; }
-                    let secs = f.metadata()
-                        .and_then(|m| m.modified())
-                        .ok()
-                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                        .map(|d| d.as_secs())
-                        .unwrap_or(0);
-                    if now_secs.saturating_sub(secs) <= 7 * 86_400 {
-                        chat_files.push((secs, p));
-                    }
-                }
-            }
+/// Interpreta las líneas `<id>\t<etiqueta>` de `agy models`.
+pub fn parse_agy_models(text: &str) -> Vec<AiModelInfo> {
+    let mut out = Vec::new();
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.is_empty() || !line.contains('\t') { continue; }
+        let Some((id, label)) = line.split_once('\t') else { continue };
+        let id = id.trim();
+        let label = label.trim();
+        if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')) { continue; }
+        let note = label.rsplit_once('(').and_then(|(_, r)| r.strip_suffix(')')).map(str::trim).unwrap_or("").to_string();
+        if !out.iter().any(|x: &AiModelInfo| x.id == id) {
+            out.push(AiModelInfo { id: id.to_string(), label: if label.is_empty() { id.to_string() } else { label.to_string() }, note });
         }
     }
-    if chat_files.is_empty() { return None; }
-    chat_files.sort_by(|a, b| b.0.cmp(&a.0));
+    out
+}
 
-    let mut out = GeminiUsage::default();
-    let mut per_model: HashMap<String, (u64, u64)> = HashMap::new();
-    for (secs, path) in chat_files.into_iter().take(40) {
-        let Ok(raw) = std::fs::read_to_string(&path) else { continue };
-        let in_24h = now_secs.saturating_sub(secs) <= 86_400;
-        let items: Vec<serde_json::Value> = if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
-            if let Some(arr) = v.get("messages").and_then(|m| m.as_array()) { arr.clone() }
-            else if let Some(arr) = v.as_array() { arr.clone() }
-            else { vec![v] }
-        } else {
-            raw.lines().filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok()).collect()
-        };
-        for m in items {
-            let kind = m.get("type").or_else(|| m.get("role")).and_then(|x| x.as_str()).unwrap_or("");
-            if !matches!(kind, "gemini" | "assistant" | "model") { continue; }
-            let model = m.get("model").and_then(|x| x.as_str()).unwrap_or("gemini").trim().to_string();
-            let tok = m.get("tokens")
-                .and_then(|t| t.get("total").and_then(|x| x.as_u64()).or_else(|| {
-                    Some(t.get("input").and_then(|x| x.as_u64()).unwrap_or(0)
-                        + t.get("output").and_then(|x| x.as_u64()).unwrap_or(0))
-                }))
-                .or_else(|| m.get("usageMetadata").and_then(|u| u.get("totalTokenCount").and_then(|x| x.as_u64())))
-                .unwrap_or(0);
-            out.requests_7d += 1;
-            out.tokens_7d += tok;
-            if in_24h {
-                out.requests_24h += 1;
-                out.tokens_24h += tok;
+/// Extrae los grupos y cubos de cuota de `agy -p "/usage" --output-format json --mode plan`.
+pub fn parse_agy_usage_json(text: &str) -> Option<AntigravityUsage> {
+    let v: serde_json::Value = serde_json::from_str(text.trim()).ok()
+        .or_else(|| text.lines().rev().find_map(|l| serde_json::from_str::<serde_json::Value>(l.trim()).ok()))?;
+    if v.get("status").and_then(|s| s.as_str()) != Some("SUCCESS") { return None; }
+    let arr = v.get("command").and_then(|c| c.get("data")).and_then(|d| d.get("groups")).and_then(|g| g.as_array())?;
+    let mut groups = Vec::new();
+    for g in arr {
+        let name = g.get("name").and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
+        if name.is_empty() { continue; }
+        let description = g.get("description").and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
+        let mut buckets = Vec::new();
+        if let Some(bs) = g.get("buckets").and_then(|x| x.as_array()) {
+            for b in bs {
+                let id = b.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                let bname = b.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                let window = b.get("window").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                let rem = b.get("remaining_fraction").and_then(|x| x.as_f64()).unwrap_or(1.0).clamp(0.0, 1.0);
+                let reset_time = b.get("reset_time").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                buckets.push(AntigravityBucket { id, name: bname, window, remaining_fraction: rem, reset_time });
             }
-            let e = per_model.entry(model).or_insert((0, 0));
-            e.0 += 1;
-            e.1 += tok;
         }
+        groups.push(AntigravityQuotaGroup { name, description, buckets });
     }
-    if out.requests_7d == 0 { return None; }
-    let mut models: Vec<GeminiModelStat> = per_model
-        .into_iter()
-        .map(|(model, (requests, tokens))| GeminiModelStat { model, requests, tokens })
-        .collect();
-    models.sort_by(|a, b| b.requests.cmp(&a.requests).then(b.tokens.cmp(&a.tokens)));
-    out.models = models;
-    Some(out)
+    (!groups.is_empty()).then_some(AntigravityUsage { groups })
 }
 
 fn detect_codex() -> AiTool {
@@ -536,6 +616,21 @@ fn detect_codex() -> AiTool {
         Ok(v) if !v.trim().is_empty() => v.trim().to_string(),
         _ => return AiTool { error: "No se encontró Codex CLI (ChatGPT) en este equipo.".into(), ..Default::default() },
     };
+    if let Some(snap) = codex_app_server_snapshot(&program, &prefix, true, false) {
+        let mut models = snap.models;
+        if models.is_empty() && snap.logged_in {
+            models = read_codex_models_from(user_home().as_deref());
+        }
+        return AiTool {
+            installed: true,
+            version,
+            logged_in: snap.logged_in,
+            auth_method: snap.auth_method,
+            plan: snap.plan,
+            error: String::new(),
+            models,
+        };
+    }
     let mut tool = AiTool { installed: true, version, ..Default::default() };
     match capture_status(&program, &with_prefix(&prefix, &["login", "status"]), 15) {
         Ok((ok, text)) => {
@@ -558,18 +653,43 @@ fn detect_codex() -> AiTool {
     tool
 }
 
-fn detect_gemini() -> AiTool {
-    let (program, prefix) = resolve_cli("gemini", "PULSO_GEMINI_BIN", Some("@google/gemini-cli"));
-    let version = match capture_vec(&program, &with_prefix(&prefix, &["--version"]), 15) {
+fn detect_antigravity() -> AiTool {
+    let (program, prefix) = resolve_cli("agy", "PULSO_AGY_BIN", None);
+    let version = match capture_vec(&program, &with_prefix(&prefix, &["--version"]), 12) {
         Ok(v) if !v.trim().is_empty() => v.trim().to_string(),
-        _ => return AiTool { error: "No se encontró Gemini CLI en este equipo.".into(), ..Default::default() },
+        _ => return AiTool { error: "No se encontró Antigravity CLI (`agy`) en este equipo.".into(), ..Default::default() },
     };
-    let has_key = std::env::var("GEMINI_API_KEY").is_ok_and(|v| !v.trim().is_empty());
-    let has_vertex = std::env::var("GOOGLE_GENAI_USE_VERTEXAI").is_ok_and(|v| v == "true" || v == "1");
-    let home = user_home();
-    let (logged, method, plan) = gemini_auth_from(home.as_deref(), has_key, has_vertex);
-    let models = if logged { discover_gemini_models_from(&extra_bin_dirs()) } else { Vec::new() };
-    AiTool { installed: true, version, logged_in: logged, auth_method: method, plan, error: String::new(), models }
+    let mut tool = AiTool { installed: true, version, ..Default::default() };
+    match capture_status(&program, &with_prefix(&prefix, &["models"]), 20) {
+        Ok((ok, text)) => {
+            let models = parse_agy_models(&text);
+            if !models.is_empty() {
+                tool.logged_in = true;
+                tool.auth_method = "google".into();
+                tool.plan = "Antigravity".into();
+                tool.models = models;
+                return tool;
+            }
+            let low = text.to_lowercase();
+            if !ok && (low.contains("login") || low.contains("auth") || low.contains("unauthorized") || low.contains("credential")) {
+                return tool;
+            }
+        }
+        Err(_) => {}
+    }
+    // Respaldo rápido si `agy models` falló por red temporal pero la cuenta sigue conectada localmente.
+    let (logged, method, plan) = gemini_auth_from(user_home().as_deref(), false, false);
+    tool.logged_in = logged;
+    tool.auth_method = method;
+    if logged { tool.plan = if plan == "Google" { "Antigravity".into() } else { plan }; }
+    tool
+}
+
+fn read_antigravity_usage() -> Option<AntigravityUsage> {
+    let (program, prefix) = resolve_cli("agy", "PULSO_AGY_BIN", None);
+    let args = with_prefix(&prefix, &["-p", "/usage", "--output-format", "json", "--mode", "plan"]);
+    let out = capture_vec(&program, &args, 20).ok()?;
+    parse_agy_usage_json(&out)
 }
 
 #[tauri::command]
@@ -582,7 +702,7 @@ pub async fn ai_detect_provider(provider: String) -> Result<AiTool, String> {
     tauri::async_runtime::spawn_blocking(move || match provider.as_str() {
         "claude" => Ok(detect_claude()),
         "codex" => Ok(detect_codex()),
-        "gemini" => Ok(detect_gemini()),
+        "antigravity" | "gemini" => Ok(detect_antigravity()),
         _ => Err("Proveedor de IA no soportado".to_string()),
     }).await.map_err(|e| e.to_string())?
 }
@@ -592,11 +712,11 @@ pub async fn ai_detect_all() -> Result<AllAiTools, String> {
     tauri::async_runtime::spawn_blocking(|| {
         let t_claude = thread::spawn(detect_claude);
         let t_codex = thread::spawn(detect_codex);
-        let t_gemini = thread::spawn(detect_gemini);
+        let t_agy = thread::spawn(detect_antigravity);
         AllAiTools {
             claude: t_claude.join().unwrap_or_default(),
             codex: t_codex.join().unwrap_or_default(),
-            gemini: t_gemini.join().unwrap_or_default(),
+            antigravity: t_agy.join().unwrap_or_default(),
         }
     }).await.map_err(|e| e.to_string())
 }
@@ -617,18 +737,20 @@ pub async fn ai_usage() -> Result<String, String> {
     }).await.map_err(|e| e.to_string())?
 }
 
-/// Uso local y ventanas reales de cuota para Codex/ChatGPT y Gemini CLI (lectura de cachés locales, cero tokens gastados).
+/// Cuotas reales en vivo para ChatGPT/Codex (`codex app-server`) y Antigravity (`agy -p "/usage"`).
 #[tauri::command]
 pub async fn ai_extra_usage() -> Result<ExtraUsage, String> {
     tauri::async_runtime::spawn_blocking(|| {
-        let home = user_home();
-        let now_secs = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let t_codex = thread::spawn(|| {
+            let (program, prefix) = resolve_cli("codex", "PULSO_CODEX_BIN", Some("@openai/codex"));
+            codex_app_server_snapshot(&program, &prefix, false, true)
+                .and_then(|s| s.quota)
+                .or_else(|| read_codex_quota_from(user_home().as_deref()))
+        });
+        let t_agy = thread::spawn(read_antigravity_usage);
         ExtraUsage {
-            codex: read_codex_quota_from(home.as_deref()),
-            gemini: read_gemini_usage_from(home.as_deref(), now_secs),
+            codex: t_codex.join().ok().flatten(),
+            antigravity: t_agy.join().ok().flatten(),
         }
     }).await.map_err(|e| e.to_string())
 }
@@ -649,7 +771,7 @@ fn safe_token(s: &str) -> bool {
 
 /// Programa que se ejecuta. Solo en compilaciones de desarrollo puede cambiarse con `PULSO_CLAUDE_BIN` (las pruebas usan una herramienta falsa);
 /// en la aplicación instalada siempre es `claude`.
-fn claude_program() -> String {
+pub fn claude_program() -> String {
     if cfg!(debug_assertions) {
         if let Ok(p) = std::env::var("PULSO_CLAUDE_BIN") { if !p.trim().is_empty() { return p; } }
     }
@@ -730,21 +852,27 @@ pub fn build_codex_args(o: &ChatOptions) -> Result<Vec<String>, String> {
     Ok(a)
 }
 
-/// Argumentos de `gemini` en modo headless con streaming JSON. El mensaje va por stdin.
-pub fn build_gemini_args(o: &ChatOptions) -> Result<Vec<String>, String> {
-    let approval = match o.mode.as_str() {
-        "read" => "plan",
-        "edit" => "auto_edit",
+/// Argumentos de Antigravity CLI (`agy`) en modo headless con streaming JSON.
+pub fn build_agy_args(o: &ChatOptions, prompt: &str) -> Result<Vec<String>, String> {
+    let (agy_mode, guide) = match o.mode.as_str() {
+        "read" => (
+            "plan",
+            "[Instrucción de entorno: estás en modo Solo leer dentro de Pulso Editor. Explora usando únicamente list_dir, find_by_name, grep_search y view_file/read_file. Nunca invoques run_command ni herramientas de escritura.]\n\n",
+        ),
+        "edit" => (
+            "accept-edits",
+            "[Instrucción de entorno: estás en modo Edición en Pulso Editor. Lee, busca y edita archivos directamente con list_dir, find_by_name, grep_search, view_file/read_file, replace_file_content, multi_replace_file_content y write_to_file. No invoques run_command porque el modo no interactivo no puede aprobar comandos de terminal.]\n\n",
+        ),
         _ => return Err("Modo de permisos no válido".into()),
     };
-    // `--skip-trust`: la carpeta la abrió la persona en Pulso; sin esto, en modo no interactivo Gemini CLI se niega a trabajar en ella.
-    let mut a: Vec<String> = ["--skip-trust", "-p", "", "--output-format", "stream-json", "--approval-mode", approval]
+    let mut a: Vec<String> = ["--output-format", "stream-json", "--mode", agy_mode]
         .iter().map(|s| s.to_string()).collect();
     if let Some(s) = &o.session {
         if !safe_token(s) { return Err("Identificador de sesión no válido".into()); }
-        a.push("--resume".into());
+        a.push("--conversation".into());
         a.push(s.clone());
     }
+    let has_explicit_model = o.model.as_deref().is_some_and(|m| !m.trim().is_empty());
     if let Some(m) = &o.model {
         if !m.is_empty() {
             if !safe_token(m) { return Err("Modelo no válido".into()); }
@@ -752,12 +880,27 @@ pub fn build_gemini_args(o: &ChatOptions) -> Result<Vec<String>, String> {
             a.push(m.clone());
         }
     }
+    // En `agy models` cada modelo ya fija su variante de esfuerzo: `--effort` solo aplica en Predeterminado.
+    if !has_explicit_model {
+        if let Some(e) = &o.effort {
+            if !e.is_empty() {
+                if !matches!(e.as_str(), "low" | "medium" | "high" | "xhigh" | "max") {
+                    return Err("Nivel de esfuerzo no válido".into());
+                }
+                a.push("--effort".into());
+                a.push(e.clone());
+            }
+        }
+    }
+    let full_prompt = if o.session.is_none() { format!("{guide}{prompt}") } else { prompt.to_string() };
+    a.push("-p".into());
+    a.push(full_prompt);
     Ok(a)
 }
 
 const MAX_LINE: usize = 1_000_000;
 
-/// Lanza `program` con `args` en `cwd`, le entrega `prompt` por la entrada estándar y llama a `on_line` por cada línea
+/// Lanza `program` con `args` en `cwd`, le entrega `prompt` por la entrada estándar (si no va vacío) y llama a `on_line` por cada línea
 /// de su salida; al terminar, a `on_exit` con el código y el final de su salida de error. Devuelve el pid.
 pub fn spawn_stream(
     program: &str,
@@ -770,7 +913,7 @@ pub fn spawn_stream(
     let mut child = background_command(program)
         .args(args)
         .current_dir(cwd)
-        .stdin(Stdio::piped())
+        .stdin(if prompt.is_empty() { Stdio::null() } else { Stdio::piped() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -806,6 +949,7 @@ pub fn ai_send(app: AppHandle, state: State<AiState>, id: String, cwd: String, p
     if !std::path::Path::new(&cwd).is_dir() { return Err("Abre una carpeta de proyecto para hablar con la IA.".into()); }
     if prompt.trim().is_empty() { return Err("El mensaje está vacío.".into()); }
     let opts = ChatOptions { session, model, effort, mode };
+    let mut stdin_payload = prompt.as_str();
     let (program, args) = match provider.as_deref().unwrap_or("claude") {
         "claude" => (claude_program(), build_claude_args(&opts)?),
         "codex" => {
@@ -813,9 +957,10 @@ pub fn ai_send(app: AppHandle, state: State<AiState>, id: String, cwd: String, p
             prefix.extend(build_codex_args(&opts)?);
             (prog, prefix)
         }
-        "gemini" => {
-            let (prog, mut prefix) = resolve_cli("gemini", "PULSO_GEMINI_BIN", Some("@google/gemini-cli"));
-            prefix.extend(build_gemini_args(&opts)?);
+        "antigravity" | "gemini" => {
+            let (prog, mut prefix) = resolve_cli("agy", "PULSO_AGY_BIN", None);
+            prefix.extend(build_agy_args(&opts, &prompt)?);
+            stdin_payload = "";
             (prog, prefix)
         }
         _ => return Err("Proveedor de IA no soportado".into()),
@@ -828,7 +973,7 @@ pub fn ai_send(app: AppHandle, state: State<AiState>, id: String, cwd: String, p
         &program,
         &args,
         &cwd,
-        &prompt,
+        stdin_payload,
         Arc::new(move |line| { let _ = a1.emit("ai-line", AiLine { id: id1.clone(), line }); }),
         Arc::new(move |code, stderr| {
             if let Some(st) = a2.try_state::<AiState>() { if let Ok(mut m) = st.running.lock() { m.remove(&id2); } }
@@ -877,15 +1022,40 @@ mod tests {
     }
 
     #[test]
-    fn los_modelos_de_gemini_se_leen_de_los_trozos_del_paquete_sin_ruido_y_con_los_nuevos_primero() {
-        let tmp = std::env::temp_dir().join(format!("pulso-gem-modelos-{}", std::process::id()));
-        let bundle = tmp.join("node_modules").join("@google").join("gemini-cli").join("bundle");
-        std::fs::create_dir_all(&bundle).unwrap();
-        std::fs::write(bundle.join("chunk-a.js"), r#"x("gemini-2.5-pro");y("gemini-3.1-pro-preview");z("gemini-embedding-001");w("gemini-2.0-flash-001")"#).unwrap();
-        std::fs::write(bundle.join("chunk-b.js"), r#"a("gemini-3.5-flash");b("gemini-3-flash-base");c("auto-gemini-3");d("gemini-2.5-flash-image")"#).unwrap();
-        let ids: Vec<String> = discover_gemini_models_from(&[tmp.clone()]).into_iter().map(|m| m.id).collect();
-        let _ = std::fs::remove_dir_all(&tmp);
-        assert_eq!(ids, ["gemini-3.5-flash", "gemini-3.1-pro-preview", "auto-gemini-3", "gemini-2.5-pro"]);
+    fn interpreta_modelos_y_uso_de_antigravity() {
+        let txt = "Fetching available models...\ngemini-4-hydrogen-high\tGemini 4 Hydrogen (High)\ngemini-4-argon-medium\tGemini 4 Argon (Medium)\n";
+        let m = parse_agy_models(txt);
+        assert_eq!(m.len(), 2);
+        assert_eq!(m[0].id, "gemini-4-hydrogen-high");
+        assert_eq!(m[0].label, "Gemini 4 Hydrogen (High)");
+        assert_eq!(m[0].note, "High");
+
+        let usage_json = r#"{"status":"SUCCESS","command":{"name":"usage","data":{"groups":[{"name":"Gemini Models","description":"Models","buckets":[{"id":"gemini-weekly","name":"Weekly Limit Remaining","window":"weekly","remaining_fraction":0.82,"reset_time":"2026-11-25T15:17:00Z"}]}]}}}"#;
+        let u = parse_agy_usage_json(usage_json).unwrap();
+        assert_eq!(u.groups.len(), 1);
+        assert_eq!(u.groups[0].name, "Gemini Models");
+        assert!((u.groups[0].buckets[0].remaining_fraction - 0.82).abs() < 1e-6);
+    }
+
+    #[test]
+    fn interpreta_respuestas_de_codex_app_server() {
+        let acc = serde_json::json!({"id":2,"result":{"account":{"type":"chatgpt","planType":"plus"}}});
+        assert_eq!(parse_codex_app_account(&acc), (true, "chatgpt".into(), "plus".into()));
+
+        let mods = serde_json::json!({"id":3,"result":{"data":[
+            {"model":"gpt-6.2-sol","displayName":"GPT-6.2-Sol","description":"Fast","hidden":false},
+            {"model":"gpt-5-old","displayName":"GPT-5 Old","description":"","hidden":true}
+        ]}});
+        let parsed = parse_codex_app_models(&mods);
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].id, "gpt-6.2-sol");
+        assert_eq!(parsed[1].note, "legacy");
+
+        let rl = serde_json::json!({"id":4,"result":{"rateLimits":{"planType":"plus","primary":{"usedPercent":13,"resetsAt":1800000100},"secondary":{"usedPercent":58,"resetsAt":1800500000}}}});
+        let q = parse_codex_app_rate_limits(&rl).unwrap();
+        assert_eq!(q.plan, "plus");
+        assert_eq!(q.five_hour.unwrap().used_percent, 13.0);
+        assert_eq!(q.seven_day.unwrap().used_percent, 58.0);
     }
 
     #[test]
@@ -934,7 +1104,7 @@ mod tests {
     }
 
     #[test]
-    fn interpreta_estado_de_codex_y_gemini() {
+    fn interpreta_estado_de_codex_y_antigravity() {
         assert_eq!(parse_codex_login_status(true, "Logged in using ChatGPT"), (true, "chatgpt".into(), "ChatGPT".into()));
         assert_eq!(parse_codex_login_status(true, "Logged in using an API key - sk-..."), (true, "api_key".into(), "API".into()));
         assert_eq!(parse_codex_login_status(false, "Not logged in"), (false, "".into(), "".into()));
@@ -943,42 +1113,18 @@ mod tests {
         assert_eq!(gemini_auth_from(None, false, true), (true, "vertex".into(), "Vertex".into()));
         assert_eq!(gemini_auth_from(None, false, false), (false, "".into(), "".into()));
 
-        let tmp = std::env::temp_dir().join(format!("pulso-gem-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("pulso-ai-test-{}", std::process::id()));
         let gdir = tmp.join(".gemini");
         std::fs::create_dir_all(&gdir).unwrap();
         std::fs::write(gdir.join("google_accounts.json"), r#"{"active":"user@example.com"}"#).unwrap();
         assert_eq!(gemini_auth_from(Some(&tmp), false, false), (true, "google".into(), "Google".into()));
 
-        // Si cerró sesión explícitamente (`active: null`), settings.json antiguo no marca conectado.
-        std::fs::write(gdir.join("google_accounts.json"), r#"{"active":null}"#).unwrap();
-        std::fs::write(gdir.join("settings.json"), r#"{"security":{"auth":{"selectedType":"oauth-personal"}}}"#).unwrap();
-        assert_eq!(gemini_auth_from(Some(&tmp), false, false), (false, "".into(), "".into()));
-
-        // Si solo existe settings.json con oauth-personal (tokens en keyring), sí detecta Google.
-        let _ = std::fs::remove_file(gdir.join("google_accounts.json"));
-        assert_eq!(gemini_auth_from(Some(&tmp), false, false), (true, "google".into(), "Google".into()));
-
-        // Punto de entrada JS de paquete npm global (`@openai/codex` / `@google/gemini-cli`).
-        let pkg = tmp.join("node_modules").join("@google").join("gemini-cli");
-        std::fs::create_dir_all(pkg.join("bundle")).unwrap();
-        std::fs::write(pkg.join("bundle").join("gemini.js"), "console.log('ok')").unwrap();
-        std::fs::write(pkg.join("package.json"), r#"{"bin":{"gemini":"bundle/gemini.js"}}"#).unwrap();
-        assert!(npm_bin_js(&tmp, "@google/gemini-cli", "gemini").is_some());
-
-        // Descubre modelos reales desde ~/.codex/models_cache.json y @google/gemini-cli-core/dist/src/config/models.js.
         std::fs::create_dir_all(tmp.join(".codex")).unwrap();
         std::fs::write(tmp.join(".codex").join("models_cache.json"), r#"{"models":[{"slug":"gpt-5.4","display_name":"GPT-5.4","visibility":"list"},{"slug":"hidden-1","visibility":"hide"}]}"#).unwrap();
         let codex_models = read_codex_models_from(Some(&tmp));
         assert_eq!(codex_models.len(), 1);
         assert_eq!(codex_models[0].id, "gpt-5.4");
 
-        let core_models = tmp.join("node_modules").join("@google").join("gemini-cli-core").join("dist").join("src").join("config");
-        std::fs::create_dir_all(&core_models).unwrap();
-        std::fs::write(core_models.join("models.js"), r#"export const DEFAULT = 'gemini-3.1-pro-preview'; export const FLASH = 'gemini-3-flash-preview';"#).unwrap();
-        let gem_models = discover_gemini_models_from(&[tmp.clone()]);
-        assert_eq!(gem_models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["gemini-3.1-pro-preview", "gemini-3-flash-preview"]);
-
-        // Lee cuota real 5h/semanal desde sesiones JSONL de Codex y uso agregado de Gemini.
         let sdir = tmp.join(".codex").join("sessions").join("2026").join("11").join("18");
         std::fs::create_dir_all(&sdir).unwrap();
         std::fs::write(
@@ -989,34 +1135,24 @@ mod tests {
         assert_eq!(cq.plan, "pro");
         assert_eq!(cq.five_hour.unwrap().used_percent, 35.0);
         assert_eq!(cq.seven_day.unwrap().used_percent, 12.0);
-
-        let gc = tmp.join(".gemini").join("tmp").join("proj1").join("chats");
-        std::fs::create_dir_all(&gc).unwrap();
-        std::fs::write(
-            gc.join("session-1.json"),
-            r#"{"messages":[{"type":"user","content":"hi"},{"type":"gemini","model":"gemini-3-pro-preview","tokens":{"total":1500}}]}"#,
-        ).unwrap();
-        let now_secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
-        let gu = read_gemini_usage_from(Some(&tmp), now_secs).unwrap();
-        assert_eq!(gu.requests_24h, 1);
-        assert_eq!(gu.tokens_24h, 1500);
-        assert_eq!(gu.models[0].model, "gemini-3-pro-preview");
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
-    fn argumentos_de_codex_y_gemini() {
-        let cr = build_codex_args(&ChatOptions { session: None, model: Some("gpt-5.4".into()), effort: Some("max".into()), mode: "read".into() }).unwrap();
-        assert_eq!(cr, ["exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", "--model", "gpt-5.4", "-c", "model_reasoning_effort=\"xhigh\"", "-"]);
-        let ce = build_codex_args(&ChatOptions { session: Some("thread_123".into()), model: Some("gpt-5.4".into()), effort: None, mode: "edit".into() }).unwrap();
-        assert_eq!(ce, ["exec", "resume", "--json", "-c", "sandbox_mode=\"workspace-write\"", "--skip-git-repo-check", "--model", "gpt-5.4", "thread_123", "-"]);
-        let cl = build_codex_args(&ChatOptions { session: Some("thread_123".into()), model: None, effort: None, mode: "read".into() }).unwrap();
-        assert!(cl.contains(&"sandbox_mode=\"read-only\"".to_string()), "continuar en solo lectura no puede quedar sin sandbox: {cl:?}");
+    fn argumentos_de_codex_y_antigravity() {
+        let cr = build_codex_args(&ChatOptions { session: None, model: Some("gpt-6.2-sol".into()), effort: Some("max".into()), mode: "read".into() }).unwrap();
+        assert_eq!(cr, ["exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", "--model", "gpt-6.2-sol", "-c", "model_reasoning_effort=\"xhigh\"", "-"]);
+        let ce = build_codex_args(&ChatOptions { session: Some("thread_123".into()), model: Some("gpt-6.2-sol".into()), effort: Some("high".into()), mode: "edit".into() }).unwrap();
+        assert_eq!(ce, ["exec", "resume", "--json", "-c", "sandbox_mode=\"workspace-write\"", "--skip-git-repo-check", "--model", "gpt-6.2-sol", "-c", "model_reasoning_effort=\"high\"", "thread_123", "-"]);
         assert!(build_codex_args(&opts("bad")).is_err());
 
-        let gr = build_gemini_args(&ChatOptions { session: None, model: Some("gemini-2.5-pro".into()), effort: None, mode: "read".into() }).unwrap();
-        assert_eq!(gr, ["--skip-trust", "-p", "", "--output-format", "stream-json", "--approval-mode", "plan", "--model", "gemini-2.5-pro"]);
-        let ge = build_gemini_args(&ChatOptions { session: Some("gem-1".into()), model: None, effort: None, mode: "edit".into() }).unwrap();
-        assert_eq!(ge, ["--skip-trust", "-p", "", "--output-format", "stream-json", "--approval-mode", "auto_edit", "--resume", "gem-1"]);
+        let ar = build_agy_args(&ChatOptions { session: None, model: Some("gemini-4-hydrogen-high".into()), effort: Some("medium".into()), mode: "read".into() }, "hola").unwrap();
+        assert_eq!(&ar[..6], ["--output-format", "stream-json", "--mode", "plan", "--model", "gemini-4-hydrogen-high"]);
+        assert_eq!(ar[6], "-p");
+        assert!(ar[7].ends_with("hola") && ar[7].contains("Solo leer"));
+        let ad = build_agy_args(&ChatOptions { session: None, model: None, effort: Some("high".into()), mode: "read".into() }, "hola").unwrap();
+        assert_eq!(&ad[..6], ["--output-format", "stream-json", "--mode", "plan", "--effort", "high"]);
+        let ae = build_agy_args(&ChatOptions { session: Some("conv-1".into()), model: None, effort: None, mode: "edit".into() }, "edita").unwrap();
+        assert_eq!(ae, ["--output-format", "stream-json", "--mode", "accept-edits", "--conversation", "conv-1", "-p", "edita"]);
     }
 }

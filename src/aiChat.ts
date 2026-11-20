@@ -4,11 +4,11 @@ import { listen } from "@tauri-apps/api/event";
 import { parseInline, parseMarkdown } from "./aiMarkdown";
 import { buildPrompt, chipLabels, type EditorContext } from "./aiContext";
 import {
-  createProviderNormalizer, emptyConversation, exitEvent, formatModelName, isAuthError, parseUsageText, percent, planLabel, pruneUsage,
-  reduce, resetClockText, resetCountdown, resetIn, toolSummary, touchedFiles, usedPercent,
-  usedRatio, userEvent, type AiEvent, type AiProvider, type Block, type Conversation, type Turn, type UsageWindow,
+  createProviderNormalizer, emptyConversation, exitEvent, formatModelName, isAuthError, parseUsageText, planLabel, pruneUsage,
+  reduce, remainingPercent, remainingRatio, resetClockText, resetCountdown, resetIn, resetTimeFromIso, toolSummary, touchedFiles,
+  userEvent, type AiEvent, type AiProvider, type Block, type Conversation, type Turn, type UsageWindow,
 } from "./aiModel";
-import { chatsFor, deleteChat, initHistory, loadChats, newChatId, saveChat, titleFrom, type SavedChat } from "./aiStore";
+import { chatsFor, deleteChat, flushHistoryNow, initHistory, loadChats, newChatId, saveChat, titleFrom, type SavedChat } from "./aiStore";
 import { checkExternal } from "./docs";
 import { refreshTree } from "./explorer";
 import { activePath, focusedEditor, openFile } from "./groups";
@@ -23,17 +23,18 @@ import { openExternal } from "./external";
 import "./aiChat.css";
 
 /**
- * Asistente de IA: conversa en la carpeta del proyecto usando la CLI oficial elegida (Claude Code, Codex CLI o Gemini CLI).
+ * Asistente de IA: conversa en la carpeta del proyecto con Claude Code, ChatGPT/Codex (`codex app-server`) o Antigravity (`agy`).
  * Pulso nunca ve ni guarda credenciales; cada herramienta administra su propia sesión.
  */
 interface AiModelInfo { id: string; label: string; note: string }
 interface AiTool { installed: boolean; version: string; logged_in: boolean; auth_method: string; plan: string; error: string; models?: AiModelInfo[] }
 interface WindowQuota { used_percent: number; resets_at: number }
 interface CodexQuota { plan: string; five_hour?: WindowQuota; seven_day?: WindowQuota }
-interface GeminiModelStat { model: string; requests: number; tokens: number }
-interface GeminiUsage { requests_24h: number; tokens_24h: number; requests_7d: number; tokens_7d: number; models: GeminiModelStat[] }
-interface ExtraUsage { codex?: CodexQuota; gemini?: GeminiUsage }
-interface AllAiTools { claude: AiTool; codex: AiTool; gemini: AiTool }
+interface AntigravityBucket { id: string; name: string; window: string; remaining_fraction: number; reset_time: string }
+interface AntigravityQuotaGroup { name: string; description: string; buckets: AntigravityBucket[] }
+interface AntigravityUsage { groups: AntigravityQuotaGroup[] }
+interface ExtraUsage { codex?: CodexQuota; antigravity?: AntigravityUsage }
+interface AllAiTools { claude: AiTool; codex: AiTool; antigravity: AiTool }
 interface Live { id: string; provider: AiProvider; normalize: (ev: AiEvent) => AiEvent[]; convo: Conversation; cwd: string; title: string; stopping?: boolean }
 
 interface ModelOption {
@@ -50,6 +51,8 @@ interface ProviderMeta {
   title: string;
   accountTitle: string;
   npmPkg?: string;
+  installCmdPs?: string;
+  installCmdSh?: string;
   loginCmd: string;
   loginBtn: string;
   installHint: string;
@@ -94,39 +97,35 @@ const PROVIDERS: Record<AiProvider, ProviderMeta> = {
   codex: {
     id: "codex",
     short: "Codex",
-    title: "Codex CLI (ChatGPT)",
+    title: "ChatGPT / Codex",
     accountTitle: "ChatGPT / Codex (OpenAI)",
     npmPkg: "@openai/codex",
     loginCmd: "codex login",
     loginBtn: "Iniciar sesión con ChatGPT",
-    installHint: "Instala @openai/codex (`npm i -g @openai/codex`), inicia sesión con tu suscripción de ChatGPT y pulsa «Volver a comprobar».",
-    docsUrl: "https://github.com/openai/codex",
+    installHint: "Instala la app de Codex o `@openai/codex` (`npm i -g @openai/codex`), inicia sesión con tu cuenta de ChatGPT y pulsa «Volver a comprobar».",
+    docsUrl: "https://chatgpt.com/codex",
     modelKey: "pulso.ai.model.codex",
     supportsEffort: true,
-    // Los modelos reales salen de la caché de tu cuenta (~/.codex/models_cache.json); aquí no se inventa ninguno.
     models: [
-      { value: "", label: "Predeterminado", tier: "Cuenta", badge: "Auto", hint: "Modelo configurado en tu cuenta de Codex CLI" },
+      { value: "", label: "Predeterminado", tier: "Cuenta", badge: "Auto", hint: "Modelo configurado en tu cuenta de ChatGPT / Codex" },
     ],
     specific: [],
   },
-  gemini: {
-    id: "gemini",
-    short: "Gemini",
-    title: "Gemini CLI",
-    accountTitle: "Gemini (Google)",
-    npmPkg: "@google/gemini-cli",
-    loginCmd: "gemini",
-    loginBtn: "Iniciar sesión con Google (Gemini)",
-    installHint: "Instala Gemini CLI (`npm i -g @google/gemini-cli`), inicia sesión con tu cuenta de Google y pulsa «Volver a comprobar».",
-    docsUrl: "https://geminicli.com",
-    modelKey: "pulso.ai.model.gemini",
-    supportsEffort: false,
-    // Alias oficiales de Gemini CLI: siempre apuntan al modelo vigente; las versiones concretas se leen de la herramienta instalada.
+  antigravity: {
+    id: "antigravity",
+    short: "Antigravity",
+    title: "Antigravity (agy)",
+    accountTitle: "Antigravity (Google)",
+    installCmdPs: "irm https://antigravity.google/cli/install.ps1 | iex",
+    installCmdSh: "curl -fsSL https://antigravity.google/cli/install.sh | bash",
+    loginCmd: "agy acp --login",
+    loginBtn: "Iniciar sesión con Google (Antigravity)",
+    installHint: "Instala Antigravity CLI (`agy`) con el instalador oficial de Google, inicia sesión con tu cuenta y pulsa «Volver a comprobar».",
+    docsUrl: "https://antigravity.google",
+    modelKey: "pulso.ai.model.antigravity",
+    supportsEffort: true,
     models: [
-      { value: "", label: "Predeterminado", tier: "Automático", badge: "Auto", hint: "Gemini CLI elige el modelo según la tarea" },
-      { value: "pro", label: "Gemini Pro", tier: "Profundo", hint: "Alias «pro»: el mejor Pro disponible" },
-      { value: "flash", label: "Gemini Flash", tier: "Rápido", hint: "Alias «flash»: el Flash vigente" },
-      { value: "flash-lite", label: "Gemini Flash Lite", tier: "Ligero", badge: "Ligero", hint: "Alias «flash-lite»: el más económico" },
+      { value: "", label: "Predeterminado", tier: "Cuenta", badge: "Auto", hint: "Antigravity selecciona automáticamente el mejor modelo" },
     ],
     specific: [],
   },
@@ -172,13 +171,15 @@ function readStoredUsage(): Conversation["usage"] {
 
 function savedProvider(): AiProvider {
   const p = localStorage.getItem("pulso.ai.provider");
-  return p === "codex" || p === "gemini" ? p : "claude";
+  if (p === "codex") return "codex";
+  if (p === "antigravity" || p === "gemini") return "antigravity";
+  return "claude";
 }
 
 const lives = new Map<string, Live>();
 let activeProvider: AiProvider = savedProvider();
 let current: Live | null = null;
-const tools: Record<AiProvider, AiTool | null> = { claude: null, codex: null, gemini: null };
+const tools: Record<AiProvider, AiTool | null> = { claude: null, codex: null, antigravity: null };
 let tool: AiTool | null = null;
 let toolAt = 0;
 let detectInFlight: Promise<void> | null = null;
@@ -235,9 +236,17 @@ const iconBtn = (svg: string, title: string, cls = ""): HTMLButtonElement => {
   return b;
 };
 
-const OLD_MODEL = /previous generation|legacy/i;
+const LEGACY_CODEX = /\blegacy\b|previous generation/i;
 
-/** «gemini-3.5-flash-lite» → «Gemini 3.5 Flash Lite». */
+/** «Gemini 4 Hydrogen (High)» → { name: «Gemini 4 Hydrogen», tier: «High» }. */
+function splitLabelLevel(raw: string): { name: string; tier: string } {
+  const m = /^(.*?)\s*\(([^)]+)\)\s*$/.exec(raw.trim());
+  if (m && /^(Low|Medium|High|XHigh|Max)$/i.test(m[2])) {
+    return { name: m[1].trim(), tier: m[2].trim() };
+  }
+  return { name: raw.trim(), tier: "" };
+}
+
 function titleFromId(id: string): string {
   return id.split("-").map((p) => (/^\d/.test(p) ? p : p.charAt(0).toUpperCase() + p.slice(1))).join(" ");
 }
@@ -249,6 +258,7 @@ function tierFromNote(note: string): string {
   if (/affordable|easier|simpler/i.test(note)) return "Ligero";
   if (/visual/i.test(note)) return "Visión";
   if (/fast|go-to/i.test(note)) return "Rápido";
+  if (/^(Low|Medium|High|XHigh|Max)$/i.test(note)) return note;
   return "Disponible";
 }
 
@@ -256,21 +266,29 @@ function providerCatalog(prov: AiProvider): { models: ModelOption[]; specific: M
   const meta = PROVIDERS[prov];
   if (prov === "claude") return { models: meta.models, specific: meta.specific };
   const detected = tools[prov]?.models ?? [];
-  const toOption = (d: AiModelInfo): ModelOption => ({
-    value: d.id,
-    label: d.label || titleFromId(d.id),
-    tier: tierFromNote(d.note),
-    badge: /preview/i.test(d.id) ? "Preview" : undefined,
-    hint: d.note || `Modelo ${d.id}`,
-  });
+  const toOption = (d: AiModelInfo): ModelOption => {
+    const rawLabel = d.label || titleFromId(d.id);
+    const { name, tier } = splitLabelLevel(rawLabel);
+    const isNew = prov === "antigravity" ? /gemini-4|opus-5-5|sonnet-5-5|orchestrator/i.test(d.id) : /gpt-6|new|preview/i.test(d.id);
+    return {
+      value: d.id,
+      label: name,
+      tier: tier || tierFromNote(d.note),
+      badge: /preview/i.test(d.id) ? "Preview" : isNew ? "Nuevo" : undefined,
+      hint: d.note ? `${d.id} · ${d.note}` : d.id,
+    };
+  };
   if (prov === "codex") {
     return {
-      models: [...meta.models, ...detected.filter((d) => !OLD_MODEL.test(d.note)).map(toOption)],
-      specific: detected.filter((d) => OLD_MODEL.test(d.note)).map(toOption),
+      models: [...meta.models, ...detected.filter((d) => !LEGACY_CODEX.test(d.note)).map(toOption)],
+      specific: detected.filter((d) => LEGACY_CODEX.test(d.note)).map(toOption),
     };
   }
-  const aliases = new Set(meta.models.map((m) => m.value));
-  return { models: meta.models, specific: detected.filter((d) => !aliases.has(d.id)).map(toOption) };
+  // Antigravity: muestra TODOS los modelos reales directamente en la lista principal (sin ocultarlos).
+  return {
+    models: [...meta.models, ...detected.map(toOption)],
+    specific: [],
+  };
 }
 
 function findModelOption(val: string, prov: AiProvider = activeProvider): ModelOption {
@@ -285,7 +303,8 @@ function modelButtonText(): string {
   const active = findModelOption(model, prov);
   const resolved = current?.convo.model;
   const base = !model && resolved ? formatModelName(resolved) : active.label;
-  const eff = PROVIDERS[prov].supportsEffort ? EFFORTS.find((e) => e.value === effort)?.short : "";
+  const fixedLevel = prov === "antigravity" && model ? active.tier : "";
+  const eff = fixedLevel || (PROVIDERS[prov].supportsEffort ? EFFORTS.find((e) => e.value === effort)?.short : "");
   const prefix = prov === "claude" ? "" : `${PROVIDERS[prov].short} · `;
   return `${prefix}${eff ? `${base} · ${eff}` : base}`;
 }
@@ -297,7 +316,8 @@ function syncModelButton() {
 
 // ---------- Conversaciones ----------
 function fromSaved(c: SavedChat): Live {
-  const prov: AiProvider = c.provider === "codex" || c.provider === "gemini" ? c.provider : "claude";
+  const rawProv = c.provider as string | undefined;
+  const prov: AiProvider = rawProv === "codex" ? "codex" : rawProv === "antigravity" || rawProv === "gemini" ? "antigravity" : "claude";
   return { id: c.id, provider: prov, normalize: createProviderNormalizer(prov, c.model || ""), cwd: c.cwd, title: c.title, convo: { ...emptyConversation(), messages: c.messages, sessionId: c.sessionId, model: c.model, usage: prov === "claude" ? usage : {} } };
 }
 
@@ -307,10 +327,27 @@ function newLive(): Live {
   return live;
 }
 
-function persist(live: Live) {
+function persist(live: Live, flushNow = false) {
   if (!live.convo.messages.length) return;
   live.title = titleFrom(live.convo.messages);
   saveChat({ id: live.id, title: live.title, cwd: live.cwd, sessionId: live.convo.sessionId, model: live.convo.model, provider: live.provider, updatedAt: Date.now(), messages: live.convo.messages });
+  if (flushNow) flushHistoryNow();
+}
+
+const INTERRUPTED_KEY = "pulso.ai.interrupted";
+
+function saveRunningBeforeExit() {
+  let active: Live | null = null;
+  for (const l of lives.values()) {
+    if (!l.convo.messages.length) continue;
+    persist(l);
+    if (l.convo.running && (!active || l === current)) active = l;
+  }
+  try {
+    if (active) localStorage.setItem(INTERRUPTED_KEY, JSON.stringify({ id: active.id, cwd: active.cwd }));
+    else localStorage.removeItem(INTERRUPTED_KEY);
+  } catch { /* sin acceso */ }
+  flushHistoryNow();
 }
 
 // ---------- Eventos de la herramienta ----------
@@ -328,14 +365,22 @@ function schedulePaint() {
 }
 
 let codexUsage: Conversation["usage"] = {};
-let geminiUsage: GeminiUsage | null = null;
+let agyUsage: AntigravityUsage | null = null;
 let extraUsageInFlight: Promise<boolean> | null = null;
 
-function formatTokens(n: number): string {
-  if (!n) return "0";
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
-  return String(n);
+function agyWindowFromBucket(b: AntigravityBucket): UsageWindow {
+  return { utilization: 1 - Math.max(0, Math.min(1, b.remaining_fraction)), resetsAt: resetTimeFromIso(b.reset_time) };
+}
+
+function agyPrimaryUsage(): Conversation["usage"] {
+  const g = agyUsage?.groups?.[0];
+  if (!g) return {};
+  const five = g.buckets.find((b) => b.window === "5h");
+  const week = g.buckets.find((b) => b.window === "weekly");
+  return pruneUsage({
+    fiveHour: five ? agyWindowFromBucket(five) : undefined,
+    sevenDay: week ? agyWindowFromBucket(week) : undefined,
+  });
 }
 
 function refreshExtraUsage(): Promise<boolean> {
@@ -352,9 +397,9 @@ function refreshExtraUsage(): Promise<boolean> {
           tools.codex.plan = res.codex.plan;
         }
       }
-      if (res.gemini) geminiUsage = res.gemini;
+      if (res.antigravity) agyUsage = res.antigravity;
       if (shown) syncTelemetryViews();
-      return !!(res.codex || res.gemini);
+      return !!(res.codex || res.antigravity);
     } catch {
       return false;
     } finally {
@@ -367,7 +412,7 @@ function refreshExtraUsage(): Promise<boolean> {
 function providerUsage(prov: AiProvider = activeProvider): Conversation["usage"] {
   if (prov === "claude") { usage = pruneUsage(usage); return usage; }
   if (prov === "codex") { codexUsage = pruneUsage(codexUsage); return codexUsage; }
-  return {};
+  return agyPrimaryUsage();
 }
 
 function saveUsage(u: Conversation["usage"]) {
@@ -409,6 +454,8 @@ function refreshUsage(): Promise<boolean> {
   return usageInFlight;
 }
 
+let lastPersistAt = 0;
+
 function apply(live: Live, ev: AiEvent) {
   const before = live.convo.touched;
   live.convo = reduce(live.convo, ev);
@@ -417,10 +464,16 @@ function apply(live: Live, ev: AiEvent) {
     else if (live.provider === "codex") codexUsage = pruneUsage(live.convo.usage);
   }
   if (live.convo.touched > before) refreshDisk();
+  const now = Date.now();
   if (ev.type === "result" || ev.type === "pulso_exit") {
-    persist(live);
+    lastPersistAt = now;
+    persist(live, true);
+    try { localStorage.removeItem(INTERRUPTED_KEY); } catch { /* sin acceso */ }
     if (live.convo.touched) refreshDisk();
     if (live.provider !== "claude") void refreshExtraUsage();
+  } else if (ev.type === "pulso_user" || ev.type === "system" || now - lastPersistAt >= 1200) {
+    lastPersistAt = now;
+    persist(live);
   }
   if (current === live) schedulePaint();
 }
@@ -544,7 +597,7 @@ function toolRow(b: Extract<Block, { kind: "tool" }>): HTMLElement {
   const s = h("summary", "");
   const state = b.result === undefined ? "run" : b.error ? "bad" : "ok";
   s.append(h("span", `ai-tool-dot ${state}`), h("span", "ai-tool-text", toolSummary(b)));
-  const filePath = resolveToolFile(b.input.file_path ?? b.input.notebook_path ?? b.input.path);
+  const filePath = resolveToolFile(b.input.file_path ?? b.input.notebook_path ?? b.input.path ?? b.input.Path ?? b.input.TargetFile);
   if (filePath && ["Read", "Edit", "MultiEdit", "Write", "NotebookEdit"].includes(b.name)) {
     const open = h("button", "ai-tool-open", "Abrir");
     open.type = "button";
@@ -569,7 +622,64 @@ function toolRow(b: Extract<Block, { kind: "tool" }>): HTMLElement {
   return d;
 }
 
-function turnNodes(t: Turn, userNum = 0): HTMLElement[] {
+const openTraces = new Set<string>();
+
+function traceLabel(items: Block[], running: boolean): { title: string; live: string } {
+  let reads = 0; let edits = 0; let searches = 0; let cmds = 0; let thoughts = 0; let lastAction = "";
+  for (const b of items) {
+    if (b.kind === "thinking") { thoughts++; continue; }
+    if (b.kind !== "tool") continue;
+    lastAction = toolSummary(b);
+    if (b.name === "Read") reads++;
+    else if (["Edit", "MultiEdit", "Write", "NotebookEdit"].includes(b.name)) edits++;
+    else if (["Glob", "Grep", "WebSearch", "WebFetch"].includes(b.name)) searches++;
+    else if (b.name === "Command" || b.name === "Bash") cmds++;
+  }
+  const tools = reads + edits + searches + cmds;
+  if (running) {
+    const stepNoun = tools > 0 ? ` · ${tools} ${tools === 1 ? "paso" : "pasos"}` : "";
+    return { title: "Pensando", live: lastAction ? `${lastAction}${stepNoun}` : "Analizando tu solicitud…" };
+  }
+  const parts: string[] = [];
+  if (reads) parts.push(`${reads} ${reads === 1 ? "archivo leído" : "archivos leídos"}`);
+  if (edits) parts.push(`${edits} ${edits === 1 ? "edición" : "ediciones"}`);
+  if (searches) parts.push(`${searches} ${searches === 1 ? "búsqueda" : "búsquedas"}`);
+  if (cmds) parts.push(`${cmds} ${cmds === 1 ? "comando" : "comandos"}`);
+  if (!parts.length && thoughts) return { title: "Pensó", live: "Razonamiento interno" };
+  return { title: parts.length ? "Pensó y exploró" : "Pasos", live: parts.join(" · ") || `${items.length} pasos` };
+}
+
+function stepGroup(traceKey: string, items: Block[], running: boolean): HTMLElement {
+  const { title, live } = traceLabel(items, running);
+  const d = h("details", `ai-step-group${running ? " running" : ""}`);
+  if (openTraces.has(traceKey)) d.open = true;
+  d.ontoggle = () => { if (d.open) openTraces.add(traceKey); else openTraces.delete(traceKey); };
+
+  const sum = h("summary", "ai-step-summary");
+  const orb = h("span", `ai-step-orb${running ? " pulse" : ""}`);
+  const main = h("span", "ai-step-main");
+  main.append(h("span", "ai-step-title", title));
+  if (live) main.append(h("span", "ai-step-live", live));
+  const chev = h("span", "ai-tool-chev");
+  chev.innerHTML = '<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>';
+  sum.append(orb, main, chev);
+  d.append(sum);
+
+  const body = h("div", "ai-step-body");
+  for (const b of items) {
+    if (b.kind === "thinking") {
+      const th = h("div", "ai-step-thought");
+      th.append(h("div", "ai-step-thought-lbl", "Razonamiento"), h("div", "ai-step-thought-text", b.text));
+      body.append(th);
+    } else if (b.kind === "tool") {
+      body.append(toolRow(b));
+    }
+  }
+  d.append(body);
+  return d;
+}
+
+function turnNodes(t: Turn, userNum = 0, isRunningTurn = false): HTMLElement[] {
   if (t.role === "user") {
     const u = h("div", "ai-user");
     const tag = userNum > 0 ? `#${String(userNum).padStart(2, "0")} · TÚ` : "Tú";
@@ -577,38 +687,43 @@ function turnNodes(t: Turn, userNum = 0): HTMLElement[] {
     return [u];
   }
   const out: HTMLElement[] = [];
-  let trace: HTMLElement | null = null;
-  const pushTrace = (el: HTMLElement) => {
-    if (!trace) { trace = h("div", "ai-trace"); out.push(trace); }
-    trace.append(el);
+  let buf: Block[] = [];
+  let traceSeq = 0;
+
+  const flushTrace = (trailing: boolean) => {
+    if (!buf.length) return;
+    const key = `${t.id}:${traceSeq++}`;
+    const hasOpenTool = buf.some((b) => b.kind === "tool" && b.result === undefined);
+    out.push(stepGroup(key, buf, isRunningTurn && (trailing || hasOpenTool)));
+    buf = [];
   };
-  for (const b of t.blocks) {
+
+  for (let i = 0; i < t.blocks.length; i++) {
+    const b = t.blocks[i];
     if (!b) continue;
     if (b.kind === "text") {
       if (b.text.trim()) {
-        trace = null;
+        flushTrace(false);
         const wrap = h("div", "ai-assistant");
         wrap.append(...markdown(b.text));
         out.push(wrap);
       }
     } else if (b.kind === "thinking") {
-      if (!b.text.trim()) continue;
-      const d = h("details", "ai-think");
-      d.append(h("summary", "", "Razonamiento"), h("div", "ai-think-text", b.text));
-      pushTrace(d);
+      if (b.text.trim()) buf.push(b);
     } else {
-      pushTrace(toolRow(b));
+      buf.push(b);
     }
   }
+  flushTrace(true);
   return out;
 }
 
 // ---------- Popovers (Modelo + Esfuerzo y Uso real del plan) ----------
-function usageRing(ratioUsed: number, size = 14): HTMLElement {
-  const clamped = Math.max(0, Math.min(1, ratioUsed));
+function usageRing(ratioLeft: number, size = 14): HTMLElement {
+  const clamped = Math.max(0, Math.min(1, ratioLeft));
   const r = 6.5;
   const c = 2 * Math.PI * r;
-  const tone = clamped >= 0.9 ? "low" : clamped >= 0.7 ? "warn" : "ok";
+  const tone = clamped <= 0.1 ? "low" : clamped <= 0.3 ? "warn" : "ok";
   const wrap = h("span", `ai-ring ${tone}`);
   wrap.style.width = wrap.style.height = `${size}px`;
   wrap.innerHTML = `<svg viewBox="0 0 18 18"><circle class="ai-ring-bg" cx="9" cy="9" r="${r}"/><circle class="ai-ring-fg" cx="9" cy="9" r="${r}" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${(c * (1 - clamped)).toFixed(2)}"/></svg>`;
@@ -654,7 +769,7 @@ function openPopover(anchor: HTMLElement, pop: HTMLElement, placement: "below" |
 
 function buildProviderTabs(onPick?: (p: AiProvider) => void): HTMLElement {
   const bar = h("div", "ai-prov-tabs");
-  for (const id of ["claude", "codex", "gemini"] as const) {
+  for (const id of ["claude", "codex", "antigravity"] as const) {
     const t = tools[id];
     const dotCls = t?.logged_in ? "on" : t?.installed ? "wait" : "off";
     const btn = h("button", `ai-prov-tab${activeProvider === id ? " active" : ""}`);
@@ -672,30 +787,41 @@ function buildProviderTabs(onPick?: (p: AiProvider) => void): HTMLElement {
 
 function accountStatusText(id: AiProvider, t: AiTool | null): string {
   if (!t) return "Comprobando sesión…";
-  if (!t.installed) return PROVIDERS[id].npmPkg ? "CLI sin instalar · instalable aquí" : "CLI sin instalar";
+  const meta = PROVIDERS[id];
+  const installable = !!(meta.npmPkg || meta.installCmdPs);
+  if (!t.installed) return installable ? "CLI sin instalar · instalable aquí" : "CLI sin instalar";
   if (!t.logged_in) return "Instalado · falta iniciar sesión";
   if (id === "claude") return t.plan ? `Conectado · Plan ${planLabel(t.plan)}` : "Conectado · Suscripción Claude";
   if (id === "codex") {
-    if (t.auth_method === "chatgpt") return "Conectado · Suscripción ChatGPT";
+    if (t.auth_method === "chatgpt") return t.plan && t.plan !== "ChatGPT" ? `Conectado · Plan ${planLabel(t.plan)}` : "Conectado · Suscripción ChatGPT";
     if (t.auth_method === "api_key") return "Conectado · Clave API";
     return "Conectado · ChatGPT";
   }
-  if (t.auth_method === "google") return "Conectado · Cuenta Google";
-  return t.plan ? `Conectado · ${t.plan}` : "Conectado · Gemini CLI";
+  return "Conectado · Cuenta Antigravity";
 }
 
 async function installAndConnect(prov: AiProvider, onDone?: () => void) {
   const meta = PROVIDERS[prov];
-  if (!meta.npmPkg) { void openExternal(meta.docsUrl); return; }
   const shells = await listShells().catch(() => []);
   const sh = shells.find((s) => s.id === state.settings.terminalShell) ?? shells[0];
-  const ps = sh ? /powershell|pwsh/i.test(`${sh.id} ${sh.path}`) : false;
-  const cmd = ps
-    ? `npm install -g ${meta.npmPkg}; if ($?) { ${meta.loginCmd} }`
-    : `npm install -g ${meta.npmPkg} && ${meta.loginCmd}`;
+  const ps = sh ? /powershell|pwsh/i.test(`${sh.id} ${sh.path}`) : true;
+  let cmd = "";
+  if (meta.installCmdPs || meta.installCmdSh) {
+    cmd = ps ? (meta.installCmdPs ?? meta.installCmdSh ?? "") : (meta.installCmdSh ?? meta.installCmdPs ?? "");
+    if (cmd && meta.loginCmd) {
+      cmd = ps
+        ? `${cmd}; if ($?) { $agy = "$env:LOCALAPPDATA\\agy\\bin\\agy.exe"; if (Test-Path $agy) { & $agy acp --login } }`
+        : `${cmd} && ${meta.loginCmd}`;
+    }
+  } else if (meta.npmPkg) {
+    cmd = ps
+      ? `npm install -g ${meta.npmPkg}; if ($?) { ${meta.loginCmd} }`
+      : `npm install -g ${meta.npmPkg} && ${meta.loginCmd}`;
+  }
+  if (!cmd) { void openExternal(meta.docsUrl); return; }
   const r = await showDialog({
     title: `Instalar y conectar ${meta.accountTitle}`,
-    message: `Se ejecutará en la terminal integrada:\n${cmd}\n\nPulso no pide ni guarda claves: iniciarás sesión directamente en la CLI oficial.`,
+    message: `Se ejecutará en la terminal integrada:\n${cmd}\n\nPulso no pide ni guarda claves: iniciarás sesión directamente en la herramienta oficial.`,
     buttons: [{ label: "Cancelar", value: "cancel" }, { label: "Instalar y conectar", value: "ok", primary: true }],
   });
   if (r !== "ok") return;
@@ -707,7 +833,7 @@ async function installAndConnect(prov: AiProvider, onDone?: () => void) {
 
 function buildAccountsList(onClose?: () => void): HTMLElement {
   const list = h("div", "ai-acct-list");
-  for (const id of ["claude", "codex", "gemini"] as const) {
+  for (const id of ["claude", "codex", "antigravity"] as const) {
     const meta = PROVIDERS[id];
     const t = tools[id];
     const isCurrent = activeProvider === id;
@@ -719,11 +845,12 @@ function buildAccountsList(onClose?: () => void): HTMLElement {
     info.append(top, h("div", "ai-acct-sub", accountStatusText(id, t)));
     row.append(info);
 
+    const canInstall = !!(meta.npmPkg || meta.installCmdPs);
     if (!t?.installed) {
-      const btn = h("button", "ai-acct-btn", meta.npmPkg ? "Instalar y conectar" : "Cómo instalar");
+      const btn = h("button", "ai-acct-btn", canInstall ? "Instalar y conectar" : "Cómo instalar");
       btn.type = "button";
       btn.onclick = () => {
-        if (meta.npmPkg) void installAndConnect(id, onClose);
+        if (canInstall) void installAndConnect(id, onClose);
         else void openExternal(meta.docsUrl);
       };
       row.append(btn);
@@ -777,11 +904,42 @@ function openAccountsPopover(anchor: HTMLElement) {
   openPopover(anchor, pop, "below");
 }
 
+const ICON_GAUGE = '<svg viewBox="0 0 24 24"><path d="M12 14l4-4M4.93 17a9 9 0 1 1 14.14 0"/><path d="M7 17h10"/></svg>';
+
 function openModelPopover(anchor: HTMLElement) {
+  const dockWrap = h("div", "ai-popover-pair");
   const pop = h("div", "ai-popover ai-model-pop");
   pop.setAttribute("role", "listbox");
   pop.setAttribute("aria-label", "Seleccionar proveedor y modelo");
+  const sideUsage = h("div", "ai-popover ai-usage-pop ai-usage-docked");
+  sideUsage.hidden = true;
+  dockWrap.append(pop, sideUsage);
+
   let specificOpen = providerCatalog(activeProvider).specific.some((m) => m.value === model);
+  let usageSideOpen = false;
+
+  const syncSidePosition = () => {
+    const ar = anchor.getBoundingClientRect();
+    const dr = dockWrap.getBoundingClientRect();
+    const left = Math.max(8, Math.min(ar.left, window.innerWidth - dr.width - 8));
+    const top = Math.max(8, ar.top - dr.height - 6);
+    dockWrap.style.left = `${left}px`;
+    dockWrap.style.top = `${top}px`;
+  };
+
+  const renderSideUsage = () => {
+    if (!usageSideOpen) { sideUsage.hidden = true; return; }
+    sideUsage.hidden = false;
+    populateUsageContainer(sideUsage, () => { if (dockWrap.isConnected && usageSideOpen) renderSideUsage(); });
+    requestAnimationFrame(() => { if (dockWrap.isConnected) syncSidePosition(); });
+  };
+
+  const openSideUsage = () => {
+    if (usageSideOpen) return;
+    usageSideOpen = true;
+    renderSideUsage();
+    void syncAccountAndUsage().finally(() => { if (dockWrap.isConnected && usageSideOpen) renderSideUsage(); });
+  };
 
   const render = () => {
     const meta = PROVIDERS[activeProvider];
@@ -793,9 +951,11 @@ function openModelPopover(anchor: HTMLElement) {
       specificOpen = providerCatalog(activeProvider).specific.some((m) => m.value === model);
       syncModelButton();
       render();
+      if (usageSideOpen) renderSideUsage();
     }));
     pop.append(h("div", "ai-pop-sep"), h("div", "ai-pop-head", `Modelo · ${meta.short}`));
 
+    const listBox = h("div", "ai-model-list");
     const addOption = (m: ModelOption) => {
       const active = m.value === model;
       const row = h("button", `ai-pop-item${active ? " active" : ""}`);
@@ -804,7 +964,8 @@ function openModelPopover(anchor: HTMLElement) {
       row.setAttribute("role", "option");
       row.setAttribute("aria-selected", String(active));
       const left = h("span", "ai-pop-main");
-      left.append(h("span", "ai-pop-name", m.label), h("span", "ai-pop-tier", m.tier));
+      left.append(h("span", "ai-pop-name", m.label));
+      if (m.tier) left.append(h("span", "ai-pop-tier", m.tier));
       if (m.badge) left.append(h("span", "ai-pop-badge", m.badge));
       row.append(left, h("span", "ai-pop-check", active ? "✓" : ""));
       row.onclick = () => {
@@ -813,38 +974,39 @@ function openModelPopover(anchor: HTMLElement) {
         dismissPopover();
         syncModelButton();
       };
-      pop.append(row);
+      listBox.append(row);
     };
 
     for (const m of cat.models) addOption(m);
 
-    const toggleSpec = h("button", "ai-pop-item ai-pop-subtoggle");
-    toggleSpec.type = "button";
-    const toggleMain = h("span", "ai-pop-main");
-    toggleMain.append(h("span", "ai-pop-name", `Más modelos (${cat.specific.length})`));
-    toggleSpec.append(toggleMain, h("span", "ai-pop-chev", specificOpen ? "▾" : "›"));
-    toggleSpec.onclick = () => { specificOpen = !specificOpen; render(); };
-    pop.append(h("div", "ai-pop-sep"), toggleSpec);
-
-    if (specificOpen) {
-      for (const m of cat.specific) addOption(m);
-      const custom = h("button", "ai-pop-item");
-      custom.type = "button";
-      const customMain = h("span", "ai-pop-main");
-      customMain.append(h("span", "ai-pop-name", "Otro ID de modelo…"), h("span", "ai-pop-tier", "Manual"));
-      custom.append(customMain);
-      custom.onclick = async () => {
-        dismissPopover();
-        const entered = await promptText({ title: "Identificador exacto del modelo", value: model, placeholder: cat.specific[0]?.value ?? "modelo" });
-        if (!entered) return;
-        model = entered.trim();
-        localStorage.setItem(meta.modelKey, model);
-        syncModelButton();
-      };
-      pop.append(custom);
+    if (cat.specific.length > 0) {
+      const toggleSpec = h("button", "ai-pop-item ai-pop-subtoggle");
+      toggleSpec.type = "button";
+      const toggleMain = h("span", "ai-pop-main");
+      toggleMain.append(h("span", "ai-pop-name", `Más modelos (${cat.specific.length})`));
+      toggleSpec.append(toggleMain, h("span", "ai-pop-chev", specificOpen ? "▾" : "›"));
+      toggleSpec.onclick = () => { specificOpen = !specificOpen; render(); };
+      listBox.append(h("div", "ai-pop-sep"), toggleSpec);
+      if (specificOpen) for (const m of cat.specific) addOption(m);
     }
 
-    if (meta.supportsEffort) {
+    const custom = h("button", "ai-pop-item ai-pop-custom");
+    custom.type = "button";
+    const customMain = h("span", "ai-pop-main");
+    customMain.append(h("span", "ai-pop-name", "Otro ID de modelo…"), h("span", "ai-pop-tier", "Manual"));
+    custom.append(customMain);
+    custom.onclick = async () => {
+      dismissPopover();
+      const entered = await promptText({ title: "Identificador exacto del modelo", value: model, placeholder: cat.models[1]?.value ?? "modelo" });
+      if (!entered) return;
+      model = entered.trim();
+      localStorage.setItem(meta.modelKey, model);
+      syncModelButton();
+    };
+    listBox.append(custom);
+    pop.append(listBox);
+
+    if (meta.supportsEffort && (activeProvider !== "antigravity" || !model)) {
       const effBox = h("div", "ai-pop-effort");
       effBox.append(h("span", "ai-pop-effort-lbl", "Esfuerzo"));
       const pills = h("div", "ai-effort-pills");
@@ -863,12 +1025,18 @@ function openModelPopover(anchor: HTMLElement) {
       pop.append(h("div", "ai-pop-sep"), effBox);
     }
 
-    const viewUsage = h("button", "ai-pop-item ai-pop-usage-link");
+    const viewUsage = h("button", `ai-pop-item ai-pop-usage-link${usageSideOpen ? " active" : ""}`);
     viewUsage.type = "button";
     const usageMain = h("span", "ai-pop-main");
-    usageMain.append(h("span", "ai-pop-name", "Ver uso y límites"));
+    const gIcon = h("span", "ai-pop-gauge");
+    gIcon.innerHTML = ICON_GAUGE;
+    usageMain.append(gIcon, h("span", "ai-pop-name", "Ver uso y límites"));
     viewUsage.append(usageMain, h("span", "ai-pop-chev", "›"));
-    viewUsage.onclick = () => openUsagePopover(anchor);
+    viewUsage.onmouseenter = () => openSideUsage();
+    viewUsage.onclick = () => {
+      if (usageSideOpen) { usageSideOpen = false; renderSideUsage(); render(); }
+      else { openSideUsage(); render(); }
+    };
 
     const manage = h("button", "ai-pop-item ai-pop-subtoggle");
     manage.type = "button";
@@ -877,10 +1045,11 @@ function openModelPopover(anchor: HTMLElement) {
     manage.append(manageMain, h("span", "ai-pop-chev", "›"));
     manage.onclick = () => openAccountsPopover(anchor);
     pop.append(h("div", "ai-pop-sep"), viewUsage, manage);
+    requestAnimationFrame(() => { if (dockWrap.isConnected) syncSidePosition(); });
   };
 
   render();
-  openPopover(anchor, pop, "above");
+  openPopover(anchor, dockWrap, "above");
 }
 
 async function syncAccountAndUsage(): Promise<void> {
@@ -888,8 +1057,14 @@ async function syncAccountAndUsage(): Promise<void> {
   await detect(true);
   await Promise.all([
     tools.claude?.logged_in ? (usageInFlight ?? refreshUsage()) : Promise.resolve(false),
-    (tools.codex?.logged_in || tools.gemini?.logged_in) ? refreshExtraUsage() : Promise.resolve(false),
+    (tools.codex?.logged_in || tools.antigravity?.logged_in) ? refreshExtraUsage() : Promise.resolve(false),
   ]);
+}
+
+function agyBucketLabel(b: AntigravityBucket): string {
+  if (b.window === "5h") return "Límite 5 h";
+  if (b.window === "weekly") return "Límite semanal";
+  return b.name || "Límite";
 }
 
 function fillQuotaCard(card: HTMLElement) {
@@ -904,17 +1079,13 @@ function fillQuotaCard(card: HTMLElement) {
       ? (tool?.plan && tool.plan !== "ChatGPT" ? `Plan ${planLabel(tool.plan)}` : "ChatGPT")
       : (tool?.plan || meta.short);
   headLeft.append(
-    h("span", "ai-inst-kicker", "TELEMETRÍA DE CUENTA"),
+    h("span", "ai-inst-kicker", "CUOTAS DEL PLAN"),
     h("span", "ai-inst-plan", planBadgeText),
   );
   const syncBtn = h("button", "ai-inst-sync", usageSyncing ? "Actualizando…" : "Sincronizar");
   syncBtn.type = "button";
   syncBtn.disabled = usageSyncing;
-  syncBtn.title = activeProvider === "claude"
-    ? "Consultar límites reales con Claude Code (/usage)"
-    : activeProvider === "codex"
-      ? "Leer límites recientes de ChatGPT/Codex"
-      : "Actualizar consumo local de Gemini CLI";
+  syncBtn.title = "Actualizar límites disponibles del plan";
   syncBtn.onclick = () => {
     syncBtn.disabled = true;
     syncBtn.textContent = "Actualizando…";
@@ -923,21 +1094,32 @@ function fillQuotaCard(card: HTMLElement) {
   head.append(headLeft, syncBtn);
   card.append(head);
 
-  if (activeProvider === "gemini") {
-    const g = geminiUsage;
-    const statsBox = h("div", "ai-inst-spec");
-    if (g) {
-      statsBox.append(
-        h("div", "ai-spec-row", `Últimas 24 h: ${g.requests_24h} cons. · ${formatTokens(g.tokens_24h)} tok`),
-        h("div", "ai-spec-row", `Últimos 7 d: ${g.requests_7d} cons. · ${formatTokens(g.tokens_7d)} tok`),
-      );
-      for (const m of g.models.slice(0, 3)) {
-        statsBox.append(h("div", "ai-inst-sub", `${formatModelName(m.model)}: ${m.requests} cons. · ${formatTokens(m.tokens)} tok`));
+  if (activeProvider === "antigravity") {
+    const meters = h("div", "ai-inst-meters");
+    if (agyUsage?.groups?.length) {
+      for (const g of agyUsage.groups) {
+        for (const b of g.buckets) {
+          const w = agyWindowFromBucket(b);
+          const row = h("div", "ai-inst-row");
+          const top = h("div", "ai-inst-row-top");
+          top.append(h("span", "ai-inst-lbl", `${g.name} · ${agyBucketLabel(b)}`), h("span", "ai-inst-val", `${remainingPercent(w)} disp.`));
+          const track = h("div", "ai-inst-track");
+          const rem = remainingRatio(w);
+          const bar = h("div", `ai-inst-fill${rem <= 0.1 ? " high" : rem <= 0.3 ? " warn" : ""}`);
+          bar.style.width = `${Math.round(rem * 100)}%`;
+          track.append(bar);
+          const cd = resetCountdown(w);
+          const reset = cd && cd !== "ahora" ? `Se reinicia en ${cd}` : resetClockText(w);
+          row.append(top, track);
+          if (reset) row.append(h("div", "ai-inst-sub", reset));
+          meters.append(row);
+        }
       }
     } else {
-      statsBox.append(h("div", "ai-spec-row", `${meta.title} conectado`));
+      card.append(h("div", "ai-inst-note", "Consultando límites de Antigravity…"));
+      return;
     }
-    card.append(statsBox, h("div", "ai-inst-note", "Gemini CLI registra consumo local por sesión; Google no expone % global remoto en disco."));
+    card.append(meters);
     return;
   }
 
@@ -945,18 +1127,18 @@ function fillQuotaCard(card: HTMLElement) {
   for (const [label, w] of [["Ventana 5 h", curUsage.fiveHour], ["Semanal", curUsage.sevenDay]] as const) {
     const row = h("div", "ai-inst-row");
     const top = h("div", "ai-inst-row-top");
-    top.append(h("span", "ai-inst-lbl", label), h("span", "ai-inst-val", w ? `${usedPercent(w)} usado` : "—"));
+    top.append(h("span", "ai-inst-lbl", label), h("span", "ai-inst-val", w ? `${remainingPercent(w)} disp.` : "—"));
     const track = h("div", "ai-inst-track");
-    const ratio = usedRatio(w);
-    const bar = h("div", `ai-inst-fill${ratio >= 0.9 ? " high" : ratio >= 0.7 ? " warn" : ""}`);
-    bar.style.width = `${Math.round(ratio * 100)}%`;
+    const rem = remainingRatio(w);
+    const bar = h("div", `ai-inst-fill${rem <= 0.1 ? " high" : rem <= 0.3 ? " warn" : ""}`);
+    bar.style.width = `${w ? Math.round(rem * 100) : 0}%`;
     track.append(bar);
-    const clock = resetClockText(w);
     const cd = resetCountdown(w);
+    const clock = resetClockText(w);
     const emptyMsg = activeProvider === "claude"
       ? (usageSyncing ? "Leyendo /usage…" : "Sin datos en esta ventana")
-      : "Disponible tras tu primera sesión en Codex";
-    const reset = clock ? (cd && cd !== "ahora" ? `${clock} (${cd})` : clock) : emptyMsg;
+      : "Consultando límites de ChatGPT…";
+    const reset = cd && cd !== "ahora" ? `Se reinicia en ${cd}` : (clock || emptyMsg);
     row.append(top, track, h("div", "ai-inst-sub", reset));
     meters.append(row);
   }
@@ -1005,92 +1187,88 @@ function usageRingRow(title: string, w: UsageWindow | undefined, emptyText: stri
   const sub = cd && cd !== "ahora" ? `Se reinicia en ${cd}` : clock || emptyText;
   left.append(h("span", "ai-usage-reset", sub));
   const right = h("div", "ai-usage-row-right");
-  right.append(h("span", "ai-usage-pct", w ? `${usedPercent(w)} usado` : "—"), usageRing(usedRatio(w), 16));
+  right.append(h("span", "ai-usage-pct", w ? `${remainingPercent(w)} disp.` : "—"), usageRing(w ? remainingRatio(w) : 0, 16));
   row.append(left, right);
   return row;
 }
 
+function populateUsageContainer(pop: HTMLElement, onRefreshDone: () => void) {
+  const prov = current?.convo.messages.length ? current.provider : activeProvider;
+  pop.replaceChildren();
+  const head = h("div", "ai-usage-pop-head");
+  head.append(h("span", "ai-usage-group", "Uso"));
+  const syncBtn = h("button", "ai-usage-sync", usageSyncing ? "Actualizando…" : "Actualizar");
+  syncBtn.type = "button";
+  syncBtn.disabled = usageSyncing;
+  syncBtn.onclick = () => {
+    syncBtn.disabled = true;
+    syncBtn.textContent = "Actualizando…";
+    void syncAccountAndUsage().finally(onRefreshDone);
+  };
+  head.append(syncBtn);
+  pop.append(head);
+
+  const order: AiProvider[] = [prov, ...(["claude", "codex", "antigravity"] as const).filter((p) => p !== prov && !!tools[p]?.logged_in)];
+  for (const id of order) {
+    const t = tools[id] ?? (id === prov ? tool : null);
+    if (id === "antigravity") {
+      if (agyUsage?.groups?.length) {
+        for (const g of agyUsage.groups) {
+          const sec = h("div", "ai-usage-section");
+          sec.append(h("div", "ai-usage-sec-title", g.name));
+          for (const b of g.buckets) {
+            sec.append(usageRingRow(agyBucketLabel(b), agyWindowFromBucket(b), "Sin datos"));
+          }
+          pop.append(sec);
+        }
+      } else {
+        const sec = h("div", "ai-usage-section");
+        sec.append(h("div", "ai-usage-sec-title", "Antigravity"), h("div", "ai-usage-note", "Consultando límites de tu cuenta…"));
+        pop.append(sec);
+      }
+      continue;
+    }
+    const sec = h("div", "ai-usage-section");
+    if (id === "claude") {
+      const cur = providerUsage("claude");
+      const title = t?.plan ? `Claude Code · Plan ${planLabel(t.plan)}` : "Claude Code";
+      sec.append(
+        h("div", "ai-usage-sec-title", title),
+        usageRingRow("Límite semanal", cur.sevenDay, usageSyncing ? "Consultando /usage…" : "Pendiente de lectura"),
+        usageRingRow("Límite 5 h", cur.fiveHour, usageSyncing ? "Consultando /usage…" : "Pendiente de lectura"),
+      );
+      if (usageError) sec.append(h("div", "ai-usage-note err", usageError));
+    } else {
+      const cur = providerUsage("codex");
+      const title = t?.plan && t.plan !== "ChatGPT" ? `ChatGPT / Codex · Plan ${planLabel(t.plan)}` : "ChatGPT / Codex";
+      sec.append(
+        h("div", "ai-usage-sec-title", title),
+        usageRingRow("Límite semanal", cur.sevenDay, "Consultando app-server…"),
+        usageRingRow("Límite 5 h", cur.fiveHour, "Consultando app-server…"),
+      );
+    }
+    pop.append(sec);
+  }
+
+  const convo = current?.convo;
+  if (convo && (convo.model || convo.outcome)) {
+    const sess = h("div", "ai-usage-sess");
+    if (convo.model) sess.append(h("div", "ai-usage-meta", `Modelo activo: ${formatModelName(convo.model)}`));
+    if (convo.outcome?.durationMs) sess.append(h("div", "ai-usage-meta", `Último turno: ${(convo.outcome.durationMs / 1000).toFixed(1).replace(".", ",")} s`));
+    if (convo.outcome && convo.outcome.costUsd > 0) sess.append(h("div", "ai-usage-meta", `Coste reportado: $${convo.outcome.costUsd.toFixed(4)}`));
+    pop.append(sess);
+  }
+}
+
 function openUsagePopover(anchor: HTMLElement) {
   const pop = h("div", "ai-popover ai-usage-pop");
-  const fill = () => {
-    const prov = current?.convo.messages.length ? current.provider : activeProvider;
-    pop.replaceChildren();
-    const head = h("div", "ai-usage-pop-head");
-    head.append(h("span", "ai-usage-group", "Uso y límites"));
-    const syncBtn = h("button", "ai-usage-sync", usageSyncing ? "Actualizando…" : "Actualizar");
-    syncBtn.type = "button";
-    syncBtn.disabled = usageSyncing;
-    syncBtn.onclick = () => {
-      syncBtn.disabled = true;
-      syncBtn.textContent = "Actualizando…";
-      void syncAccountAndUsage().finally(() => { if (pop.isConnected) fill(); });
-    };
-    head.append(syncBtn);
-    pop.append(head);
-
-    const order: AiProvider[] = [prov, ...(["claude", "codex", "gemini"] as const).filter((p) => p !== prov && !!tools[p]?.logged_in)];
-    for (const id of order) {
-      const t = tools[id] ?? (id === prov ? tool : null);
-      const sec = h("div", "ai-usage-section");
-      if (id === "claude") {
-        const cur = providerUsage("claude");
-        const title = t?.plan ? `Claude Code · Plan ${planLabel(t.plan)}` : "Claude Code";
-        sec.append(
-          h("div", "ai-usage-sec-title", title),
-          usageRingRow("Límite semanal · todos", cur.sevenDay, usageSyncing ? "Consultando /usage…" : "Pendiente de lectura"),
-          usageRingRow("Límite de 5 horas", cur.fiveHour, usageSyncing ? "Consultando /usage…" : "Pendiente de lectura"),
-        );
-        if (usageError) sec.append(h("div", "ai-usage-note err", usageError));
-      } else if (id === "codex") {
-        const cur = providerUsage("codex");
-        const title = t?.plan && t.plan !== "ChatGPT" ? `ChatGPT / Codex · Plan ${planLabel(t.plan)}` : "ChatGPT / Codex";
-        sec.append(
-          h("div", "ai-usage-sec-title", title),
-          usageRingRow("Límite semanal", cur.sevenDay, "Sin sesiones recientes aún"),
-          usageRingRow("Límite de 5 horas", cur.fiveHour, "Sin sesiones recientes aún"),
-        );
-      } else {
-        const g = geminiUsage;
-        sec.append(h("div", "ai-usage-sec-title", "Gemini CLI · Cuenta Google"));
-        if (g) {
-          const statRow = (label: string, val: string) => {
-            const row = h("div", "ai-usage-row");
-            const left = h("div", "ai-usage-row-left");
-            left.append(h("span", "ai-usage-label", label));
-            row.append(left, h("span", "ai-usage-pct", val));
-            return row;
-          };
-          sec.append(
-            statRow("Consumo local (24 h)", `${g.requests_24h} cons. · ${formatTokens(g.tokens_24h)} tok`),
-            statRow("Consumo local (7 d)", `${g.requests_7d} cons. · ${formatTokens(g.tokens_7d)} tok`),
-          );
-          for (const m of g.models.slice(0, 3)) {
-            const mr = h("div", "ai-usage-meta", `${formatModelName(m.model)}: ${m.requests} cons. · ${formatTokens(m.tokens)} tok`);
-            sec.append(mr);
-          }
-        } else {
-          sec.append(h("div", "ai-usage-note", "Sin actividad local registrada aún en ~/.gemini/tmp."));
-        }
-        sec.append(h("div", "ai-usage-note", "Gemini CLI no expone % global remoto en disco (solo métricas locales de tus turnos)."));
-      }
-      pop.append(sec);
-    }
-
-    const convo = current?.convo;
-    if (convo && (convo.model || convo.outcome)) {
-      const sess = h("div", "ai-usage-sess");
-      if (convo.model) sess.append(h("div", "ai-usage-meta", `Modelo activo: ${formatModelName(convo.model)}`));
-      if (convo.outcome?.durationMs) sess.append(h("div", "ai-usage-meta", `Último turno: ${(convo.outcome.durationMs / 1000).toFixed(1).replace(".", ",")} s`));
-      if (convo.outcome && convo.outcome.costUsd > 0) sess.append(h("div", "ai-usage-meta", `Coste reportado: $${convo.outcome.costUsd.toFixed(4)}`));
-      pop.append(sess);
-    }
-  };
+  const fill = () => populateUsageContainer(pop, () => { if (pop.isConnected) fill(); });
   fill();
   openPopover(anchor, pop, "above");
   if (tools.claude?.logged_in || activeProvider === "claude") {
     void refreshUsage().finally(() => { if (pop.isConnected) fill(); });
   }
-  if (tools.codex?.logged_in || tools.gemini?.logged_in) {
+  if (tools.codex?.logged_in || tools.antigravity?.logged_in) {
     void refreshExtraUsage().finally(() => { if (pop.isConnected) fill(); });
   }
 }
@@ -1141,9 +1319,9 @@ function usageText(): string {
   const curTool = tools[prov] ?? tool;
   const curUsage = providerUsage(prov);
   const parts: string[] = [];
-  if (curTool?.plan) parts.push(prov === "claude" ? `Plan ${planLabel(curTool.plan)}` : `${PROVIDERS[prov].short} · ${curTool.plan}`);
-  if (curUsage.fiveHour) parts.push(`sesión de 5 h: ${percent(curUsage.fiveHour)}${resetIn(curUsage.fiveHour) ? ` (se reinicia ${resetIn(curUsage.fiveHour)})` : ""}`);
-  if (curUsage.sevenDay) parts.push(`semana: ${percent(curUsage.sevenDay)}`);
+  if (curTool?.plan) parts.push(prov === "claude" ? `Plan ${planLabel(curTool.plan)}` : `${PROVIDERS[prov].short} · ${planLabel(curTool.plan)}`);
+  if (curUsage.fiveHour) parts.push(`5 h: ${remainingPercent(curUsage.fiveHour)} disp.${resetIn(curUsage.fiveHour) ? ` (${resetIn(curUsage.fiveHour)})` : ""}`);
+  if (curUsage.sevenDay) parts.push(`sem.: ${remainingPercent(curUsage.sevenDay)} disp.`);
   return parts.join(" · ");
 }
 
@@ -1155,12 +1333,12 @@ function renderFoot() {
   const text = usageText();
   foot.replaceChildren();
   const hasWindows = !!(curUsage.fiveHour || curUsage.sevenDay);
-  const ratio = curUsage.fiveHour ? usedRatio(curUsage.fiveHour) : usedRatio(curUsage.sevenDay);
+  const ratioLeft = curUsage.fiveHour ? remainingRatio(curUsage.fiveHour) : curUsage.sevenDay ? remainingRatio(curUsage.sevenDay) : 1;
   const trigger = h("button", "ai-usage-btn");
   trigger.type = "button";
-  trigger.title = "Ver límites de uso del plan";
-  const pctText = curUsage.fiveHour ? `${usedPercent(curUsage.fiveHour)} usado` : curUsage.sevenDay ? `${usedPercent(curUsage.sevenDay)} sem.` : "Ver uso";
-  trigger.append(usageRing(ratio, 14), h("span", "", pctText));
+  trigger.title = "Ver límites disponibles del plan";
+  const pctText = curUsage.fiveHour ? `${remainingPercent(curUsage.fiveHour)} disp.` : curUsage.sevenDay ? `${remainingPercent(curUsage.sevenDay)} sem.` : "Ver uso";
+  trigger.append(usageRing(hasWindows ? ratioLeft : 0, 14), h("span", "", pctText));
   trigger.onclick = () => openUsagePopover(trigger);
 
   if (!text || !hasWindows) {
@@ -1170,9 +1348,10 @@ function renderFoot() {
   const bars = h("span", "ai-meters");
   for (const w of [curUsage.fiveHour, curUsage.sevenDay]) {
     if (!w) continue;
+    const rem = remainingRatio(w);
     const m = h("span", "ai-meter");
-    const f = h("span", `ai-meter-fill${w.utilization >= 0.9 ? " high" : ""}`);
-    f.style.width = `${Math.round(Math.min(1, Math.max(0, w.utilization)) * 100)}%`;
+    const f = h("span", `ai-meter-fill${rem <= 0.1 ? " high" : ""}`);
+    f.style.width = `${Math.round(rem * 100)}%`;
     m.append(f);
     bars.append(m);
   }
@@ -1343,8 +1522,8 @@ function renderBody() {
     planBadge.textContent = prov === "claude"
       ? (curTool?.plan ? `Plan ${planLabel(curTool.plan)}` : "Conectado")
       : prov === "codex"
-        ? (curTool?.auth_method === "api_key" ? "Codex API" : "ChatGPT")
-        : (curTool?.plan && curTool.plan !== "Google" ? curTool.plan : "Gemini");
+        ? (curTool?.auth_method === "api_key" ? "Codex API" : curTool?.plan && curTool.plan !== "ChatGPT" ? `ChatGPT ${planLabel(curTool.plan)}` : "ChatGPT")
+        : (curTool?.plan || "Antigravity");
   }
   const histBtn = q<HTMLButtonElement>('.ai-tools button[title="Conversaciones anteriores"]');
   if (histBtn) { histBtn.classList.toggle("active", historyOpen); histBtn.setAttribute("aria-pressed", String(historyOpen)); }
@@ -1354,9 +1533,11 @@ function renderBody() {
   compose.hidden = !ready || historyOpen;
   if (!curTool) { body.replaceChildren(setupMessage(`Detectando ${meta.title}`, "Comprobando sesión y estado de tu cuenta…")); return; }
   if (!curTool.installed) {
-    const again = h("button", "foot-btn ai-btn-primary", "Volver a comprobar"); again.type = "button"; again.onclick = recheck;
+    const canInstall = !!(meta.npmPkg || meta.installCmdPs);
+    const installBtn = canInstall ? (() => { const b = h("button", "foot-btn ai-btn-primary", "Instalar y conectar"); b.type = "button"; b.onclick = () => void installAndConnect(prov); return b; })() : null;
+    const again = h("button", canInstall ? "foot-btn foot-btn-line" : "foot-btn ai-btn-primary", "Volver a comprobar"); again.type = "button"; again.onclick = recheck;
     const guide = h("button", "foot-btn foot-btn-line", "Cómo instalarlo"); guide.type = "button"; guide.onclick = () => void openExternal(meta.docsUrl);
-    const extraBtns: HTMLElement[] = [again, guide];
+    const extraBtns: HTMLElement[] = [...(installBtn ? [installBtn] : []), again, guide];
     if (prov !== "claude") {
       const back = h("button", "foot-btn foot-btn-line", "Volver a Claude Code"); back.type = "button"; back.onclick = () => switchProvider("claude");
       extraBtns.push(back);
@@ -1392,12 +1573,19 @@ function renderBody() {
     nodes.push(buildEmptyWorkbench());
   }
   let userNum = 0;
-  for (const t of c.messages) {
+  c.messages.forEach((t, idx) => {
     if (t.role === "user") userNum += 1;
-    nodes.push(...turnNodes(t, userNum));
-  }
+    const activeTurn = c.running && idx === c.messages.length - 1 && t.role === "assistant";
+    nodes.push(...turnNodes(t, userNum, activeTurn));
+  });
   const last = c.messages[c.messages.length - 1];
-  if (c.running && (!last || last.role === "user" || !last.done)) nodes.push(h("div", "ai-working", "Trabajando…"));
+  const lastEl = nodes[nodes.length - 1];
+  const hasRunningTrace = c.running && lastEl?.classList.contains("ai-step-group") && lastEl.classList.contains("running");
+  if (c.running && (!last || last.role === "user" || (!last.done && !hasRunningTrace))) {
+    const w = h("div", "ai-working-pill");
+    w.append(h("span", "ai-step-orb pulse"), h("span", "ai-working-lbl", "Pensando"));
+    nodes.push(w);
+  }
   if (c.error) {
     const e = h("div", "ai-error");
     e.append(h("div", "", c.error));
@@ -1479,7 +1667,7 @@ async function detect(force = false) {
     try {
       const all = await invoke<AllAiTools>("ai_detect_all").catch(async () => {
         const claude = await invoke<AiTool>("ai_detect");
-        return { claude, codex: null, gemini: null } as unknown as { claude: AiTool; codex: AiTool | null; gemini: AiTool | null };
+        return { claude, codex: null, antigravity: null } as unknown as { claude: AiTool; codex: AiTool | null; antigravity: AiTool | null };
       });
       const nextClaude = all.claude;
       const sig = `${nextClaude.auth_method}:${nextClaude.plan}`;
@@ -1491,14 +1679,14 @@ async function detect(force = false) {
       }
       tools.claude = nextClaude;
       tools.codex = all.codex;
-      tools.gemini = all.gemini;
+      tools.antigravity = all.antigravity;
       tool = tools[activeProvider];
 
       if (nextClaude.logged_in) {
         localStorage.setItem(USAGE_SIG_KEY, sig);
         void refreshUsage();
       }
-      if (all.codex?.logged_in || all.gemini?.logged_in) {
+      if (all.codex?.logged_in || all.antigravity?.logged_in) {
         void refreshExtraUsage();
       }
       const curTool = tools[activeProvider];
@@ -1544,7 +1732,9 @@ async function send() {
     live.provider = activeProvider;
     live.normalize = createProviderNormalizer(live.provider, model || "");
   }
-  const useEffort = PROVIDERS[live.provider].supportsEffort ? effort || null : null;
+  const useEffort = PROVIDERS[live.provider].supportsEffort && !(live.provider === "antigravity" && model)
+    ? effort || null
+    : null;
   apply(live, userEvent(text));
   try {
     await invoke("ai_send", { id: live.id, cwd: ws.root, prompt, session: live.convo.sessionId || null, model: model || null, effort: useEffort, mode, provider: live.provider });
@@ -1584,9 +1774,12 @@ function onKey(e: KeyboardEvent) {
 async function chooseMode(next: "read" | "edit") {
   if (next === mode) return;
   if (next === "edit" && localStorage.getItem("pulso.ai.editOk") !== "1") {
+    const msg = activeProvider === "claude"
+      ? "Con «Puede editar», Claude Code podrá modificar y crear archivos de tu proyecto sin preguntar cada vez. Verás los cambios en el panel de Git y podrás descartarlos. Nunca se le permite ejecutar comandos desde aquí."
+      : `Con «Puede editar», ${PROVIDERS[activeProvider].title} podrá modificar y crear archivos en tu proyecto según las reglas de su sandbox. Verás los cambios en el panel de Git y podrás descartarlos.`;
     const r = await showDialog({
       title: "Permitir que la IA edite archivos",
-      message: "Con «Puede editar», Claude Code podrá modificar y crear archivos de tu proyecto sin preguntar cada vez. Verás los cambios en el panel de Git y podrás descartarlos. Nunca se le permite ejecutar comandos desde aquí.",
+      message: msg,
       buttons: [{ label: "Cancelar", value: "cancel" }, { label: "Permitir editar", value: "ok", primary: true }],
     });
     if (r !== "ok") { build(); return; }
@@ -1596,6 +1789,153 @@ async function chooseMode(next: "read" | "edit") {
   localStorage.setItem("pulso.ai.mode", mode);
   build();
 }
+
+const BG_KEY = "pulso.ai.appearance";
+
+interface AiAppearance {
+  bg: string;
+  pattern: "dots" | "solid";
+  scope: "assistant" | "global";
+}
+
+const BG_PRESETS: { name: string; color: string; swatch: string }[] = [
+  { name: "Tema actual", color: "", swatch: "var(--bg)" },
+  { name: "Negro puro", color: "#050507", swatch: "#050507" },
+  { name: "Azul noche", color: "#071022", swatch: "#071022" },
+  { name: "Pizarra", color: "#0d141c", swatch: "#0d141c" },
+  { name: "Índigo", color: "#0e0b1a", swatch: "#0e0b1a" },
+  { name: "Bosque", color: "#071410", swatch: "#071410" },
+];
+
+function loadAppearance(): AiAppearance {
+  try {
+    const raw = JSON.parse(localStorage.getItem(BG_KEY) ?? "{}");
+    return {
+      bg: typeof raw.bg === "string" && /^#[0-9a-f]{6}$/i.test(raw.bg) ? raw.bg : "",
+      pattern: raw.pattern === "solid" ? "solid" : "dots",
+      scope: raw.scope === "global" ? "global" : "assistant",
+    };
+  } catch {
+    return { bg: "", pattern: "dots", scope: "assistant" };
+  }
+}
+
+function isLightHex(hex: string): boolean {
+  const n = Number.parseInt(hex.slice(1), 16);
+  const r = (n >> 16) & 255; const g = (n >> 8) & 255; const b = n & 255;
+  return (r * 299 + g * 587 + b * 114) / 1000 > 150;
+}
+
+function applyAiAppearance(cfg: AiAppearance = loadAppearance()) {
+  const view = viewEl();
+  const root = document.documentElement.style;
+  view.classList.toggle("ai-bg-solid", cfg.pattern === "solid");
+  const clearVars = (s: CSSStyleDeclaration, vars: string[]) => vars.forEach((v) => s.removeProperty(v));
+  const vars = ["--bg", "--editor", "--sidebar", "--activity", "--hover", "--selected", "--border", "--fg", "--muted"];
+  if (!cfg.bg) {
+    clearVars(view.style, vars);
+    clearVars(root, vars);
+    return;
+  }
+  const light = isLightHex(cfg.bg);
+  const mix = light ? "#000000" : "#ffffff";
+  const surface = `color-mix(in srgb, ${cfg.bg} ${light ? "93%" : "91%"}, ${mix})`;
+  const hover = `color-mix(in srgb, ${cfg.bg} 84%, ${mix})`;
+  const selected = `color-mix(in srgb, ${cfg.bg} 76%, ${mix})`;
+  const border = `color-mix(in srgb, ${cfg.bg} ${light ? "82%" : "83%"}, ${mix})`;
+  const fg = light ? "#191b22" : "#eceef4";
+  const muted = light ? "#5e6473" : "#8b93a7";
+  const target = cfg.scope === "global" ? root : view.style;
+  clearVars(cfg.scope === "global" ? view.style : root, vars);
+  target.setProperty("--bg", cfg.bg);
+  target.setProperty("--editor", cfg.bg);
+  target.setProperty("--sidebar", surface);
+  target.setProperty("--activity", cfg.bg);
+  target.setProperty("--hover", hover);
+  target.setProperty("--selected", selected);
+  target.setProperty("--border", border);
+  target.setProperty("--fg", fg);
+  target.setProperty("--muted", muted);
+}
+
+function saveAppearance(cfg: AiAppearance) {
+  try { localStorage.setItem(BG_KEY, JSON.stringify(cfg)); } catch { /* sin acceso */ }
+  applyAiAppearance(cfg);
+}
+
+function openAppearancePopover(anchor: HTMLElement) {
+  const pop = h("div", "ai-popover ai-theme-pop");
+  const render = () => {
+    const cfg = loadAppearance();
+    pop.replaceChildren();
+    const head = h("div", "ai-usage-pop-head");
+    head.append(h("span", "ai-usage-group", "Fondo y estilo"));
+    if (cfg.bg || cfg.pattern !== "dots" || cfg.scope !== "assistant") {
+      const rst = h("button", "ai-usage-sync", "Restablecer");
+      rst.type = "button";
+      rst.onclick = () => { saveAppearance({ bg: "", pattern: "dots", scope: "assistant" }); render(); };
+      head.append(rst);
+    }
+    pop.append(head);
+
+    const grid = h("div", "ai-swatch-grid");
+    for (const p of BG_PRESETS) {
+      const active = cfg.bg.toLowerCase() === p.color.toLowerCase();
+      const b = h("button", `ai-swatch${active ? " active" : ""}`);
+      b.type = "button";
+      b.title = p.name;
+      const dot = h("span", "ai-swatch-dot");
+      dot.style.background = p.swatch;
+      b.append(dot, h("span", "ai-swatch-name", p.name));
+      b.onclick = () => { saveAppearance({ ...cfg, bg: p.color }); render(); };
+      grid.append(b);
+    }
+    pop.append(grid);
+
+    const customRow = h("label", "ai-color-custom");
+    const picker = h("input");
+    picker.type = "color";
+    picker.value = cfg.bg || "#0e0e0f";
+    const hexLbl = h("span", "ai-color-hex", cfg.bg ? cfg.bg.toUpperCase() : "Tema");
+    picker.oninput = () => {
+      hexLbl.textContent = picker.value.toUpperCase();
+      saveAppearance({ ...cfg, bg: picker.value });
+      grid.querySelectorAll(".ai-swatch").forEach((s) => s.classList.remove("active"));
+    };
+    customRow.append(h("span", "ai-pop-effort-lbl", "Color personalizado"), picker, hexLbl);
+    pop.append(h("div", "ai-pop-sep"), customRow);
+
+    const optRow = h("div", "ai-theme-opts");
+    const makeToggle = (label: string, opts: [string, string, boolean, () => void][]) => {
+      const row = h("div", "ai-pop-effort");
+      row.append(h("span", "ai-pop-effort-lbl", label));
+      const pills = h("div", "ai-effort-pills");
+      for (const [, text, active, fn] of opts) {
+        const b = h("button", `ai-effort-pill${active ? " active" : ""}`, text);
+        b.type = "button";
+        b.onclick = () => { fn(); render(); };
+        pills.append(b);
+      }
+      row.append(pills);
+      return row;
+    };
+    optRow.append(
+      makeToggle("Textura", [
+        ["dots", "Puntos", cfg.pattern === "dots", () => saveAppearance({ ...cfg, pattern: "dots" })],
+        ["solid", "Liso", cfg.pattern === "solid", () => saveAppearance({ ...cfg, pattern: "solid" })],
+      ]),
+      makeToggle("Aplicar en", [
+        ["assistant", "Asistente", cfg.scope === "assistant", () => saveAppearance({ ...cfg, scope: "assistant" })],
+        ["global", "Todo Pulso", cfg.scope === "global", () => saveAppearance({ ...cfg, scope: "global" })],
+      ]),
+    );
+    pop.append(h("div", "ai-pop-sep"), optRow);
+  };
+  render();
+  openPopover(anchor, pop, "below");
+}
+
+const ICON_PALETTE = '<svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0 0 18c1.1 0 1.8-.7 1.8-1.6 0-.4-.2-.8-.4-1.1-.3-.3-.4-.6-.4-1a1.5 1.5 0 0 1 1.5-1.5h2A4.5 4.5 0 0 0 21 11.3C21 6.7 17 3 12 3z"/><circle cx="7.5" cy="11.5" r="1"/><circle cx="10.5" cy="7.5" r="1"/><circle cx="15.5" cy="8.5" r="1"/></svg>';
 
 // ---------- Construcción de la vista ----------
 function build() {
@@ -1607,15 +1947,16 @@ function build() {
   const titleRow = h("div", "ai-title-row");
   const planBtn = h("button", "ai-plan-pill", "");
   planBtn.type = "button";
-  planBtn.title = "Ver y conectar suscripciones (Claude, ChatGPT, Gemini)";
+  planBtn.title = "Ver y conectar suscripciones (Claude, ChatGPT, Antigravity)";
   planBtn.onclick = () => openAccountsPopover(planBtn);
   titleRow.append(h("span", "ai-live-dot", ""), h("span", "ai-title", "Asistente"), planBtn);
   titles.append(titleRow, h("span", "ai-sub", ""));
   const tools = h("div", "ai-tools");
   const add = iconBtn(ICON_PLUS, "Nueva conversación"); add.onclick = newConversation;
   const hist = iconBtn(ICON_CLOCK, "Conversaciones anteriores"); hist.onclick = () => { historyOpen = !historyOpen; renderBody(); };
+  const themeBtn = iconBtn(ICON_PALETTE, "Cambiar color de fondo"); themeBtn.onclick = () => openAppearancePopover(themeBtn);
   const expand = iconBtn(ICON_EXPAND, "Pantalla completa", "ai-expand"); expand.onclick = () => setFull(!isFull());
-  tools.append(add, hist, expand);
+  tools.append(add, hist, themeBtn, expand);
   head.append(titles, h("span", "grow"), tools);
 
   const body = h("div", "ai-body");
@@ -1651,7 +1992,10 @@ function build() {
   const seg = h("div", "seg ai-mode");
   seg.setAttribute("role", "tablist");
   seg.setAttribute("aria-label", "Permisos");
-  for (const [value, label, hint] of [["read", "Solo leer", "La IA puede leer y buscar en tu proyecto, pero no modificarlo"], ["edit", "Puede editar", "La IA puede editar y crear archivos sin preguntar. Nunca ejecuta comandos"]] as const) {
+  const editHint = activeProvider === "claude"
+    ? "La IA puede editar y crear archivos sin preguntar. Nunca ejecuta comandos"
+    : "La IA puede editar y crear archivos en tu proyecto dentro de su sandbox";
+  for (const [value, label, hint] of [["read", "Solo leer", "La IA puede leer y buscar en tu proyecto, pero no modificarlo"], ["edit", "Puede editar", editHint]] as const) {
     const b = h("button", "", label); b.type = "button"; b.title = hint; b.setAttribute("role", "tab"); b.setAttribute("aria-selected", String(mode === value));
     b.onclick = () => void chooseMode(value);
     seg.append(b);
@@ -1689,9 +2033,29 @@ export function setAiVisible(visible: boolean) {
 }
 
 export function initAi() {
+  applyAiAppearance();
   if (!("__TAURI_INTERNALS__" in window)) return;
-  // El historial vive en un archivo: se carga una vez y, si la pestaña ya se pintó, se repinta con él.
-  void initHistory().then(() => { if (shown) renderBody(); });
+  // El historial vive en un archivo: se carga una vez, recupera si cerró ejecutando y repinta si corresponde.
+  void initHistory().then(() => {
+    try {
+      const raw = localStorage.getItem(INTERRUPTED_KEY);
+      if (raw) {
+        localStorage.removeItem(INTERRUPTED_KEY);
+        const info = JSON.parse(raw) as { id?: string; cwd?: string };
+        const saved = info.id ? loadChats().find((c) => c.id === info.id) : undefined;
+        if (saved && (!ws.root || saved.cwd.replace(/\\/g, "/").toLowerCase() === ws.root.replace(/\\/g, "/").toLowerCase())) {
+          const l = fromSaved(saved);
+          lives.set(l.id, l);
+          switchProvider(l.provider);
+          current = l;
+        }
+      }
+    } catch { /* nada que hacer */ }
+    if (shown) renderBody();
+  });
+  window.addEventListener("beforeunload", saveRunningBeforeExit);
+  window.addEventListener("pagehide", saveRunningBeforeExit);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") saveRunningBeforeExit(); });
   // Reconoce Claude Code y su plan al instante al iniciar la aplicación.
   void detect(true);
   window.addEventListener("focus", () => {
