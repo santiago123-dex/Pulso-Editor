@@ -3,7 +3,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { eventKey } from "./commands";
+import { terminalKeyAction } from "./terminalKeys";
 import { commit, currentTheme, state } from "./settings";
 import { detectPrefs, hasAnythingToAdapt, planAdaptation, resolveScheme, shellIdFor, type Adaptation, type Detected, type ShellInfo } from "./terminalPrefs";
 import { hooks, setStatus, showDialog, showMenu } from "./ui";
@@ -76,13 +76,33 @@ export function hidePanel() {
   hooks.focusEditor();
 }
 
+function shellBadge(label: string): string {
+  const low = label.toLowerCase();
+  if (low.includes("powershell") || low.includes("pwsh")) return "PS";
+  if (low.includes("git bash") || low.includes("bash")) return "SH";
+  if (low.includes("wsl") || low.includes("ubuntu")) return "WSL";
+  if (low.includes("cmd") || low.includes("símbolo")) return "CMD";
+  return ">_";
+}
+
+function syncMeta() {
+  const meta = document.getElementById("term-meta");
+  const panel = $("panel");
+  if (!meta) return;
+  panel.classList.toggle("term-err", !!active?.exited);
+  if (!active) { meta.hidden = true; return; }
+  const dir = ws.root ? ws.root.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? "" : "";
+  meta.textContent = `${dir ? `${dir} · ` : ""}${active.xterm.cols}×${active.xterm.rows}`;
+  meta.hidden = false;
+}
+
 function renderTabs() {
   const bar = $("term-tabs");
   bar.replaceChildren();
   for (const t of order) {
     const tab = h("div", "term-tab" + (t === active ? " active" : "") + (t.exited ? " exited" : ""));
     tab.title = t.label;
-    tab.append(h("span", "term-glyph", ">_"), h("span", "term-label", t.label));
+    tab.append(h("span", "term-glyph", shellBadge(t.label)), h("span", "term-label", t.label));
     const close = h("span", "term-close", "×");
     close.title = "Terminar esta terminal";
     close.onclick = (e) => { e.stopPropagation(); closeTerm(t); };
@@ -91,6 +111,7 @@ function renderTabs() {
     tab.onauxclick = (e) => { if (e.button === 1) closeTerm(t); };
     bar.append(tab);
   }
+  syncMeta();
 }
 
 function activateTerm(t: Term) {
@@ -101,6 +122,7 @@ function activateTerm(t: Term) {
     t.fit.fit();
     t.xterm.refresh(0, t.xterm.rows - 1);
     t.xterm.focus();
+    syncMeta();
   });
 }
 
@@ -242,13 +264,20 @@ export async function newTerminal(opts: { shell?: ShellInfo; cwd?: string } = {}
   order.push(t);
 
   xterm.onData((d) => { void invoke("term_write", { id, data: d }).catch(() => {}); });
-  xterm.onResize(({ cols, rows }) => { void invoke("term_resize", { id, cols, rows }).catch(() => {}); });
+  xterm.onResize(({ cols, rows }) => {
+    void invoke("term_resize", { id, cols, rows }).catch(() => {});
+    if (t === active) syncMeta();
+  });
   xterm.attachCustomKeyEventHandler((e) => {
-    if (e.type !== "keydown") return true;
-    const k = eventKey(e);
-    if (k === "Ctrl+Shift+C" || (k === "Ctrl+C" && xterm.hasSelection())) { copySelection(t); return false; }
-    if (k === "Ctrl+Shift+V") { void pasteInto(t); return false; }
-    return true;
+    const action = terminalKeyAction(e, xterm.hasSelection() && xterm.getSelection().length > 0);
+    if (!action) return true;
+    e.preventDefault();
+    e.stopPropagation();
+    if (action === "copy") copySelection(t, true);
+    else if (action === "copy-keep") copySelection(t);
+    else if (action === "interrupt") sendInterrupt(t);
+    else if (action === "paste") void pasteInto(t);
+    return false;
   });
   el.addEventListener("contextmenu", (e) => {
     e.preventDefault();
@@ -270,9 +299,14 @@ export async function newTerminal(opts: { shell?: ShellInfo; cwd?: string } = {}
   return true;
 }
 
-function copySelection(t: Term) {
+function sendInterrupt(t: Term) {
+  void invoke("term_write", { id: t.id, data: "\x03" }).catch(() => {});
+}
+
+function copySelection(t: Term, clear = false) {
   const text = t.xterm.getSelection();
   if (text) void navigator.clipboard.writeText(text).catch(() => setStatus("No se pudo copiar al portapapeles"));
+  if (clear) t.xterm.clearSelection();
 }
 
 async function pasteInto(t: Term) {
@@ -317,6 +351,8 @@ export function initTerminal() {
   void detectPrefs().then((d) => { detected = d; applyTerminalSettings(); });
   // Si la ventana se recargó, las shells de antes ya no tienen pestaña: se cierran.
   if (inTauri) void invoke("term_kill_all").catch(() => {});
+  const clearBtn = document.getElementById("term-clear");
+  if (clearBtn) clearBtn.onclick = () => { clearTerminal(); focusTerminal(); };
   $("term-new").onclick = () => void newTerminal();
   $("term-hide").onclick = hidePanel;
   $("term-shells").onclick = async (e) => {
@@ -332,10 +368,32 @@ export function initTerminal() {
   let maximized = false;
   $("term-max").onclick = () => {
     maximized = !maximized;
-    const parent = $("panel").parentElement!;
+    const panel = $("panel");
+    const parent = panel.parentElement!;
+    panel.classList.toggle("term-max", maximized);
     document.documentElement.style.setProperty("--panel-h", maximized ? `${Math.round(parent.clientHeight * 0.75)}px` : "280px");
-    requestAnimationFrame(() => active?.fit.fit());
+    requestAnimationFrame(() => { active?.fit.fit(); syncMeta(); focusTerminal(); });
   };
+
+  $("term-body").addEventListener("mousedown", (e) => {
+    const target = e.target as HTMLElement | null;
+    if (!target?.closest?.(".xterm")) requestAnimationFrame(() => focusTerminal());
+  });
+
+  // Si el foco quedó en un botón o pestaña del panel, Ctrl+C sigue interrumpiendo el proceso activo.
+  $("panel").addEventListener("keydown", (e) => {
+    if (!active) return;
+    const target = e.target as HTMLElement | null;
+    if (target === active.xterm.textarea || target?.closest?.(".xterm")) return;
+    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target?.isContentEditable) return;
+    const action = terminalKeyAction(e, active.xterm.hasSelection() && active.xterm.getSelection().length > 0);
+    if (action !== "interrupt" && action !== "copy") return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (action === "copy") copySelection(active, true);
+    else sendInterrupt(active);
+    focusTerminal();
+  });
 
   // Arrastrar el borde superior para cambiar la altura.
   $("panel-sash").onmousedown = (e) => {

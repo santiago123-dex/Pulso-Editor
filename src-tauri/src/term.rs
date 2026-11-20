@@ -435,4 +435,59 @@ mod tests {
         let bytes = vec![0xC3, 0xB1, 0xFF, 0x00, 0x1B, b'['];
         assert_eq!(STANDARD.decode(STANDARD.encode(&bytes)).unwrap(), bytes);
     }
+
+    fn drain_and_answer(s: &mut Session, rx: &mpsc::Receiver<Msg>, millis: u64, out: &mut String) {
+        let end = Instant::now() + Duration::from_millis(millis);
+        while Instant::now() < end {
+            match rx.recv_timeout(Duration::from_millis(40)) {
+                Ok(Msg::Data(b)) => {
+                    answer_cursor_query(s, &b);
+                    out.push_str(&String::from_utf8_lossy(&b));
+                }
+                Ok(Msg::Exit(_)) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+            }
+        }
+    }
+
+    #[test]
+    fn ctrl_c_interrupts_a_running_command_in_shell() {
+        let (sh, args) = interactive();
+        let (mut s, rx) = start(sh, &args, None);
+        let mut log = String::new();
+        drain_and_answer(&mut s, &rx, 1000, &mut log);
+        #[cfg(windows)]
+        s.write(b"ping -n 30 127.0.0.1\r\n").unwrap();
+        #[cfg(not(windows))]
+        s.write(b"sleep 30\r\n").unwrap();
+        drain_and_answer(&mut s, &rx, 1200, &mut log);
+        s.write(b"\x03").unwrap();
+        drain_and_answer(&mut s, &rx, 700, &mut log);
+        s.write(b"echo after-ctrl-c\r\n").unwrap();
+        drain_and_answer(&mut s, &rx, 500, &mut log);
+        s.write(b"exit 0\r\n").unwrap();
+        let (rest, code) = collect(&mut s, &rx, 10);
+        log.push_str(&rest);
+        assert!(log.contains("after-ctrl-c"), "el comando no se interrumpio con Ctrl+C: {:?}", log);
+        assert_eq!(code, Some(0));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn ctrl_c_interrupts_powershell_command() {
+        let (mut s, rx) = start("powershell.exe", &["-NoLogo".into()], None);
+        let mut log = String::new();
+        drain_and_answer(&mut s, &rx, 1800, &mut log);
+        s.write(b"Start-Sleep -Seconds 30\r\n").unwrap();
+        drain_and_answer(&mut s, &rx, 1000, &mut log);
+        s.write(b"\x03").unwrap();
+        drain_and_answer(&mut s, &rx, 800, &mut log);
+        s.write(b"Write-Output ps-after-ctrl-c\r\n").unwrap();
+        drain_and_answer(&mut s, &rx, 600, &mut log);
+        s.write(b"exit\r\n").unwrap();
+        let (rest, code) = collect(&mut s, &rx, 10);
+        log.push_str(&rest);
+        assert!(log.contains("ps-after-ctrl-c"), "powershell no se interrumpio con Ctrl+C: {:?}", log);
+        assert_eq!(code, Some(0));
+    }
 }

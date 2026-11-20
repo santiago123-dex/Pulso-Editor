@@ -250,9 +250,16 @@
         <section id="panel" hidden>
           <div id="panel-sash"></div>
           <div class="panel-head">
-            <span class="panel-title">Terminal</span>
+            <div class="panel-brand">
+              <span class="panel-led"></span>
+              <span class="panel-title">CLI</span>
+            </div>
             <div id="term-tabs"></div>
+            <span id="term-meta" class="term-meta" hidden></span>
             <div class="panel-actions">
+              <button class="icon-btn" id="term-clear" title="Limpiar salida">
+                <svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>
+              </button>
               <button class="icon-btn" id="term-new" title="Nueva terminal (Ctrl+Shift+J)">
                 <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
               </button>
