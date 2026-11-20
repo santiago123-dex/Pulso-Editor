@@ -1,0 +1,7 @@
+.git
+node_modules
+dist
+dist-linux
+src-tauri/target
+src-tauri/gen
+*.log

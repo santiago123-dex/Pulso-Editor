@@ -53,9 +53,10 @@ fn main() {
 
 /// Abre la ventana gráfica sin quedarse esperando: la terminal queda libre al instante.
 fn open_window(args: &[String]) {
-    let exe = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("pulso-editor.exe")));
+    let name = if cfg!(windows) { "pulso-editor.exe" } else { "pulso-editor" };
+    let exe = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join(name)));
     let Some(exe) = exe.filter(|p| p.exists()) else {
-        eprintln!("No se encontró pulso-editor.exe junto a este comando.");
+        eprintln!("No se encontró {name} junto a este comando.");
         std::process::exit(1);
     };
     let mut cmd = std::process::Command::new(exe);

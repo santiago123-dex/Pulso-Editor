@@ -8,6 +8,24 @@ npm run tauri build -- --bundles nsis
 
 Produce `src-tauri/target/release/bundle/nsis/Pulso Editor_0.1.0_x64-setup.exe` (≈ 8,4 MB). La primera compilación de producción tarda unos 3 minutos. El instalador se instala por usuario en `%LOCALAPPDATA%\Pulso Editor` (`/S` para instalación silenciosa). Incluye el servidor de TypeScript y la configuración que usa el LSP; no incluye Node.js.
 
+## Linux (Fedora): paquete .rpm
+
+Desde Windows, con Docker Desktop en marcha:
+
+```powershell
+./packaging/linux/build-rpm.ps1
+```
+
+Compila dentro de un contenedor Fedora (`packaging/linux/Dockerfile`) y deja el paquete en `dist-linux/`. En Fedora:
+
+```bash
+sudo dnf install ./Pulso\ Editor-0.1.0-1.x86_64.rpm
+pulso-editor        # la ventana
+pulso               # el asistente de IA en la terminal (también `pulso .` abre la ventana)
+```
+
+El paquete instala los dos programas en `/usr/bin`, así que `pulso` ya está en el PATH. Las herramientas de IA (`claude`, `codex`, `agy`) se buscan en el PATH y en `~/.local/bin`. No se probó ejecutándolo en un Fedora real: solo se comprobó que compila y qué dependencias declara el paquete.
+
 ## Qué se probó en la versión instalada
 
 Probado el 17/11/2026 en un solo equipo con Windows 11 (el del desarrollo, con Node, Git y WebView2 ya instalados):

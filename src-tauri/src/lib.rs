@@ -666,7 +666,7 @@ fn cli_startup_targets() -> Vec<cli::CliTarget> {
 #[tauri::command]
 fn install_cli_command() -> Result<String, String> {
     #[cfg(not(windows))]
-    { return Err("En este sistema enlaza el ejecutable a mano (por ejemplo: ln -s /ruta/pulso-editor ~/.local/bin/pulso).".into()); }
+    { return Ok("En Linux y macOS el paquete ya instala el comando `pulso` en el PATH; no hace falta hacer nada más.".into()); }
     #[cfg(windows)]
     {
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
