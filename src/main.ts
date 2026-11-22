@@ -8,6 +8,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
+import { bus } from "./core/events";
+import { createPrForActiveIssue } from "./workflow/issueWorkflow";
 import { planCliOpen, type CliTarget } from "./cliOpen";
 import { commands, initKeys, keyOf, register } from "./commands";
 import { checkExternal, dirtyDocs, discardDirtyBackups, docs, flushBackups, offerRecovery, onDocSaved, saveDoc } from "./docs";
@@ -25,12 +27,12 @@ import { openBoard } from "./board";
 import { initIssues, loadIssues } from "./issues";
 import { initProblems, setProblemsVisible } from "./problems";
 import { pickScript } from "./scripts";
-import { initHistory, showFileHistory } from "./history";
+import { initHistory, openHistoryTab, resetHistory, showFileHistory } from "./history";
 import { initBlame, toggleBlame } from "./blame";
-import { initPrs, newPull, setPrsVisible } from "./prs";
+import { initPrs, newPull, resetPrs, setPrsVisible } from "./prs";
 import { initAi, setAiVisible, startNewConversation } from "./aiChat";
 import { customizeActivityBar, initActivityBar, resetActivityBar } from "./activityBar";
-import { setChatVisible } from "./repoChat";
+import { resetRepoChat, setChatVisible } from "./repoChat";
 import { initLsp, setLspWorkspace } from "./lsp";
 import { getLspState, lspDetail, lspLabel, onLspState } from "./lspState";
 import { commitStaged, initScm, pickBranch, pullChanges, pushChanges, refreshScm, stage, unstage } from "./scm";
@@ -131,8 +133,10 @@ async function openWorkspace(raw: string, layout?: Layout | null): Promise<boole
   const path = norm(raw).replace(/\/+$/, "");
   if (ws.root !== path && !(await closeAllTabs())) return false;
   try {
+    if (inTauri) await invoke("set_workspace_root", { path });
     await invoke("list_dir", { path });
   } catch (e) {
+    if (inTauri) await invoke("set_workspace_root", { path: ws.root }).catch(() => {});
     setStatus(`No se pudo abrir la carpeta: ${e}`);
     removeRecent(path);
     return false;
@@ -143,6 +147,11 @@ async function openWorkspace(raw: string, layout?: Layout | null): Promise<boole
   setLastRoot(path);
   addRecent(path);
   resetExplorer();
+  if (changedWorkspace) {
+    resetHistory();
+    resetPrs();
+    resetRepoChat();
+  }
   $("tree-empty").hidden = true;
   const fn = $("folder-name");
   fn.textContent = baseName(path);
@@ -174,8 +183,14 @@ async function installCliCommand() {
 async function closeWorkspace() {
   if (!(await closeAllTabs())) return;
   ws.root = null;
-  if (inTauri) setLspWorkspace(null);
+  if (inTauri) {
+    setLspWorkspace(null);
+    await invoke("set_workspace_root", { path: null }).catch(() => {});
+  }
   resetExplorer();
+  resetHistory();
+  resetPrs();
+  resetRepoChat();
   await refreshTree();
   setDefaultStatus("Listo");
   setStatus("Carpeta cerrada");
@@ -436,7 +451,7 @@ register(
   { id: "view.explorer", label: "Ver: Explorador", key: "Ctrl+Shift+E", run: () => showView("explorer") },
   { id: "view.search", label: "Ver: Buscar en archivos", key: "Ctrl+Shift+F", run: () => { showView("search"); focusSearch(selectionText()); } },
   { id: "view.git", label: "Ver: Control de código fuente (Git)", key: "Ctrl+Shift+G", keywords: "git source control commit cambios stage preparar", run: () => showView("git") },
-  { id: "git.history", label: "Git: Historial de commits", keywords: "git historial log commits", run: () => { showView("git"); document.querySelector<HTMLButtonElement>('#scm-tabs [data-tab="history"]')?.click(); } },
+  { id: "git.history", label: "Git: Historial de commits", keywords: "git historial log commits", run: () => { showView("git"); openHistoryTab(); } },
   { id: "git.blame", label: "Git: Alternar culpa (blame) en línea", keywords: "git blame culpa autor linea quien", run: toggleBlame },
   { id: "git.fileHistory", label: "Git: Historial del archivo activo", keywords: "git historial archivo file history log", run: () => { showView("git"); showFileHistory(); } },
   { id: "git.commit", label: "Git: Confirmar los cambios preparados (commit)", keywords: "git commit confirmar", run: () => { showView("git"); void commitStaged(); } },
@@ -450,6 +465,7 @@ register(
   { id: "ai.new", label: "Asistente de IA: Nueva conversación", keywords: "ia ai claude nueva conversacion", run: () => { showView("ai"); startNewConversation(); } },
   { id: "view.prs", label: "Ver: Pull requests", keywords: "pull request pr github revisar", run: () => showView("prs") },
   { id: "git.newPull", label: "Git: Nueva pull request desde la rama actual", keywords: "pull request pr crear github", run: () => { showView("prs"); void newPull(); } },
+  { id: "workflow.createPr", label: "Flujo: Crear pull request para la issue activa", keywords: "flujo issue pr pull request cerrar closes", run: () => { showView("prs"); void createPrForActiveIssue(); } },
   { id: "view.chat", label: "Ver: Chat del equipo", keywords: "chat mensajes equipo conversacion", run: () => showView("chat") },
   { id: "view.problems", label: "Ver: Problemas (errores y avisos)", key: "Ctrl+Shift+M", keywords: "problems errores avisos diagnosticos", run: () => showView("problems") },
   { id: "view.issues", label: "Ver: Issues de GitHub", key: "Ctrl+Shift+I", run: () => showView("issues") },
@@ -667,6 +683,12 @@ function paintBranch(info: GitInfo | null) {
 }
 onGitChange(paintBranch);
 $("status-branch").onclick = () => void pickBranch();
+$("statusbar").addEventListener("keydown", (e) => {
+  if ((e.key === "Enter" || e.key === " ") && e.target instanceof HTMLElement && e.target.classList.contains("clickable")) {
+    e.preventDefault();
+    e.target.click();
+  }
+});
 paintBranch(gitInfo());
 
 initLsp();
@@ -684,6 +706,7 @@ initHistory();
 initBlame();
 initPrs();
 initAi();
+bus.on("issue-workflow-start", () => showView("ai"));
 initProblems(() => showView("problems"));
 initSettingsPage(() => void loadIssues());
 syncSettingsUI();

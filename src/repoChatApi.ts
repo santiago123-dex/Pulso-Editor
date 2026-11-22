@@ -1,4 +1,4 @@
-import { apiBase, getToken, GithubError } from "./github";
+import { githubFetch, GithubError, type GithubProxyResult } from "./github";
 import { ROOM_LABEL, ROOM_TITLE, type ChatComment, type ChatUser } from "./chatModel";
 
 export type { ChatComment, ChatUser } from "./chatModel";
@@ -25,21 +25,16 @@ export interface ChatStore {
 const path = ({ owner, repo }: ChatRepo) => `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
 const etags = new Map<string, string>();
 
-async function responseFor(url: string, method = "GET", body?: unknown, conditional = false): Promise<Response> {
-  const token = getToken();
-  const headers: Record<string, string> = { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
-  if (token) headers.Authorization = `Bearer ${token}`;
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+async function responseFor(url: string, method = "GET", body?: unknown, conditional = false): Promise<GithubProxyResult> {
   const known = conditional ? etags.get(url) : undefined;
-  if (known) headers["If-None-Match"] = known;
-  const response = await fetch(`${apiBase()}${url}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), cache: "no-store" });
+  const response = await githubFetch(url, { method, body, ifNoneMatch: known });
   if (response.status === 304) return response;
   if (!response.ok) throw new GithubError(response.status, method !== "GET");
-  if (conditional) { const tag = response.headers.get("etag"); if (tag) etags.set(url, tag); }
+  if (conditional && response.etag) etags.set(url, response.etag);
   return response;
 }
 async function request<T>(url: string, method = "GET", body?: unknown): Promise<T> {
-  return (await responseFor(url, method, body)).json() as Promise<T>;
+  return (await responseFor(url, method, body)).json<T>();
 }
 
 /** La etiqueta de la sala debe existir antes de usarla: se intenta crear y, si ya existe (422), se sigue. Una sola llamada. */
@@ -77,8 +72,8 @@ export const githubChatStore: ChatStore = {
   async comments(repo, room) {
     const base = `${path(repo)}/issues/${room}/comments?per_page=100&page=`;
     const first = await responseFor(`${base}1`);
-    const firstPage = await first.json() as ChatComment[];
-    const lastLink = first.headers.get("link")?.split(",").find((part) => /rel="last"/.test(part));
+    const firstPage = await first.json<ChatComment[]>();
+    const lastLink = first.link?.split(",").find((part) => /rel="last"/.test(part));
     const lastPage = Number(lastLink?.match(/[?&]page=(\d+)/)?.[1] || 1);
     const all: ChatComment[] = lastPage <= 5 ? firstPage : [];
     // Solo se reconstruyen números de página: el token nunca se envía a enlaces del encabezado.

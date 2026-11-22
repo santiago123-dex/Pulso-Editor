@@ -1,13 +1,15 @@
 import { applyMove, COLUMNS, columnOf, groupIssues, labelsForNew, labelsText, parseLabels, planMove, refreshDue, REVIEW_LABEL, sameIssues, upsertIssue, type Column } from "./boardModel";
 import { ensureBoardLabel } from "./boardLabels";
 import { isChatRoom } from "./chatModel";
-import { addLabel, createIssue, deleteIssue, fetchAllIssues, getToken, isAuthProblem, removeLabel, setIssueState, updateIssue, type Issue } from "./github";
+import { addLabel, createIssue, deleteIssue, fetchAllIssues, hasToken, isAuthProblem, removeLabel, setIssueState, updateIssue, type Issue } from "./github";
+import { bus } from "./core/events";
+import { currentRepo } from "./core/repo";
 import { openExternal } from "./external";
 import { connectButton } from "./githubConnect";
-import { currentRepo } from "./issues";
 import { state } from "./settings";
 import { setStatus, showDialog, showForm } from "./ui";
 import { $, h } from "./util";
+import { startWorkOnIssue } from "./workflow/issueWorkflow";
 import "./board.css";
 
 interface Repo { owner: string; repo: string }
@@ -69,7 +71,7 @@ const interacting = () => !!document.querySelector(".modal, .board-card.dragging
 
 async function autoRefresh(trigger: "focus" | "timer") {
   if (!isBoardOpen() || !repo) return;
-  if (!refreshDue({ now: Date.now(), last: lastLoad, minGap: minGap(), interval: intervalMs(), trigger, hasToken: !!getToken(), visible: document.visibilityState === "visible", busy, blocked: interacting() })) return;
+  if (!refreshDue({ now: Date.now(), last: lastLoad, minGap: minGap(), interval: intervalMs(), trigger, hasToken: hasToken(), visible: document.visibilityState === "visible", busy, blocked: interacting() })) return;
   const before = issues;
   try { await load(); } catch { return; }
   if (!isBoardOpen()) return;
@@ -81,10 +83,10 @@ async function autoRefresh(trigger: "focus" | "timer") {
 
 const onFocus = () => void autoRefresh("focus");
 // Abrir otra superficie grande (el chat) cierra el tablero.
-window.addEventListener("pulso-overlay", (e) => { if ((e as CustomEvent).detail !== "board" && isBoardOpen()) closeBoard(); });
+bus.on("overlay", (kind) => { if (kind !== "board" && isBoardOpen()) closeBoard(); });
 
 export async function openBoard(): Promise<boolean> {
-  window.dispatchEvent(new CustomEvent("pulso-overlay", { detail: "board" }));
+  bus.emit("overlay", "board");
   const root = $("board-view");
   closeBoard();
   const session = boardSession;
@@ -226,6 +228,17 @@ function card(i: Issue): HTMLElement {
   del.innerHTML = '<svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12M10 11v5M14 11v5"/></svg>';
   del.onclick = (e) => { e.stopPropagation(); void deleteCard(i.number); };
   const actions = h("div", "board-card-actions");
+  if (!done) {
+    const work = h("button", "icon-btn board-open board-work");
+    work.title = "Trabajar en esta issue (rama + contexto IA)";
+    work.setAttribute("aria-label", `Trabajar en la issue #${i.number}`);
+    work.innerHTML = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+    work.onclick = (e) => {
+      e.stopPropagation();
+      void startWorkOnIssue(i).then((ok) => { if (ok) closeBoard(); });
+    };
+    actions.append(work);
+  }
   actions.append(toggle, del, open);
   top.append(actions);
   const meta = h("div", "board-card-meta");
@@ -312,7 +325,7 @@ async function refresh() {
 
 async function ensureCanWrite(): Promise<boolean> {
   if (!repo) return false;
-  if (!getToken()) {
+  if (!hasToken()) {
     await showDialog({
       title: "Falta el token de GitHub",
       message: "Para crear o modificar issues hace falta un token con permiso de escritura en las issues. Configúralo en Configuración → GitHub.",
@@ -332,7 +345,7 @@ async function ensureCanWrite(): Promise<boolean> {
 }
 
 /** Avisa al resto de la interfaz (la lista lateral de issues) de que algo cambió en GitHub. */
-function announceChange() { window.dispatchEvent(new Event("pulso-issues-changed")); }
+function announceChange() { bus.emit("issues-changed"); }
 
 async function deleteCard(number: number) {
   const current = issues.find((i) => i.number === number);

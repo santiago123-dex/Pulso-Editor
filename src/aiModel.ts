@@ -14,7 +14,9 @@ export interface Turn { id: string; role: "user" | "assistant"; blocks: Block[];
 export interface UsageWindow { utilization: number; resetsAt: number }
 export interface PlanUsage { fiveHour?: UsageWindow; sevenDay?: UsageWindow }
 
-export interface Outcome { ok: boolean; costUsd: number; durationMs: number; message: string; denials: number }
+export interface DeniedAction { tool: string; detail: string; reason: string }
+
+export interface Outcome { ok: boolean; costUsd: number; durationMs: number; message: string; denials: number; deniedActions?: DeniedAction[] }
 
 export interface Conversation {
   messages: Turn[];
@@ -73,108 +75,208 @@ function resultText(content: unknown): string {
   return t.length > MAX_RESULT ? `${t.slice(0, MAX_RESULT)}\n… (recortado)` : t;
 }
 
-const clone = (c: Conversation): Conversation => ({ ...c, messages: c.messages.map((m) => ({ ...m, blocks: m.blocks.map((b) => ({ ...b })) })), usage: { ...c.usage } });
-
 const windowOf = (v: unknown): UsageWindow | undefined => {
   const o = obj(v);
   return typeof o.utilization === "number" ? { utilization: o.utilization, resetsAt: typeof o.resetsAt === "number" ? o.resetsAt : 0 } : undefined;
 };
 
-/** Aplica un evento. Devuelve una conversación nueva; la anterior no se modifica. */
+function withTurn(prev: Conversation, idx: number, turn: Turn): Conversation {
+  const messages = prev.messages.slice();
+  messages[idx] = turn;
+  return { ...prev, messages };
+}
+
+function withBlock(prev: Conversation, turnIdx: number, blockIdx: number, block: Block): Conversation {
+  const turn = prev.messages[turnIdx];
+  const blocks = turn.blocks.slice();
+  blocks[blockIdx] = block;
+  return withTurn(prev, turnIdx, { ...turn, blocks });
+}
+
+function markAllDone(messages: Turn[]): Turn[] {
+  let changed = false;
+  const next = messages.map((t) => {
+    if (t.done) return t;
+    changed = true;
+    return { ...t, done: true };
+  });
+  return changed ? next : messages;
+}
+
+/** Extrae detalles legibles de `denied_actions` (Antigravity) o `permission_denials` (Claude Code). */
+export function parseDeniedActions(raw: unknown): DeniedAction[] {
+  if (!Array.isArray(raw)) return [];
+  const out: DeniedAction[] = [];
+  for (const item of raw) {
+    if (typeof item === "string" && item.trim()) {
+      out.push({ tool: "Acción bloqueada", detail: item.trim(), reason: "" });
+      continue;
+    }
+    const o = obj(item);
+    if (!Object.keys(o).length) continue;
+    const tool = str(o.tool_name) || str(o.tool) || str(o.name) || str(o.action) || "Acción bloqueada";
+    const inp = obj(o.tool_input ?? o.input ?? o.parameters ?? o.arguments);
+    const detail = str(o.command) || str(o.cmd) || str(o.CommandLine)
+      || str(inp.command) || str(inp.cmd) || str(inp.CommandLine)
+      || str(o.path) || str(o.file_path) || str(inp.path) || str(inp.file_path) || str(inp.TargetFile)
+      || str(o.detail) || str(o.summary);
+    const reason = str(o.reason) || str(o.message) || str(o.error) || str(o.description);
+    out.push({ tool, detail: detail.slice(0, 220), reason: reason.slice(0, 240) });
+  }
+  return out;
+}
+
+/** ¿Alguna acción denegada requiere ejecución de comandos de terminal? */
+export function needsCommandPermission(actions: readonly DeniedAction[] | undefined): boolean {
+  if (!actions?.length) return false;
+  return actions.some((a) => /(run_command|bash|shell|terminal|command|exec)/i.test(`${a.tool} ${a.detail}`));
+}
+
+/** Aplica un evento usando structural sharing (O(1) por token en lugar de clonar toda la conversación). */
 export function reduce(prev: Conversation, ev: AiEvent): Conversation {
-  const c = clone(prev);
-  const last = () => c.messages[c.messages.length - 1];
   switch (ev.type) {
     case "pulso_user":
-      c.messages.push({ id: `u${c.messages.length}`, role: "user", blocks: [{ kind: "text", text: str(ev.text) }], done: true });
-      c.running = true; c.outcome = null; c.error = ""; c.touched = 0;
-      return c;
+      return {
+        ...prev,
+        messages: [...prev.messages, { id: `u${prev.messages.length}`, role: "user", blocks: [{ kind: "text", text: str(ev.text) }], done: true }],
+        running: true,
+        outcome: null,
+        error: "",
+        touched: 0,
+      };
     case "system": {
-      if (ev.subtype === "init") { c.sessionId = str(ev.session_id) || c.sessionId; c.model = str(ev.model) || c.model; }
-      return c;
+      if (ev.subtype !== "init") return prev;
+      const sessionId = str(ev.session_id) || prev.sessionId;
+      const model = str(ev.model) || prev.model;
+      return sessionId === prev.sessionId && model === prev.model ? prev : { ...prev, sessionId, model };
     }
     case "stream_event": {
       const e = obj(ev.event);
       if (e.type === "message_start") {
         const m = obj(e.message);
-        c.messages.push({ id: str(m.id) || `a${c.messages.length}`, role: "assistant", blocks: [], done: false });
-        return c;
+        const turn: Turn = { id: str(m.id) || `a${prev.messages.length}`, role: "assistant", blocks: [], done: false };
+        return { ...prev, messages: [...prev.messages, turn] };
       }
-      const turn = last();
-      if (!turn || turn.role !== "assistant") return c;
+      const turnIdx = prev.messages.length - 1;
+      const turn = prev.messages[turnIdx];
+      if (!turn || turn.role !== "assistant") return prev;
       const index = typeof e.index === "number" ? e.index : turn.blocks.length;
       if (e.type === "content_block_start") {
-        turn.blocks[index] = blockFrom(e.content_block) ?? { kind: "text", text: "" };
-      } else if (e.type === "content_block_delta") {
+        return withBlock(prev, turnIdx, index, blockFrom(e.content_block) ?? { kind: "text", text: "" });
+      }
+      if (e.type === "content_block_delta") {
         const d = obj(e.delta);
         const b = turn.blocks[index];
-        if (d.type === "text_delta" && b?.kind === "text") b.text += str(d.text);
-        else if (d.type === "thinking_delta" && b?.kind === "thinking") b.text += str(d.thinking);
-        else if (d.type === "input_json_delta" && b?.kind === "tool") b.json += str(d.partial_json);
-      } else if (e.type === "content_block_stop") {
-        const b = turn.blocks[index];
-        if (b?.kind === "tool" && b.json) b.input = parseJson(b.json);
-      } else if (e.type === "message_stop") {
-        turn.done = true;
+        if (d.type === "text_delta" && b?.kind === "text") {
+          return withBlock(prev, turnIdx, index, { ...b, text: b.text + str(d.text) });
+        }
+        if (d.type === "thinking_delta" && b?.kind === "thinking") {
+          return withBlock(prev, turnIdx, index, { ...b, text: b.text + str(d.thinking) });
+        }
+        if (d.type === "input_json_delta" && b?.kind === "tool") {
+          return withBlock(prev, turnIdx, index, { ...b, json: b.json + str(d.partial_json) });
+        }
+        return prev;
       }
-      return c;
+      if (e.type === "content_block_stop") {
+        const b = turn.blocks[index];
+        if (b?.kind === "tool" && b.json) {
+          return withBlock(prev, turnIdx, index, { ...b, input: parseJson(b.json) });
+        }
+        return prev;
+      }
+      if (e.type === "message_stop") {
+        return turn.done ? prev : withTurn(prev, turnIdx, { ...turn, done: true });
+      }
+      return prev;
     }
     case "assistant": {
       // Instantánea del mensaje: es la versión definitiva de los bloques que ya trae (conserva resultados de herramientas).
       const m = obj(ev.message);
       const id = str(m.id);
       const content = Array.isArray(m.content) ? m.content : [];
-      let turn = c.messages.find((t) => t.id === id && t.role === "assistant");
-      if (!turn) { turn = { id: id || `a${c.messages.length}`, role: "assistant", blocks: [], done: false }; c.messages.push(turn); }
+      const existingIdx = prev.messages.findIndex((t) => t.id === id && t.role === "assistant");
+      const baseTurn: Turn = existingIdx >= 0
+        ? prev.messages[existingIdx]
+        : { id: id || `a${prev.messages.length}`, role: "assistant", blocks: [], done: false };
+      const blocks = baseTurn.blocks.slice();
       content.forEach((raw, i) => {
         const b = blockFrom(raw);
         if (!b) return;
-        const old = turn!.blocks[i];
-        if (b.kind === "tool" && old?.kind === "tool" && old.id === b.id) { b.result = old.result; b.error = old.error; }
-        turn!.blocks[i] = b;
+        const old = blocks[i];
+        if (b.kind === "tool" && old?.kind === "tool" && old.id === b.id) {
+          blocks[i] = { ...b, result: old.result, error: old.error };
+        } else {
+          blocks[i] = b;
+        }
       });
-      return c;
+      const updatedTurn: Turn = { ...baseTurn, blocks };
+      if (existingIdx >= 0) return withTurn(prev, existingIdx, updatedTurn);
+      return { ...prev, messages: [...prev.messages, updatedTurn] };
     }
     case "user": {
       const m = obj(ev.message);
-      for (const raw of Array.isArray(m.content) ? m.content : []) {
-        const r = obj(raw);
-        if (r.type !== "tool_result") continue;
-        for (const t of c.messages) for (const b of t.blocks) {
-          if (b.kind === "tool" && b.id === str(r.tool_use_id)) {
-            b.result = resultText(r.content);
-            b.error = r.is_error === true;
-            if (!b.error && isFileChange(b)) c.touched++;
-          }
-        }
-      }
-      return c;
+      const results = (Array.isArray(m.content) ? m.content : [])
+        .map(obj)
+        .filter((r) => r.type === "tool_result");
+      if (!results.length) return prev;
+      let touched = prev.touched;
+      let anyChanged = false;
+      const messages = prev.messages.map((t) => {
+        let turnChanged = false;
+        const blocks = t.blocks.map((b) => {
+          if (b.kind !== "tool") return b;
+          const match = results.find((r) => str(r.tool_use_id) === b.id);
+          if (!match) return b;
+          turnChanged = true;
+          anyChanged = true;
+          const isErr = match.is_error === true;
+          if (!isErr && isFileChange(b)) touched++;
+          return { ...b, result: resultText(match.content), error: isErr };
+        });
+        return turnChanged ? { ...t, blocks } : t;
+      });
+      return anyChanged ? { ...prev, messages, touched } : prev;
     }
     case "rate_limit_event": {
       const w = obj(obj(ev.rate_limit_info).unifiedWindows);
-      c.usage = { fiveHour: windowOf(w.five_hour) ?? c.usage.fiveHour, sevenDay: windowOf(w.seven_day) ?? c.usage.sevenDay };
-      return c;
+      return {
+        ...prev,
+        usage: { fiveHour: windowOf(w.five_hour) ?? prev.usage.fiveHour, sevenDay: windowOf(w.seven_day) ?? prev.usage.sevenDay },
+      };
     }
     case "result": {
-      c.running = false;
-      c.sessionId = str(ev.session_id) || c.sessionId;
       const ok = ev.subtype === "success" && ev.is_error !== true;
+      const deniedActions = parseDeniedActions(ev.permission_denials);
       const denials = Array.isArray(ev.permission_denials) ? ev.permission_denials.length : 0;
-      c.outcome = { ok, costUsd: typeof ev.total_cost_usd === "number" ? ev.total_cost_usd : 0, durationMs: typeof ev.duration_ms === "number" ? ev.duration_ms : 0, message: str(ev.result), denials };
-      if (!ok) c.error = str(ev.result) || "La herramienta terminó con un error.";
-      for (const t of c.messages) t.done = true;
-      return c;
+      return {
+        ...prev,
+        running: false,
+        sessionId: str(ev.session_id) || prev.sessionId,
+        outcome: {
+          ok,
+          costUsd: typeof ev.total_cost_usd === "number" ? ev.total_cost_usd : 0,
+          durationMs: typeof ev.duration_ms === "number" ? ev.duration_ms : 0,
+          message: str(ev.result),
+          denials,
+          ...(deniedActions.length ? { deniedActions } : {}),
+        },
+        error: ok ? prev.error : str(ev.result) || "La herramienta terminó con un error.",
+        messages: markAllDone(prev.messages),
+      };
     }
     case "pulso_exit": {
-      if (!c.running) return c;
-      c.running = false;
-      for (const t of c.messages) t.done = true;
+      if (!prev.running) return prev;
       const stderr = str(ev.stderr).trim();
-      c.error = ev.code === null ? "La conversación se detuvo." : friendlyToolError(stderr) || `La herramienta terminó con el código ${String(ev.code)} sin responder.`;
-      return c;
+      return {
+        ...prev,
+        running: false,
+        messages: markAllDone(prev.messages),
+        error: ev.code === null ? "La conversación se detuvo." : friendlyToolError(stderr) || `La herramienta terminó con el código ${String(ev.code)} sin responder.`,
+      };
     }
     default:
-      return c;
+      return prev;
   }
 }
 

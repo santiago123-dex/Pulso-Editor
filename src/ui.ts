@@ -35,8 +35,26 @@ export function setStatus(text: string, ms = 5000) {
 // ---------- Diálogos ----------
 export interface DialogButton { label: string; value: string; primary?: boolean; danger?: boolean }
 
+let modalSeq = 0;
+
+function focusablesIn(root: HTMLElement): HTMLElement[] {
+  return Array.from(
+    root.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((el) => !el.hidden && el.offsetParent !== null);
+}
+
 function openModal(box: HTMLElement, onCancel: () => void): () => void {
   modals++;
+  const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-modal", "true");
+  const titleEl = box.querySelector<HTMLElement>(".modal-title");
+  if (titleEl) {
+    if (!titleEl.id) titleEl.id = `pulso-modal-title-${++modalSeq}`;
+    box.setAttribute("aria-labelledby", titleEl.id);
+  }
   const back = h("div", "modal-back");
   back.append(box);
   document.body.append(back);
@@ -45,6 +63,20 @@ function openModal(box: HTMLElement, onCancel: () => void): () => void {
       e.preventDefault();
       e.stopPropagation();
       onCancel();
+      return;
+    }
+    if (e.key === "Tab") {
+      const items = focusablesIn(box);
+      if (!items.length) { e.preventDefault(); return; }
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && (document.activeElement === first || !box.contains(document.activeElement))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (document.activeElement === last || !box.contains(document.activeElement))) {
+        e.preventDefault();
+        first.focus();
+      }
     }
   };
   document.addEventListener("keydown", onKey, true);
@@ -52,6 +84,7 @@ function openModal(box: HTMLElement, onCancel: () => void): () => void {
     modals--;
     back.remove();
     document.removeEventListener("keydown", onKey, true);
+    if (previousFocus?.isConnected) previousFocus.focus();
   };
 }
 

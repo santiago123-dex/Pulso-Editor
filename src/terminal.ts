@@ -245,8 +245,7 @@ export async function newTerminal(opts: { shell?: ShellInfo; cwd?: string } = {}
   let id: number;
   try {
     id = await invoke<number>("term_spawn", {
-      shell: shell.path,
-      args: shell.args,
+      shellId: shell.id,
       cwd: opts.cwd ?? ws.root ?? null,
       cols: xterm.cols,
       rows: xterm.rows,

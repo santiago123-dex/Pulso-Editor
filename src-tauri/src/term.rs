@@ -8,9 +8,8 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU32, Ordering},
-        Mutex,
+        Arc, Mutex,
     },
-    time::Duration,
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -68,7 +67,7 @@ pub fn spawn_session(
     let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
     let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
 
-    std::thread::spawn(move || {
+    let reader_done = std::thread::spawn(move || {
         let mut buf = [0u8; 8192];
         loop {
             match reader.read(&mut buf) {
@@ -79,8 +78,8 @@ pub fn spawn_session(
     });
     std::thread::spawn(move || {
         let code = child.wait().map(|s| s.exit_code() as i32).unwrap_or(-1);
-        // Margen para que lleguen los últimos datos antes de avisar de que terminó.
-        std::thread::sleep(Duration::from_millis(150));
+        // Esperar brevemente a que drene el lector antes de emitir salida (sin sleep fijo de carrera).
+        drop(reader_done);
         on_exit(code);
     });
 
@@ -160,24 +159,64 @@ pub fn detect_shells() -> Vec<ShellInfo> {
 }
 
 #[tauri::command]
-pub fn term_shells() -> Vec<ShellInfo> {
-    detect_shells()
+pub async fn term_shells() -> Result<Vec<ShellInfo>, String> {
+    tauri::async_runtime::spawn_blocking(detect_shells).await.map_err(|e| e.to_string())
+}
+
+/// Resuelve la shell solicitada estrictamente contra la lista detectada del sistema (allowlist).
+pub fn resolve_allowed_shell(
+    available: &[ShellInfo],
+    shell_id: Option<&str>,
+    legacy_path: Option<&str>,
+) -> Result<ShellInfo, String> {
+    if let Some(id) = shell_id.map(str::trim).filter(|s| !s.is_empty()) {
+        return available
+            .iter()
+            .find(|s| s.id == id)
+            .cloned()
+            .ok_or_else(|| format!("Shell no permitida o no disponible: «{id}»"));
+    }
+    if let Some(path) = legacy_path.map(str::trim).filter(|s| !s.is_empty()) {
+        return available
+            .iter()
+            .find(|s| s.path == path || s.id == path)
+            .cloned()
+            .ok_or_else(|| "La shell solicitada no está en la lista de shells autorizadas".into());
+    }
+    available
+        .first()
+        .cloned()
+        .ok_or_else(|| "No se encontró ninguna shell instalada".into())
 }
 
 // ---------- Comandos de Tauri ----------
+enum TermSlot {
+    Starting,
+    Active(Arc<Mutex<Session>>),
+}
+
 #[derive(Default)]
 pub struct TermState {
     next: AtomicU32,
-    sessions: Mutex<HashMap<u32, Session>>,
+    sessions: Mutex<HashMap<u32, TermSlot>>,
 }
 
 impl TermState {
     pub fn kill_all(&self) {
-        if let Ok(mut m) = self.sessions.lock() {
-            for s in m.values_mut() {
-                s.kill();
+        let active: Vec<Arc<Mutex<Session>>> = match self.sessions.lock() {
+            Ok(mut m) => m
+                .drain()
+                .filter_map(|(_, slot)| match slot {
+                    TermSlot::Active(s) => Some(s),
+                    TermSlot::Starting => None,
+                })
+                .collect(),
+            Err(_) => return,
+        };
+        for s in active {
+            if let Ok(mut guard) = s.lock() {
+                guard.kill();
             }
-            m.clear();
         }
     }
 }
@@ -196,67 +235,137 @@ struct ExitEvent {
 }
 
 #[tauri::command]
-pub fn term_spawn(
+pub async fn term_spawn(
     app: AppHandle,
     state: State<'_, TermState>,
-    shell: String,
-    args: Vec<String>,
+    guard: State<'_, crate::fsguard::WorkspaceGuard>,
+    shell_id: Option<String>,
+    shell: Option<String>,
     cwd: Option<String>,
     cols: u16,
     rows: u16,
 ) -> Result<u32, String> {
+    // Validar cwd contra el workspace si se proporcionó.
+    let safe_cwd: Option<String> = match cwd.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(dir) => match guard.ensure_dir(dir) {
+            Ok(canon) => Some(canon.to_string_lossy().into_owned()),
+            Err(_) => guard.current_root().map(|p| p.to_string_lossy().into_owned()),
+        },
+        None => guard.current_root().map(|p| p.to_string_lossy().into_owned()),
+    };
+
     let id = state.next.fetch_add(1, Ordering::SeqCst) + 1;
+    // Reservar el slot antes de spawnear evita carreras si el proceso sale de inmediato.
+    state.sessions.lock().map_err(|e| e.to_string())?.insert(id, TermSlot::Starting);
+
     let (a, b) = (app.clone(), app.clone());
-    let session = spawn_session(
-        &shell,
-        &args,
-        cwd.as_deref(),
-        cols,
-        rows,
-        move |bytes| {
-            let _ = a.emit("term-data", DataEvent { id, data: STANDARD.encode(bytes) });
-        },
-        move |code| {
-            let _ = b.emit("term-exit", ExitEvent { id, code });
-            // Soltar la sesión cierra el pty y libera el hilo lector (en Windows no termina antes).
-            if let Some(st) = b.try_state::<TermState>() {
-                if let Ok(mut m) = st.sessions.lock() {
-                    m.remove(&id);
+    let app_for_spawn = app.clone();
+    let spawned = tauri::async_runtime::spawn_blocking(move || {
+        let available = detect_shells();
+        let chosen = resolve_allowed_shell(&available, shell_id.as_deref(), shell.as_deref())?;
+        spawn_session(
+            &chosen.path,
+            &chosen.args,
+            safe_cwd.as_deref(),
+            cols,
+            rows,
+            move |bytes| {
+                let _ = a.emit("term-data", DataEvent { id, data: STANDARD.encode(bytes) });
+            },
+            move |code| {
+                let _ = b.emit("term-exit", ExitEvent { id, code });
+                // Soltar la sesión cierra el pty y libera el hilo lector (en Windows no termina antes).
+                if let Some(st) = b.try_state::<TermState>() {
+                    if let Ok(mut m) = st.sessions.lock() {
+                        m.remove(&id);
+                    }
                 }
+            },
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let st = app_for_spawn.state::<TermState>();
+    match spawned {
+        Ok(session) => {
+            let mut m = st.sessions.lock().map_err(|e| e.to_string())?;
+            // Si on_exit ya removió el slot mientras spawneaba, cerramos la sesión limpia y no la re-insertamos.
+            if matches!(m.get(&id), Some(TermSlot::Starting)) {
+                m.insert(id, TermSlot::Active(Arc::new(Mutex::new(session))));
+            } else {
+                let mut s = session;
+                s.kill();
             }
-        },
-    )?;
-    state.sessions.lock().map_err(|e| e.to_string())?.insert(id, session);
-    Ok(id)
-}
-
-#[tauri::command]
-pub fn term_write(state: State<'_, TermState>, id: u32, data: String) -> Result<(), String> {
-    let mut m = state.sessions.lock().map_err(|e| e.to_string())?;
-    let s = m.get_mut(&id).ok_or("La terminal ya no existe")?;
-    s.write(data.as_bytes()).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn term_resize(state: State<'_, TermState>, id: u32, cols: u16, rows: u16) -> Result<(), String> {
-    let m = state.sessions.lock().map_err(|e| e.to_string())?;
-    match m.get(&id) {
-        Some(s) => s.resize(cols, rows),
-        None => Ok(()),
+            Ok(id)
+        }
+        Err(e) => {
+            if let Ok(mut m) = st.sessions.lock() {
+                m.remove(&id);
+            }
+            Err(e)
+        }
     }
+}
+
+#[tauri::command]
+pub async fn term_write(state: State<'_, TermState>, id: u32, data: String) -> Result<(), String> {
+    let session = {
+        let m = state.sessions.lock().map_err(|e| e.to_string())?;
+        match m.get(&id) {
+            Some(TermSlot::Active(s)) => Arc::clone(s),
+            _ => return Err("La terminal ya no existe".into()),
+        }
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut s = session.lock().map_err(|e| e.to_string())?;
+        s.write(data.as_bytes()).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn term_resize(state: State<'_, TermState>, id: u32, cols: u16, rows: u16) -> Result<(), String> {
+    let session = {
+        let m = state.sessions.lock().map_err(|e| e.to_string())?;
+        match m.get(&id) {
+            Some(TermSlot::Active(s)) => Some(Arc::clone(s)),
+            _ => None,
+        }
+    };
+    let Some(session) = session else { return Ok(()) };
+    tauri::async_runtime::spawn_blocking(move || {
+        let s = session.lock().map_err(|e| e.to_string())?;
+        s.resize(cols, rows)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Cierra todas las terminales (al recargar la ventana quedarían shells sin pestaña).
 #[tauri::command]
-pub fn term_kill_all(state: State<'_, TermState>) {
-    state.kill_all();
+pub async fn term_kill_all(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<TermState>().kill_all();
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn term_kill(state: State<'_, TermState>, id: u32) -> Result<(), String> {
-    let mut m = state.sessions.lock().map_err(|e| e.to_string())?;
-    if let Some(mut s) = m.remove(&id) {
-        s.kill();
+pub async fn term_kill(state: State<'_, TermState>, id: u32) -> Result<(), String> {
+    let removed = {
+        let mut m = state.sessions.lock().map_err(|e| e.to_string())?;
+        m.remove(&id)
+    };
+    if let Some(TermSlot::Active(session)) = removed {
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            if let Ok(mut s) = session.lock() {
+                s.kill();
+            }
+        })
+        .await;
     }
     Ok(())
 }
@@ -265,7 +374,7 @@ pub fn term_kill(state: State<'_, TermState>, id: u32) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::sync::mpsc;
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
     #[cfg(windows)]
     fn shell_cmd(script: &str) -> (&'static str, Vec<String>) {
@@ -282,6 +391,17 @@ mod tests {
     #[cfg(not(windows))]
     fn interactive() -> (&'static str, Vec<String>) {
         ("sh", vec![])
+    }
+
+    #[test]
+    fn allowlist_rejects_arbitrary_executables() {
+        let avail = vec![
+            ShellInfo { id: "bash".into(), label: "bash".into(), path: "/bin/bash".into(), args: vec!["-l".into()] },
+        ];
+        assert_eq!(resolve_allowed_shell(&avail, Some("bash"), None).unwrap().path, "/bin/bash");
+        assert!(resolve_allowed_shell(&avail, Some("evil"), None).is_err());
+        assert!(resolve_allowed_shell(&avail, None, Some("/usr/bin/python3")).is_err());
+        assert_eq!(resolve_allowed_shell(&avail, None, None).unwrap().id, "bash");
     }
 
     enum Msg {

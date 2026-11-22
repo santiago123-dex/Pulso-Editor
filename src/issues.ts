@@ -1,21 +1,18 @@
-import { invoke } from "@tauri-apps/api/core";
-import { fetchIssues, isAuthProblem, parseRemote, type Issue } from "./github";
+import { bus } from "./core/events";
+import { currentRepo } from "./core/repo";
+import { fetchIssues, isAuthProblem, type Issue } from "./github";
 import { openExternal } from "./external";
 import { connectButton } from "./githubConnect";
 import { createIssueFromSidebar, deleteIssueNumber, editIssueNumber, openBoard } from "./board";
 import { isChatRoom } from "./chatModel";
 import { $, h, sel } from "./util";
 import { ws } from "./workspace";
+import { startWorkOnIssue } from "./workflow/issueWorkflow";
+
+export { currentRepo };
 
 function message(text: string) {
   return h("li", "empty", text);
-}
-
-/** Propietario y nombre del repositorio de GitHub de la carpeta abierta, o null si no hay carpeta o remoto. */
-export async function currentRepo(): Promise<{ owner: string; repo: string } | null> {
-  if (!ws.root) return null;
-  try { return parseRemote(await invoke<string>("git_remote", { path: ws.root })); }
-  catch { return null; }
 }
 
 let lastLoad = 0;
@@ -30,10 +27,7 @@ export async function loadIssues(silent = false) {
     list.replaceChildren(message("Abre una carpeta para ver las issues de su repositorio."));
     return;
   }
-  let repo = null;
-  try {
-    repo = parseRemote(await invoke<string>("git_remote", { path: ws.root }));
-  } catch { /* sin remoto */ }
+  const repo = await currentRepo();
   if (!repo) {
     label.textContent = "";
     list.replaceChildren(message("Esta carpeta no tiene un remoto de GitHub."));
@@ -76,6 +70,14 @@ function render(issues: Issue[]) {
     li.title = "Editar en el tablero";
     li.onclick = () => void editIssueNumber(i.number);
     const actions = h("div", "issue-actions");
+    if (i.state === "open") {
+      const work = h("button", "icon-btn");
+      work.title = "Trabajar en esta issue (rama + contexto IA)";
+      work.setAttribute("aria-label", `Trabajar en la issue #${i.number}`);
+      work.innerHTML = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+      work.onclick = (e) => { e.stopPropagation(); void startWorkOnIssue(i); };
+      actions.append(work);
+    }
     const gh = h("button", "icon-btn");
     gh.title = "Abrir en GitHub";
     gh.innerHTML = '<svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5H5V6h5"/></svg>';
@@ -105,7 +107,7 @@ export function initIssues() {
   $("open-board").onclick = () => void openBoard();
   $("new-issue-btn").onclick = () => void createIssueFromSidebar();
   // Lo que cambia el tablero (crear, editar, cerrar, eliminar) y lo que pasa en GitHub mientras no mirabas se refleja aquí.
-  window.addEventListener("pulso-issues-changed", () => { if (!$("view-issues").hidden) void loadIssues(true); });
-  window.setInterval(() => { if (!$("view-issues").hidden && document.visibilityState === "visible" && Date.now() - lastLoad > 15_000) void loadIssues(true); }, 5_000);
-  window.addEventListener("focus", () => { if (!$("view-issues").hidden && Date.now() - lastLoad > 10_000) void loadIssues(true); });
+  bus.on("issues-changed", () => { if (!$("view-issues").hidden) void loadIssues(true); });
+  window.setInterval(() => { if (ws.root && !$("view-issues").hidden && document.visibilityState === "visible" && Date.now() - lastLoad > 15_000) void loadIssues(true); }, 5_000);
+  window.addEventListener("focus", () => { if (ws.root && !$("view-issues").hidden && Date.now() - lastLoad > 10_000) void loadIssues(true); });
 }

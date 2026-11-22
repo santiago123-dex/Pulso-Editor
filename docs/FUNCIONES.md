@@ -15,7 +15,7 @@ Este inventario describe la implementación presente en el repositorio. Las prop
 
 Monaco proporciona la superficie de edición, resaltado de sintaxis y funciones propias como selección, deshacer/rehacer y búsqueda en el documento. Pulso permite ajustar fuente, tamaño, ligaduras, números de línea, minimapa, espacios visibles, ajuste de línea, tamaño de tabulación y autoguardado. La barra de estado muestra posición, lenguaje, espacios y fin de línea; se puede alternar entre LF y CRLF. En archivos de más de un millón de caracteres Pulso desactiva el resaltado de corchetes, de coincidencias y la coloración de pares de corchetes para mantener fluida la escritura; no hay aviso visible ni opción para cambiarlo todavía.
 
-La búsqueda en el proyecto admite mayúsculas/minúsculas, palabra completa y expresiones regulares. La búsqueda incluye el contenido en pantalla de los documentos abiertos con cambios sin guardar (se marcan «sin guardar»). El reemplazo muestra primero los archivos y recuentos afectados y pide confirmación; no modifica documentos con cambios sin guardar y los lista. Cada archivo se reemplaza con las mismas reglas que la búsqueda (línea a línea, conservando CRLF/LF), con escritura atómica y comprobación de que no cambió desde la búsqueda; si falla algún archivo se informa cuáles. Solo reemplaza archivos de texto UTF-8 de hasta 2 MB. No se puede deshacer desde Pulso. Los filtros de inclusión son sencillos (sufijos como `*.ts` o fragmentos de ruta), no una implementación completa de glob. La búsqueda omite archivos binarios, no UTF-8 o mayores de 2 MB, y muestra como máximo 5.000 coincidencias. Los directorios excluidos están definidos en el código; no se aplica automáticamente todo `.gitignore`.
+La búsqueda en el proyecto admite mayúsculas/minúsculas, palabra completa y expresiones regulares, corre en paralelo desde Rust respetando `.gitignore` y el contenido en pantalla de los documentos abiertos con cambios sin guardar (se marcan «sin guardar»). El reemplazo muestra primero los archivos y recuentos afectados, pide confirmación y reemplaza tanto en disco (escritura atómica con comprobación de cambios) como en documentos abiertos sin guardar (con soporte de `Ctrl+Z`). Solo reemplaza archivos de texto UTF-8 de hasta 2 MB y muestra como máximo 5.000 coincidencias.
 
 ## Confiabilidad y recuperación
 
@@ -38,7 +38,7 @@ Pulso inicia un servidor local de TypeScript/JavaScript al abrir una carpeta. Of
 
 Con `Ctrl` pulsado (`Cmd` en macOS) el cursor pasa a mano sobre las palabras y, cuando el servidor confirma que hay definición, se subraya; `Ctrl+clic` abre el archivo de destino. Si el servidor aún está arrancando, el primer `Ctrl+clic` espera a que termine en vez de perderse.
 
-Se requiere Node.js 22.22.2 o posterior en `PATH`. La barra de estado muestra su estado («LSP: iniciando…», «LSP: activo» o «LSP: detenido»); al pulsarlo se explica el estado, con el motivo si se detuvo, y se puede reiniciar. Si el servidor falla, Pulso informa y vuelve a los servicios integrados de Monaco. Para reiniciarlo, abre la paleta y busca **Lenguaje: Reiniciar inteligencia de TypeScript y JavaScript**. **Renombrar (F2).** Con el cursor sobre un símbolo, `F2` pide el renombrado al servidor. Los archivos abiertos se editan en el editor (quedan sin guardar y se pueden deshacer con `Ctrl+Z`); los archivos cerrados que usan el símbolo se escriben directamente en disco, y solo si todos se pueden calcular antes de escribir ninguno. Si un archivo cerrado cambió en el disco mientras tanto, no se pisa y se informa. No se admiten renombrados que pidan crear, mover o borrar archivos. Con el servidor detenido el renombrado no está disponible. Las acciones de código aún no están conectadas; el soporte de otros lenguajes requiere nuevos servidores.
+Se requiere Node.js 22.22.2 o posterior en `PATH`. La barra de estado muestra su estado («LSP: iniciando…», «LSP: activo» o «LSP: detenido»); al pulsarlo se explica el estado, con el motivo si se detuvo, y se puede reiniciar. Si el servidor falla, Pulso informa y vuelve a los servicios integrados de Monaco. Para reiniciarlo, abre la paleta y busca **Lenguaje: Reiniciar inteligencia de TypeScript y JavaScript**. **Renombrar (F2).** Con el cursor sobre un símbolo, `F2` pide el renombrado al servidor. También están conectadas las acciones de código (`Ctrl+.`), ayuda de firma, símbolos del documento (`Ctrl+Shift+O`) e inlay hints respetando las capacidades anunciadas por el servidor; el soporte de otros lenguajes requiere nuevos servidores.
 
 **Formatear.** `Mayús+Alt+F` da formato al documento con el servidor de lenguaje (TypeScript y JavaScript, con el tamaño de tabulación del editor). La opción **Formatear al guardar** (Configuración o la paleta; apagada por defecto) lo hace al guardar con `Ctrl+S`, nunca en el autoguardado; si el formateo falla o tarda más de 4 s, se guarda el texto tal cual. Pulso no incluye Prettier ni otros formateadores.
 
@@ -87,10 +87,11 @@ Icono de la barra de actividad o «Ver: Pull requests». Usa la cuenta de GitHub
 
 ### Tablero kanban de issues
 
-El botón del tablero en la vista de Issues (o «Issues: Abrir el tablero kanban» en la paleta) muestra las issues del remoto `origin` de GitHub en tres columnas:
+El botón del tablero en la vista de Issues (o «Issues: Abrir el tablero kanban» en la paleta) muestra las issues del remoto `origin` de GitHub en cuatro columnas:
 
-- **Por hacer**: issues abiertas sin la etiqueta de progreso.
+- **Por hacer**: issues abiertas sin etiqueta de estado.
 - **En curso**: issues abiertas que llevan la etiqueta de progreso (por defecto `in progress`, sin distinguir mayúsculas; se cambia en Configuración → GitHub).
+- **En revisión**: issues abiertas con la etiqueta `pulso: in review`.
 - **Hecho**: issues cerradas.
 
 Las tarjetas muestran número, título, etiquetas, a quién está asignada (o quién la abrió) y los comentarios; el icono de la esquina abre la issue en GitHub. Las pull requests no aparecen. Se cargan hasta 300 issues abiertas y 100 cerradas, las más recientemente actualizadas primero, y se avisa si hay más.

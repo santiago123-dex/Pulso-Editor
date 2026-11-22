@@ -139,17 +139,17 @@ fn backup_list_of_missing_dir_is_empty() {
 fn create_file_makes_parent_dirs_and_refuses_duplicates() {
     let t = Tmp::new();
     let p = t.p("a/b/c.txt");
-    create_file(p.clone()).unwrap();
+    create_file_sync(Path::new(&p)).unwrap();
     assert!(Path::new(&p).is_file());
-    assert!(create_file(p).is_err());
+    assert!(create_file_sync(Path::new(&p)).is_err());
 }
 
 #[test]
 fn create_dir_refuses_existing() {
     let t = Tmp::new();
     let p = t.p("carpeta");
-    create_dir(p.clone()).unwrap();
-    assert!(create_dir(p).is_err());
+    create_dir_sync(Path::new(&p)).unwrap();
+    assert!(create_dir_sync(Path::new(&p)).is_err());
 }
 
 #[test]
@@ -157,9 +157,9 @@ fn rename_moves_and_refuses_overwrite() {
     let t = Tmp::new();
     fs::write(t.0.join("a.txt"), "a").unwrap();
     fs::write(t.0.join("b.txt"), "b").unwrap();
-    assert!(rename_path(t.p("a.txt"), t.p("b.txt")).is_err(), "no debe pisar un archivo existente");
+    assert!(rename_path_sync(Path::new(&t.p("a.txt")), Path::new(&t.p("b.txt"))).is_err(), "no debe pisar un archivo existente");
     assert_eq!(fs::read_to_string(t.0.join("b.txt")).unwrap(), "b");
-    rename_path(t.p("a.txt"), t.p("c.txt")).unwrap();
+    rename_path_sync(Path::new(&t.p("a.txt")), Path::new(&t.p("c.txt"))).unwrap();
     assert!(!t.0.join("a.txt").exists());
     assert_eq!(fs::read_to_string(t.0.join("c.txt")).unwrap(), "a");
 }
@@ -168,7 +168,7 @@ fn rename_moves_and_refuses_overwrite() {
 fn rename_refuses_moving_folder_into_itself() {
     let t = Tmp::new();
     fs::create_dir_all(t.0.join("d/sub")).unwrap();
-    assert!(rename_path(t.p("d"), t.p("d/sub/d")).is_err());
+    assert!(rename_path_sync(Path::new(&t.p("d")), Path::new(&t.p("d/sub/d"))).is_err());
     assert!(t.0.join("d/sub").exists());
 }
 
@@ -430,4 +430,24 @@ fn el_historial_de_ia_se_guarda_en_un_archivo_y_rechaza_lo_que_no_es_una_lista()
     assert!(ai_history_write_in(&file, "no es json").is_err());
     assert_eq!(ai_history_read_in(&file), r#"[{"id":"a"}]"#, "un intento inválido no pisa lo guardado");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn search_respects_gitignore() {
+    let t = Tmp::new();
+    fs::write(t.0.join(".gitignore"), "ignorado/\n*.log\n").unwrap();
+    fs::create_dir_all(t.0.join("ignorado")).unwrap();
+    fs::write(t.0.join("ignorado/secreto.txt"), "aguja\n").unwrap();
+    fs::write(t.0.join("debug.log"), "aguja\n").unwrap();
+    fs::write(t.0.join("visible.ts"), "aguja\n").unwrap();
+    let matches = search_files_sync(norm(&t.0), "aguja".into(), false, false, false, vec![], &Default::default()).unwrap();
+    assert_eq!(matches.len(), 1);
+    assert!(matches[0].path.ends_with("visible.ts"));
+}
+
+#[test]
+fn secret_key_allowlist_blocks_arbitrary_keys() {
+    assert!(ensure_allowed_secret_key("github-token").is_ok());
+    assert!(ensure_allowed_secret_key("aws-secret").is_err());
+    assert!(ensure_allowed_secret_key("").is_err());
 }

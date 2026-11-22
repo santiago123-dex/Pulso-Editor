@@ -16,42 +16,56 @@ export interface Issue {
   updated_at?: string;
 }
 
-const SECRET = "github-token";
 /** Clave antigua: el token se guardaba en texto plano en localStorage. */
 const LEGACY_KEY = "pulso.githubToken";
+const MAX_ETAG_ENTRIES = 200;
 
-const inTauri = () => "__TAURI_INTERNALS__" in window;
-let token = "";
+const inTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-/** Token vigente (en memoria). Se lee del almacén seguro del sistema al iniciar. */
-export const getToken = () => token;
+/** En Tauri el token real nunca entra en JS; solo se guarda un flag booleano de sesión activa. */
+let connected = false;
+/** Solo para modo navegador/pruebas fuera de Tauri. */
+let browserToken = "";
 
-/** Carga el token del almacén de credenciales y migra el que hubiera en localStorage. */
+/** Indica si hay un token de GitHub configurado (en Rust o en modo navegador). */
+export const hasToken = () => (inTauri() ? connected : !!browserToken);
+
+/** Compatibilidad: en Tauri nunca expone el secreto en texto plano. */
+export const getToken = () => (inTauri() ? "" : browserToken);
+
+/** Carga el estado del token desde Rust y migra cualquier clave heredada de localStorage. */
 export async function initToken(): Promise<void> {
   if (!inTauri()) return;
   try {
-    token = (await invoke<string | null>("secret_get", { name: SECRET })) ?? "";
-  } catch { /* sin almacén disponible */ }
+    connected = await invoke<boolean>("github_init");
+  } catch {
+    connected = false;
+  }
   const legacy = localStorage.getItem(LEGACY_KEY);
   if (legacy) {
     try {
-      if (!token) await invoke("secret_set", { name: SECRET, value: legacy });
-      if (!token) token = legacy;
+      if (!connected) {
+        const saved = await invoke<boolean>("github_set_token", { token: legacy });
+        connected = true;
+        if (!saved) return;
+      }
       localStorage.removeItem(LEGACY_KEY);
     } catch { /* se deja donde estaba para no perderlo */ }
   }
 }
 
-/** Guarda el token en el almacén seguro. Devuelve false si solo quedó en memoria. */
+/** Guarda el token en Rust y en el almacén seguro del SO. Devuelve false si solo quedó en memoria. */
 export async function setToken(value: string): Promise<boolean> {
   const v = value.trim();
-  if (v !== token) etagCache.clear(); // las respuestas guardadas son de otra cuenta
-  token = v;
-  if (!inTauri()) return false;
+  etagCache.clear(); // las respuestas guardadas pueden ser de otra cuenta
+  if (!inTauri()) {
+    browserToken = v;
+    return false;
+  }
   try {
-    if (v) await invoke("secret_set", { name: SECRET, value: v });
-    else await invoke("secret_delete", { name: SECRET });
-    return true;
+    const persisted = await invoke<boolean>("github_set_token", { token: v });
+    connected = !!v;
+    return persisted;
   } catch {
     return false;
   }
@@ -65,9 +79,14 @@ export function parseRemote(url: string): { owner: string; repo: string } | null
 
 /**
  * Dirección de la API. Solo cambia con `pulso.githubApi` en localStorage, que usan las pruebas contra un servidor
- * local falso; nada en la interfaz permite fijarla, así que el token no sale hacia otro sitio por accidente.
+ * local falso; en producción Rust ignora cualquier origen distinto de `https://api.github.com`.
  */
 export const apiBase = () => (localStorage.getItem("pulso.githubApi") || "https://api.github.com").replace(/\/+$/, "");
+
+function customApiBase(): string | null {
+  const raw = localStorage.getItem("pulso.githubApi")?.trim();
+  return raw ? raw.replace(/\/+$/, "") : null;
+}
 
 export function authHeaders(json = false): Record<string, string> {
   const headers: Record<string, string> = { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
@@ -75,6 +94,70 @@ export function authHeaders(json = false): Record<string, string> {
   if (t) headers.Authorization = `Bearer ${t}`;
   if (json) headers["Content-Type"] = "application/json";
   return headers;
+}
+
+export interface GithubProxyResult {
+  ok: boolean;
+  status: number;
+  etag: string | null;
+  link: string | null;
+  text: () => Promise<string>;
+  json: <T = unknown>() => Promise<T>;
+}
+
+interface RawProxyResponse {
+  status: number;
+  body: string;
+  etag: string | null;
+  link: string | null;
+}
+
+/**
+ * Transporte unificado hacia la API de GitHub:
+ * - En Tauri ejecuta la petición desde Rust (`github_api`), inyectando el token sin exponerlo al WebView.
+ * - Fuera de Tauri (navegador / pruebas unitarias) usa `fetch`.
+ */
+export async function githubFetch(
+  path: string,
+  opts: { method?: string; body?: unknown; accept?: string; ifNoneMatch?: string } = {},
+): Promise<GithubProxyResult> {
+  const method = opts.method ?? "GET";
+  const bodyStr = opts.body === undefined ? undefined : JSON.stringify(opts.body);
+  if (inTauri()) {
+    const res = await invoke<RawProxyResponse>("github_api", {
+      method,
+      path,
+      body: bodyStr ?? null,
+      accept: opts.accept ?? null,
+      ifNoneMatch: opts.ifNoneMatch ?? null,
+      baseUrl: customApiBase(),
+    });
+    return {
+      ok: res.status >= 200 && res.status < 300,
+      status: res.status,
+      etag: res.etag,
+      link: res.link,
+      text: async () => res.body,
+      json: async <T = unknown>() => JSON.parse(res.body) as T,
+    };
+  }
+  const headers = authHeaders(opts.body !== undefined);
+  if (opts.accept) headers.Accept = opts.accept;
+  if (opts.ifNoneMatch) headers["If-None-Match"] = opts.ifNoneMatch;
+  const res = await fetch(`${apiBase()}${path}`, {
+    method,
+    headers,
+    body: bodyStr,
+    cache: "no-store",
+  });
+  return {
+    ok: res.ok,
+    status: res.status,
+    etag: res.headers?.get?.("etag") ?? null,
+    link: res.headers?.get?.("link") ?? null,
+    text: () => res.text(),
+    json: <T = unknown>() => res.json() as Promise<T>,
+  };
 }
 
 /** Mensaje en español para un fallo de la API: dice qué hacer, no solo el código. */
@@ -100,14 +183,12 @@ export function explainDeleteError(message: string): string {
 
 /** Elimina una issue para siempre (mutación GraphQL; la API REST no lo permite). */
 export async function deleteIssue(nodeId: string): Promise<void> {
-  const res = await fetch(`${apiBase()}/graphql`, {
-    cache: "no-store",
+  const res = await githubFetch("/graphql", {
     method: "POST",
-    headers: authHeaders(true),
-    body: JSON.stringify({ query: "mutation($id: ID!) { deleteIssue(input: { issueId: $id }) { clientMutationId } }", variables: { id: nodeId } }),
+    body: { query: "mutation($id: ID!) { deleteIssue(input: { issueId: $id }) { clientMutationId } }", variables: { id: nodeId } },
   });
   if (!res.ok) throw new GithubError(res.status, true);
-  const data = (await res.json()) as { errors?: { message?: string }[] };
+  const data = await res.json<{ errors?: { message?: string }[] }>();
   if (data.errors?.length) throw new Error(explainDeleteError(data.errors[0].message ?? ""));
 }
 
@@ -123,26 +204,21 @@ let account = "";
 /** Usuario de GitHub con el que se conectó Pulso en esta sesión ("" = sin comprobar). */
 export const getAccount = () => account;
 
-async function whoAmI(tokenValue: string): Promise<string> {
-  const res = await fetch(`${apiBase()}/user`, { headers: { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", Authorization: `Bearer ${tokenValue}` } });
+async function whoAmI(): Promise<string> {
+  const res = await githubFetch("/user");
   if (!res.ok) throw new GithubError(res.status);
-  const data = (await res.json()) as { login?: string };
+  const data = await res.json<{ login?: string }>();
   return data.login ?? "";
 }
 
 /**
- * Conecta con la cuenta de GitHub que Git ya usa en este equipo (Git Credential Manager). Con `interactive`,
- * si no hay sesión se abre el navegador para autorizar; sin él solo se reutiliza lo ya guardado.
+ * Conecta con la cuenta de GitHub que Git ya usa en este equipo (Git Credential Manager).
+ * Toda la verificación y almacenamiento del token ocurre en Rust; JS solo recibe el nombre de usuario.
  */
 export async function connectGithub(interactive: boolean): Promise<string> {
-  const cred = await invoke<{ username: string; token: string }>("github_credential", { interactive });
-  let login: string;
-  try { login = (await whoAmI(cred.token)) || cred.username; }
-  catch (e) {
-    if (e instanceof GithubError && e.status === 401) throw new Error("GitHub rechazó la sesión guardada en Git (caducó o se revocó). Vuelve a iniciar sesión desde una terminal con «git credential-manager github login» y reintenta.");
-    throw e;
-  }
-  await setToken(cred.token);
+  const login = await invoke<string>("github_connect", { interactive, baseUrl: customApiBase() });
+  etagCache.clear();
+  connected = true;
   account = login;
   return login;
 }
@@ -150,51 +226,48 @@ export async function connectGithub(interactive: boolean): Promise<string> {
 /** Al iniciar, si no hay token, adopta en silencio la sesión de GitHub que Git ya tiene. Devuelve el usuario o null. */
 export async function autoConnect(): Promise<string | null> {
   // `pulso.noAutoConnect` lo fijan las pruebas para que no adopten la sesión real de quien las ejecuta.
-  if (!inTauri() || token || localStorage.getItem("pulso.noAutoConnect")) return null;
+  if (!inTauri() || hasToken() || localStorage.getItem("pulso.noAutoConnect")) return null;
   try { return await connectGithub(false); } catch { return null; }
 }
 
 /** Usuario del token actual, o "" si no hay token o no es válido. */
 export async function refreshAccount(): Promise<string> {
-  if (!token) { account = ""; return ""; }
-  try { account = await whoAmI(token); } catch { account = ""; }
+  if (!hasToken()) { account = ""; return ""; }
+  try { account = await whoAmI(); } catch { account = ""; }
   return account;
 }
 
 export async function disconnectGithub(): Promise<void> {
-  await setToken("");
+  etagCache.clear();
   account = "";
+  if (inTauri()) {
+    await invoke("github_disconnect");
+    connected = false;
+  } else {
+    browserToken = "";
+  }
 }
 
-/**
- * Sin caché del navegador: GitHub responde con `max-age=60` y el WebView daría datos de hasta un minuto atrás
- * (por eso una issue reabierta en GitHub seguía en «Hecho» en el tablero).
- */
-async function request(method: string, path: string, body?: unknown): Promise<Response> {
-  const res = await fetch(`${apiBase()}${path}`, {
-    method,
-    headers: authHeaders(body !== undefined),
-    body: body === undefined ? undefined : JSON.stringify(body),
-    cache: "no-store",
-  });
-  return res;
-}
-
-/** Respuestas ya vistas, por URL: una consulta condicional (ETag) que devuelve 304 no gasta cuota de la API. */
+/** Respuestas ya vistas, por URL (acotado para evitar fugas de memoria). */
 const etagCache = new Map<string, { etag: string; data: unknown }>();
+
+function cacheSet(key: string, val: { etag: string; data: unknown }) {
+  if (etagCache.size >= MAX_ETAG_ENTRIES && !etagCache.has(key)) {
+    const oldest = etagCache.keys().next().value;
+    if (oldest !== undefined) etagCache.delete(oldest);
+  }
+  etagCache.set(key, val);
+}
 
 /** GET con ETag: si GitHub responde 304 se devuelve lo guardado; así se puede consultar a menudo sin coste. */
 export async function getJson<T>(path: string): Promise<T> {
-  const url = `${apiBase()}${path}`;
-  const known = etagCache.get(url);
-  const headers = authHeaders();
-  if (known) headers["If-None-Match"] = known.etag;
-  const res = await fetch(url, { headers, cache: "no-store" });
+  const key = `${apiBase()}${path}`;
+  const known = etagCache.get(key);
+  const res = await githubFetch(path, { ifNoneMatch: known?.etag });
   if (res.status === 304 && known) return known.data as T;
   if (!res.ok) throw new GithubError(res.status);
-  const data = (await res.json()) as T;
-  const tag = res.headers?.get?.("etag");
-  if (tag) etagCache.set(url, { etag: tag, data });
+  const data = await res.json<T>();
+  if (res.etag) cacheSet(key, { etag: res.etag, data });
   return data;
 }
 
@@ -222,7 +295,7 @@ export async function fetchAllIssues(owner: string, repo: string, state: "open" 
 }
 
 async function write(method: string, path: string, body?: unknown, okStatuses: number[] = []): Promise<void> {
-  const res = await request(method, path, body);
+  const res = await githubFetch(path, { method, body });
   if (res.ok || okStatuses.includes(res.status)) return;
   throw new GithubError(res.status, true);
 }
@@ -238,9 +311,9 @@ export const setIssueState = (owner: string, repo: string, number: number, state
   write("PATCH", `/repos/${owner}/${repo}/issues/${number}`, { state });
 
 async function writeJson<T>(method: string, path: string, body: unknown): Promise<T> {
-  const res = await request(method, path, body);
+  const res = await githubFetch(path, { method, body });
   if (!res.ok) throw new GithubError(res.status, true);
-  return (await res.json()) as T;
+  return res.json<T>();
 }
 
 export interface IssueDraft { title: string; body: string; labels: string[] }

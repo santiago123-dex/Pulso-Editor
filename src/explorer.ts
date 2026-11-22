@@ -297,7 +297,7 @@ function entryMenu(path: string, isDir: boolean): MenuItem[] {
     "sep",
     { label: "Copiar ruta", run: () => void navigator.clipboard.writeText(path) },
     { label: "Copiar ruta relativa", run: () => void navigator.clipboard.writeText(rel(path)) },
-    { label: "Mostrar en el Explorador de Windows", run: () => void invoke("reveal_in_explorer", { path }) },
+    { label: "Mostrar en el explorador de archivos", run: () => void invoke("reveal_in_explorer", { path }) },
   ];
 }
 

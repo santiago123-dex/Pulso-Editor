@@ -1,5 +1,7 @@
 import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
+import { bus } from "./core/events";
+import { readStorage, writeStorage } from "./core/storage";
 import { findOpenDoc, isDirty, onDocSaved } from "./docs";
 import { blameText, relativeToTop, type BlameLine } from "./historyModel";
 import { gitTop, refreshScm } from "./scm";
@@ -9,7 +11,7 @@ import { ws } from "./workspace";
 
 /** Culpa (blame) en línea: junto a la línea del cursor, quién la cambió, cuándo y por qué. Se activa y desactiva con un comando. */
 const KEY = "pulso.blame";
-let enabled = localStorage.getItem(KEY) === "1";
+let enabled = readStorage(KEY) === "1";
 const cache = new Map<string, Promise<BlameLine[] | null>>();
 const marks = new WeakMap<monaco.editor.ICodeEditor, monaco.editor.IEditorDecorationsCollection>();
 const attached = new WeakSet<monaco.editor.ICodeEditor>();
@@ -58,9 +60,16 @@ async function update(ed: monaco.editor.ICodeEditor) {
 function attach(ed: monaco.editor.ICodeEditor) {
   if (attached.has(ed)) return;
   attached.add(ed);
-  ed.onDidChangeCursorPosition(() => void update(ed));
-  ed.onDidChangeModel(() => void update(ed));
-  ed.onDidChangeModelContent(() => clear(ed));
+  const disposables = [
+    ed.onDidChangeCursorPosition(() => void update(ed)),
+    ed.onDidChangeModel(() => void update(ed)),
+    ed.onDidChangeModelContent(() => clear(ed)),
+  ];
+  ed.onDidDispose(() => {
+    for (const d of disposables) d.dispose();
+    marks.get(ed)?.clear();
+    marks.delete(ed);
+  });
 }
 
 const refreshAll = () => { for (const ed of monaco.editor.getEditors()) void update(ed); };
@@ -70,7 +79,7 @@ export function blameEnabled() { return enabled; }
 /** «Git: Alternar culpa en línea». */
 export function toggleBlame() {
   enabled = !enabled;
-  localStorage.setItem(KEY, enabled ? "1" : "0");
+  writeStorage(KEY, enabled ? "1" : "0");
   if (!enabled) for (const ed of monaco.editor.getEditors()) clear(ed);
   else refreshAll();
   setStatus(`Culpa en línea: ${enabled ? "activada. Se muestra en la línea del cursor de los archivos guardados" : "desactivada"}`);
@@ -81,5 +90,5 @@ export function initBlame() {
   monaco.editor.onDidCreateEditor(attach);
   // Guardar o confirmar cambia la culpa; también cambiar de carpeta.
   onDocSaved((path) => { cache.delete(path); refreshAll(); });
-  window.addEventListener("pulso-scm-refreshed", () => { cache.clear(); refreshAll(); });
+  bus.on("scm-refreshed", () => { cache.clear(); refreshAll(); });
 }

@@ -14,26 +14,39 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 
+enum AiSlot {
+    Starting,
+    Running(u32),
+}
+
 #[derive(Default)]
 pub struct AiState {
-    /// Identificador de la conversación en curso → pid del proceso.
-    running: Mutex<HashMap<String, u32>>,
+    /// Identificador de la conversación en curso → estado o pid del proceso.
+    running: Mutex<HashMap<String, AiSlot>>,
 }
 
 impl AiState {
     pub fn stop_all(&self) {
-        let pids: Vec<u32> = self.running.lock().map(|mut m| m.drain().map(|(_, p)| p).collect()).unwrap_or_default();
-        for pid in pids { kill_pid(pid); }
+        let pids: Vec<u32> = self
+            .running
+            .lock()
+            .map(|mut m| {
+                m.drain()
+                    .filter_map(|(_, slot)| match slot {
+                        AiSlot::Running(p) => Some(p),
+                        AiSlot::Starting => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        for pid in pids {
+            kill_pid(pid);
+        }
     }
 }
 
 fn kill_pid(pid: u32) {
-    let pid = pid.to_string();
-    let _ = if cfg!(windows) {
-        background_command("taskkill").args(["/PID", &pid, "/T", "/F"]).stdout(Stdio::null()).stderr(Stdio::null()).status()
-    } else {
-        background_command("kill").args(["-TERM", &pid]).stdout(Stdio::null()).stderr(Stdio::null()).status()
-    };
+    crate::procguard::kill_tree(pid);
 }
 
 #[derive(Serialize, Debug, PartialEq, Default, Clone)]
@@ -252,6 +265,9 @@ fn user_home() -> Option<PathBuf> {
 pub fn npm_bin_js(npm_dir: &Path, pkg: &str, bin_name: &str) -> Option<PathBuf> {
     let mut pkg_dir = npm_dir.join("node_modules");
     for part in pkg.split('/') {
+        if part.is_empty() || part == "." || part == ".." {
+            return None;
+        }
         pkg_dir = pkg_dir.join(part);
     }
     let raw = std::fs::read_to_string(pkg_dir.join("package.json")).ok()?;
@@ -261,8 +277,16 @@ pub fn npm_bin_js(npm_dir: &Path, pkg: &str, bin_name: &str) -> Option<PathBuf> 
         serde_json::Value::Object(map) => map.get(bin_name).and_then(|x| x.as_str())?,
         _ => return None,
     };
-    let candidate = pkg_dir.join(rel);
-    candidate.is_file().then_some(candidate)
+    let rel_path = Path::new(rel);
+    if rel_path.is_absolute()
+        || rel_path.components().any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return None;
+    }
+    let candidate = pkg_dir.join(rel_path);
+    let canon_pkg = std::fs::canonicalize(&pkg_dir).ok()?;
+    let canon_cand = std::fs::canonicalize(&candidate).ok()?;
+    (canon_cand.starts_with(&canon_pkg) && canon_cand.is_file()).then_some(canon_cand)
 }
 
 fn extra_bin_dirs() -> Vec<PathBuf> {
@@ -297,7 +321,7 @@ fn extra_bin_dirs() -> Vec<PathBuf> {
     dirs
 }
 
-fn node_program(hint_dir: &Path) -> String {
+pub fn node_program(hint_dir: &Path) -> String {
     let exe = if cfg!(windows) { "node.exe" } else { "node" };
     let sibling = hint_dir.join(exe);
     if sibling.is_file() {
@@ -806,6 +830,7 @@ pub fn build_claude_args(o: &ChatOptions) -> Result<Vec<String>, String> {
     match o.mode.as_str() {
         "read" => { a.extend(["--permission-mode", "default", "--allowedTools", read_tools].iter().map(|s| s.to_string())); }
         "edit" => { a.extend(["--permission-mode", "acceptEdits", "--allowedTools", "Read,Glob,Grep,Edit,Write,MultiEdit"].iter().map(|s| s.to_string())); }
+        "full" => { a.extend(["--permission-mode", "acceptEdits", "--allowedTools", "Read,Glob,Grep,Edit,Write,MultiEdit,Bash"].iter().map(|s| s.to_string())); }
         _ => return Err("Modo de permisos no válido".into()),
     }
     Ok(a)
@@ -816,6 +841,7 @@ pub fn build_codex_args(o: &ChatOptions) -> Result<Vec<String>, String> {
     let sandbox = match o.mode.as_str() {
         "read" => "read-only",
         "edit" => "workspace-write",
+        "full" => "danger-full-access",
         _ => return Err("Modo de permisos no válido".into()),
     };
     if let Some(s) = &o.session {
@@ -854,19 +880,26 @@ pub fn build_codex_args(o: &ChatOptions) -> Result<Vec<String>, String> {
 
 /// Argumentos de Antigravity CLI (`agy`) en modo headless con streaming JSON.
 pub fn build_agy_args(o: &ChatOptions, prompt: &str) -> Result<Vec<String>, String> {
-    let (agy_mode, guide) = match o.mode.as_str() {
+    let (mode_flags, guide, resume_guide): (Vec<&str>, &str, Option<&str>) = match o.mode.as_str() {
         "read" => (
-            "plan",
-            "[Instrucción de entorno: estás en modo Solo leer dentro de Pulso Editor. Explora usando únicamente list_dir, find_by_name, grep_search y view_file/read_file. Nunca invoques run_command ni herramientas de escritura.]\n\n",
+            vec!["--mode", "plan"],
+            "[Instrucción de entorno: estás en modo Solo leer dentro de Pulso Editor. Explora usando únicamente herramientas de lectura y búsqueda. Nunca invoques run_command ni herramientas de escritura.]\n\n",
+            None,
         ),
         "edit" => (
-            "accept-edits",
-            "[Instrucción de entorno: estás en modo Edición en Pulso Editor. Lee, busca y edita archivos directamente con list_dir, find_by_name, grep_search, view_file/read_file, replace_file_content, multi_replace_file_content y write_to_file. No invoques run_command porque el modo no interactivo no puede aprobar comandos de terminal.]\n\n",
+            vec!["--mode", "accept-edits"],
+            "[Instrucción de entorno: estás en modo Edición en Pulso Editor. Puedes leer, buscar y editar archivos directamente. Si necesitas ejecutar un comando de terminal, inténtalo o indícalo claramente para que Pulso pida aprobación al usuario.]\n\n",
+            Some("[Permisos actuales en Pulso: modo Edición activo; puedes leer, buscar y editar archivos directamente.]\n\n"),
+        ),
+        "full" => (
+            vec!["--dangerously-skip-permissions"],
+            "[Instrucción de entorno: estás en modo Agente completo en Pulso Editor. Tienes permiso aprobado por el usuario para leer, buscar, editar archivos y ejecutar comandos de terminal (run_command) dentro del proyecto para completar y verificar la tarea.]\n\n",
+            Some("[Permisos actuales en Pulso: modo Agente completo aprobado; puedes editar archivos y ejecutar comandos de terminal (run_command) para completar la tarea.]\n\n"),
         ),
         _ => return Err("Modo de permisos no válido".into()),
     };
-    let mut a: Vec<String> = ["--output-format", "stream-json", "--mode", agy_mode]
-        .iter().map(|s| s.to_string()).collect();
+    let mut a: Vec<String> = vec!["--output-format".into(), "stream-json".into()];
+    a.extend(mode_flags.into_iter().map(|s| s.to_string()));
     if let Some(s) = &o.session {
         if !safe_token(s) { return Err("Identificador de sesión no válido".into()); }
         a.push("--conversation".into());
@@ -892,13 +925,65 @@ pub fn build_agy_args(o: &ChatOptions, prompt: &str) -> Result<Vec<String>, Stri
             }
         }
     }
-    let full_prompt = if o.session.is_none() { format!("{guide}{prompt}") } else { prompt.to_string() };
+    let full_prompt = if o.session.is_none() {
+        format!("{guide}{prompt}")
+    } else if let Some(rg) = resume_guide {
+        format!("{rg}{prompt}")
+    } else {
+        prompt.to_string()
+    };
     a.push("-p".into());
     a.push(full_prompt);
     Ok(a)
 }
 
 const MAX_LINE: usize = 1_000_000;
+const MAX_STDERR_BYTES: usize = 64 * 1024;
+
+/// Lee una línea hasta `\n` acotando memoria en `max` bytes; si se supera, descarta hasta el fin de línea
+/// y marca `truncated = true`. Nunca falla ni corta el stream por bytes no UTF-8.
+fn read_bounded_line(reader: &mut impl BufRead, max: usize) -> std::io::Result<Option<(String, bool)>> {
+    let mut buf = Vec::new();
+    let mut truncated = false;
+    let mut any = false;
+    loop {
+        let avail = reader.fill_buf()?;
+        if avail.is_empty() {
+            return if any {
+                Ok(Some((String::from_utf8_lossy(&buf).into_owned(), truncated)))
+            } else {
+                Ok(None)
+            };
+        }
+        any = true;
+        if let Some(pos) = avail.iter().position(|&b| b == b'\n') {
+            if !truncated {
+                let slice = &avail[..pos];
+                if buf.len() + slice.len() > max {
+                    truncated = true;
+                    buf.clear();
+                } else {
+                    buf.extend_from_slice(slice);
+                }
+            }
+            reader.consume(pos + 1);
+            if buf.ends_with(b"\r") {
+                buf.pop();
+            }
+            return Ok(Some((String::from_utf8_lossy(&buf).into_owned(), truncated)));
+        }
+        let len = avail.len();
+        if !truncated {
+            if buf.len() + len > max {
+                truncated = true;
+                buf.clear();
+            } else {
+                buf.extend_from_slice(avail);
+            }
+        }
+        reader.consume(len);
+    }
+}
 
 /// Lanza `program` con `args` en `cwd`, le entrega `prompt` por la entrada estándar (si no va vacío) y llama a `on_line` por cada línea
 /// de su salida; al terminar, a `on_exit` con el código y el final de su salida de error. Devuelve el pid.
@@ -910,25 +995,65 @@ pub fn spawn_stream(
     on_line: Arc<dyn Fn(String) + Send + Sync>,
     on_exit: Arc<dyn Fn(Option<i32>, String) + Send + Sync>,
 ) -> Result<u32, String> {
-    let mut child = background_command(program)
-        .args(args)
+    let mut cmd = background_command(program);
+    cmd.args(args)
         .current_dir(cwd)
         .stdin(if prompt.is_empty() { Stdio::null() } else { Stdio::piped() })
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    crate::procguard::configure_child(&mut cmd);
+    let mut child = cmd
         .spawn()
         .map_err(|e| format!("No se pudo iniciar {program}: {e}"))?;
+    crate::procguard::attach_job(&child);
     let pid = child.id();
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(prompt.as_bytes());
-    }
+
     let out = child.stdout.take().ok_or("sin salida")?;
     let mut err = child.stderr.take().ok_or("sin salida de error")?;
-    let err_thread = thread::spawn(move || { let mut b = Vec::new(); let _ = err.read_to_end(&mut b); String::from_utf8_lossy(&b).into_owned() });
+    let stdin_opt = child.stdin.take();
+    let prompt_bytes = prompt.as_bytes().to_vec();
+
+    // Iniciar lectores de stdout/stderr antes de escribir en stdin evita deadlocks en prompts largos.
+    let err_thread = thread::spawn(move || {
+        let mut captured = Vec::new();
+        let mut chunk = [0u8; 4096];
+        while let Ok(n) = err.read(&mut chunk) {
+            if n == 0 {
+                break;
+            }
+            if captured.len() + n > MAX_STDERR_BYTES {
+                let excess = captured.len() + n - MAX_STDERR_BYTES;
+                if excess >= captured.len() {
+                    captured.clear();
+                } else {
+                    captured.drain(..excess);
+                }
+            }
+            let take = n.min(MAX_STDERR_BYTES);
+            captured.extend_from_slice(&chunk[n - take..n]);
+        }
+        String::from_utf8_lossy(&captured).into_owned()
+    });
+    let stdin_thread = stdin_opt.map(|mut stdin| {
+        thread::spawn(move || {
+            let _ = stdin.write_all(&prompt_bytes);
+            drop(stdin);
+        })
+    });
     thread::spawn(move || {
-        for line in BufReader::new(out).lines().map_while(Result::ok) {
-            if line.trim().is_empty() { continue; }
-            on_line(if line.len() > MAX_LINE { "{\"type\":\"pulso_truncated\"}".to_string() } else { line });
+        let mut reader = BufReader::new(out);
+        while let Ok(Some((line, truncated))) = read_bounded_line(&mut reader, MAX_LINE) {
+            if truncated {
+                on_line("{\"type\":\"pulso_truncated\"}".to_string());
+                continue;
+            }
+            if line.trim().is_empty() {
+                continue;
+            }
+            on_line(line);
+        }
+        if let Some(t) = stdin_thread {
+            let _ = t.join();
         }
         let code = child.wait().ok().and_then(|s| s.code());
         let stderr = err_thread.join().unwrap_or_default();
@@ -944,50 +1069,110 @@ struct AiLine { id: String, line: String }
 struct AiExit { id: String, code: Option<i32>, stderr: String }
 
 #[tauri::command]
-pub fn ai_send(app: AppHandle, state: State<AiState>, id: String, cwd: String, prompt: String, session: Option<String>, model: Option<String>, effort: Option<String>, mode: String, provider: Option<String>) -> Result<(), String> {
+pub async fn ai_send(
+    app: AppHandle,
+    state: State<'_, AiState>,
+    id: String,
+    cwd: String,
+    prompt: String,
+    session: Option<String>,
+    model: Option<String>,
+    effort: Option<String>,
+    mode: String,
+    provider: Option<String>,
+) -> Result<(), String> {
     if !safe_token(&id) { return Err("Identificador de conversación no válido".into()); }
     if !std::path::Path::new(&cwd).is_dir() { return Err("Abre una carpeta de proyecto para hablar con la IA.".into()); }
-    if prompt.trim().is_empty() { return Err("El mensaje está vacío.".into()); }
-    let opts = ChatOptions { session, model, effort, mode };
-    let mut stdin_payload = prompt.as_str();
-    let (program, args) = match provider.as_deref().unwrap_or("claude") {
-        "claude" => (claude_program(), build_claude_args(&opts)?),
-        "codex" => {
-            let (prog, mut prefix) = resolve_cli("codex", "PULSO_CODEX_BIN", Some("@openai/codex"));
-            prefix.extend(build_codex_args(&opts)?);
-            (prog, prefix)
-        }
-        "antigravity" | "gemini" => {
-            let (prog, mut prefix) = resolve_cli("agy", "PULSO_AGY_BIN", None);
-            prefix.extend(build_agy_args(&opts, &prompt)?);
-            stdin_payload = "";
-            (prog, prefix)
-        }
-        _ => return Err("Proveedor de IA no soportado".into()),
-    };
-    if state.running.lock().map_err(|e| e.to_string())?.contains_key(&id) {
-        return Err("Esta conversación ya está respondiendo.".into());
+    if let Some(reason) = crate::termui::broad_dir_reason(Path::new(&cwd), user_home().as_deref()) {
+        return Err(format!("No se permite lanzar la IA en esa carpeta ({reason}). Abre una carpeta de proyecto concreta."));
     }
-    let (a1, a2, id1, id2) = (app.clone(), app.clone(), id.clone(), id.clone());
-    let pid = spawn_stream(
-        &program,
-        &args,
-        &cwd,
-        stdin_payload,
-        Arc::new(move |line| { let _ = a1.emit("ai-line", AiLine { id: id1.clone(), line }); }),
-        Arc::new(move |code, stderr| {
-            if let Some(st) = a2.try_state::<AiState>() { if let Ok(mut m) = st.running.lock() { m.remove(&id2); } }
-            let _ = a2.emit("ai-exit", AiExit { id: id2.clone(), code, stderr });
-        }),
-    )?;
-    state.running.lock().map_err(|e| e.to_string())?.insert(id, pid);
-    Ok(())
+    if prompt.trim().is_empty() { return Err("El mensaje está vacío.".into()); }
+
+    // Reservar el slot ANTES de spawnear elimina carreras de doble envío y PIDs obsoletos.
+    {
+        let mut map = state.running.lock().map_err(|e| e.to_string())?;
+        if map.contains_key(&id) {
+            return Err("Esta conversación ya está respondiendo.".into());
+        }
+        map.insert(id.clone(), AiSlot::Starting);
+    }
+
+    let opts = ChatOptions { session, model, effort, mode };
+    let app_clone = app.clone();
+    let id_for_spawn = id.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || -> Result<u32, String> {
+        let mut stdin_payload = prompt.as_str();
+        let (program, args) = match provider.as_deref().unwrap_or("claude") {
+            "claude" => {
+                let (prog, mut prefix) = resolve_cli("claude", "PULSO_CLAUDE_BIN", Some("@anthropic-ai/claude-code"));
+                prefix.extend(build_claude_args(&opts)?);
+                (prog, prefix)
+            }
+            "codex" => {
+                let (prog, mut prefix) = resolve_cli("codex", "PULSO_CODEX_BIN", Some("@openai/codex"));
+                prefix.extend(build_codex_args(&opts)?);
+                (prog, prefix)
+            }
+            "antigravity" | "gemini" => {
+                let (prog, mut prefix) = resolve_cli("agy", "PULSO_AGY_BIN", None);
+                let low = prog.to_ascii_lowercase();
+                if (low.ends_with(".cmd") || low.ends_with(".bat")) && prompt.len() > 6000 {
+                    return Err("El mensaje es demasiado largo para pasarlo a través de un script .cmd en Windows. Instala el ejecutable nativo de agy o acorta el contexto.".into());
+                }
+                prefix.extend(build_agy_args(&opts, &prompt)?);
+                stdin_payload = "";
+                (prog, prefix)
+            }
+            _ => return Err("Proveedor de IA no soportado".into()),
+        };
+        let (a1, a2, id1, id2) = (app_clone.clone(), app_clone.clone(), id_for_spawn.clone(), id_for_spawn.clone());
+        spawn_stream(
+            &program,
+            &args,
+            &cwd,
+            stdin_payload,
+            Arc::new(move |line| { let _ = a1.emit("ai-line", AiLine { id: id1.clone(), line }); }),
+            Arc::new(move |code, stderr| {
+                if let Some(st) = a2.try_state::<AiState>() {
+                    if let Ok(mut m) = st.running.lock() {
+                        m.remove(&id2);
+                    }
+                }
+                let _ = a2.emit("ai-exit", AiExit { id: id2.clone(), code, stderr });
+            }),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let mut map = state.running.lock().map_err(|e| e.to_string())?;
+    match result {
+        Ok(pid) => {
+            // Si el proceso salió antes de llegar aquí, `on_exit` ya quitó la entrada: no re-insertar PID viejo.
+            if matches!(map.get(&id), Some(AiSlot::Starting)) {
+                map.insert(id, AiSlot::Running(pid));
+            }
+            Ok(())
+        }
+        Err(e) => {
+            map.remove(&id);
+            Err(e)
+        }
+    }
 }
 
 #[tauri::command]
-pub fn ai_stop(state: State<AiState>, id: String) -> Result<(), String> {
-    let pid = state.running.lock().map_err(|e| e.to_string())?.get(&id).copied();
-    if let Some(pid) = pid { kill_pid(pid); }
+pub async fn ai_stop(state: State<'_, AiState>, id: String) -> Result<(), String> {
+    let pid = {
+        let mut map = state.running.lock().map_err(|e| e.to_string())?;
+        match map.remove(&id) {
+            Some(AiSlot::Running(p)) => Some(p),
+            _ => None,
+        }
+    };
+    if let Some(pid) = pid {
+        let _ = tauri::async_runtime::spawn_blocking(move || kill_pid(pid)).await;
+    }
     Ok(())
 }
 
@@ -1017,8 +1202,11 @@ mod tests {
         let e = build_claude_args(&opts("edit")).unwrap();
         assert_eq!(e[e.iter().position(|x| x == "--permission-mode").unwrap() + 1], "acceptEdits");
         assert!(e.iter().any(|x| x.contains("Edit") && x.contains("Write")));
-        assert!(!e.iter().any(|x| x.contains("Bash")), "nunca se permite ejecutar comandos");
+        assert!(!e.iter().any(|x| x.contains("Bash")), "en modo edit no se permite ejecutar comandos");
         assert!(!e.iter().any(|x| x.contains("dangerously")));
+        let f = build_claude_args(&opts("full")).unwrap();
+        assert_eq!(f[f.iter().position(|x| x == "--permission-mode").unwrap() + 1], "acceptEdits");
+        assert!(f.iter().any(|x| x.contains("Edit") && x.contains("Bash")), "en modo full se permite Bash");
     }
 
     #[test]
@@ -1144,6 +1332,8 @@ mod tests {
         assert_eq!(cr, ["exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", "--model", "gpt-6.2-sol", "-c", "model_reasoning_effort=\"xhigh\"", "-"]);
         let ce = build_codex_args(&ChatOptions { session: Some("thread_123".into()), model: Some("gpt-6.2-sol".into()), effort: Some("high".into()), mode: "edit".into() }).unwrap();
         assert_eq!(ce, ["exec", "resume", "--json", "-c", "sandbox_mode=\"workspace-write\"", "--skip-git-repo-check", "--model", "gpt-6.2-sol", "-c", "model_reasoning_effort=\"high\"", "thread_123", "-"]);
+        let cf = build_codex_args(&ChatOptions { session: None, model: None, effort: None, mode: "full".into() }).unwrap();
+        assert_eq!(cf, ["exec", "--json", "--sandbox", "danger-full-access", "--skip-git-repo-check", "-"]);
         assert!(build_codex_args(&opts("bad")).is_err());
 
         let ar = build_agy_args(&ChatOptions { session: None, model: Some("gemini-4-hydrogen-high".into()), effort: Some("medium".into()), mode: "read".into() }, "hola").unwrap();
@@ -1153,6 +1343,10 @@ mod tests {
         let ad = build_agy_args(&ChatOptions { session: None, model: None, effort: Some("high".into()), mode: "read".into() }, "hola").unwrap();
         assert_eq!(&ad[..6], ["--output-format", "stream-json", "--mode", "plan", "--effort", "high"]);
         let ae = build_agy_args(&ChatOptions { session: Some("conv-1".into()), model: None, effort: None, mode: "edit".into() }, "edita").unwrap();
-        assert_eq!(ae, ["--output-format", "stream-json", "--mode", "accept-edits", "--conversation", "conv-1", "-p", "edita"]);
+        assert_eq!(&ae[..7], ["--output-format", "stream-json", "--mode", "accept-edits", "--conversation", "conv-1", "-p"]);
+        assert!(ae[7].ends_with("edita") && ae[7].contains("Edición"));
+        let af = build_agy_args(&ChatOptions { session: Some("conv-1".into()), model: None, effort: None, mode: "full".into() }, "ejecuta").unwrap();
+        assert_eq!(&af[..6], ["--output-format", "stream-json", "--dangerously-skip-permissions", "--conversation", "conv-1", "-p"]);
+        assert!(af[6].ends_with("ejecuta") && af[6].contains("Agente completo"));
     }
 }

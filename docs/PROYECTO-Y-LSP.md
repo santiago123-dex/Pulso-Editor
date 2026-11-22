@@ -100,7 +100,7 @@ El sistema LSP conecta **Monaco Editor** en el WebView con un proceso real de **
 
 ### 3.2 Capacidades LSP añadidas y mejoras de memoria
 
-Se amplió el cliente LSP en [src/lsp.ts](file:///c:/Users/ASUS/Documents/Pulso%20Editor/src/lsp.ts) manteniendo total compatibilidad hacia atrás y respetando las capacidades que anuncia cada servidor (`s.caps`):
+Se amplió el cliente LSP en [src/lsp.ts](../src/lsp.ts) manteniendo total compatibilidad hacia atrás y respetando las capacidades que anuncia cada servidor (`s.caps`):
 
 1. **Límite de memoria para `tsserver` (`maxTsServerMemory: 1536`)**:
    - Se envía en `initializationOptions` durante `initialize`, acotando el heap de Node del subproceso `tsserver` (`--max-old-space-size=1536`) para evitar que crezca sin límite en proyectos grandes.
@@ -122,28 +122,28 @@ Se amplió el cliente LSP en [src/lsp.ts](file:///c:/Users/ASUS/Documents/Pulso%
 
 Además de la actualización del cliente LSP, se implementaron las siguientes mejoras aisladas y cubiertas por pruebas unitarias:
 
-### 4.1 Vista de diferencias al resolver conflictos de guardado ([src/docs.ts](file:///c:/Users/ASUS/Documents/Pulso%20Editor/src/docs.ts))
+### 4.1 Vista de diferencias al resolver conflictos de guardado ([src/docs.ts](../src/docs.ts))
 - Cuando un archivo cambia externamente en disco y el usuario tiene cambios sin guardar al intentar guardar, el diálogo de conflicto (`resolveConflict`) ahora incluye la opción **"Ver diferencias"**.
-- Al elegirla, carga de forma perezosa `openDiffRequest` de [src/diffView.ts](file:///c:/Users/ASUS/Documents/Pulso%20Editor/src/diffView.ts) y abre la comparación lado a lado (o en línea) entre **Disco (externo)** y **Editor (cambios sin guardar)** sin perder el estado pendiente del documento.
+- Al elegirla, carga de forma perezosa `openDiffRequest` de [src/diffView.ts](../src/diffView.ts) y abre la comparación lado a lado (o en línea) entre **Disco (externo)** y **Editor (cambios sin guardar)** sin perder el estado pendiente del documento.
 
-### 4.2 Reemplazo en documentos abiertos sin guardar ([src/search.ts](file:///c:/Users/ASUS/Documents/Pulso%20Editor/src/search.ts), [src/searchReplace.ts](file:///c:/Users/ASUS/Documents/Pulso%20Editor/src/searchReplace.ts))
+### 4.2 Reemplazo en documentos abiertos sin guardar ([src/search.ts](../src/search.ts), [src/searchReplace.ts](../src/searchReplace.ts))
 - Antes, la búsqueda global encontraba coincidencias en archivos abiertos sin guardar, pero el reemplazo los omitía.
 - Se extrajo `computeLineReplacements` en `src/searchReplace.ts`, replicando las mismas reglas línea a línea del backend Rust (respeto de `CRLF`/`LF`, `wholeWord`, `caseSensitive`, `useRegex` y reemplazo literal sin interpretar `$1`/`$&` cuando `useRegex` está desactivado).
 - Para archivos abiertos con cambios sin guardar, `search.ts` aplica las ediciones directamente sobre el modelo de Monaco mediante `pushEditOperations`, permitiendo **deshacer con `Ctrl+Z`**. Los archivos limpios o cerrados continúan usando `replace_in_file` atómico en Rust y recargando los modelos abiertos limpios.
 
-### 4.3 Referencias clicables en el Chat del equipo ([src/chatModel.ts](file:///c:/Users/ASUS/Documents/Pulso%20Editor/src/chatModel.ts), [src/repoChat.ts](file:///c:/Users/ASUS/Documents/Pulso%20Editor/src/repoChat.ts), [src/repoChat.css](file:///c:/Users/ASUS/Documents/Pulso%20Editor/src/repoChat.css))
+### 4.3 Referencias clicables en el Chat del equipo ([src/chatModel.ts](../src/chatModel.ts), [src/repoChat.ts](../src/repoChat.ts), [src/repoChat.css](../src/repoChat.css))
 - `splitBody` ahora detecta además de `@menciones` y enlaces `http(s)`:
   - **Referencias a issues (`#123`)**: al pulsarlas se abre la issue correspondiente en GitHub.
   - **Referencias `archivo.ext:línea` (ej. `src/lsp.ts:42`)**: rechazando secuencias `..` por seguridad y sin confundir horas (`10:30`); al pulsarlas se abre el archivo en el editor directamente en esa línea (saliendo del modo pantalla completa si el chat estaba maximizado).
 
-### 4.4 Rediseño visual del Asistente de IA ([src/aiChat.ts](file:///c:/Users/ASUS/Documents/Pulso%20Editor/src/aiChat.ts), [src/aiChat.css](file:///c:/Users/ASUS/Documents/Pulso%20Editor/src/aiChat.css), [src/aiModel.ts](file:///c:/Users/ASUS/Documents/Pulso%20Editor/src/aiModel.ts), [src/aiContext.ts](file:///c:/Users/ASUS/Documents/Pulso%20Editor/src/aiContext.ts), [src-tauri/src/aichat.rs](file:///c:/Users/ASUS/Documents/Pulso%20Editor/src-tauri/src/aichat.rs))
+### 4.4 Rediseño visual del Asistente de IA ([src/aiChat.ts](../src/aiChat.ts), [src/aiChat.css](../src/aiChat.css), [src/aiModel.ts](../src/aiModel.ts), [src/aiContext.ts](../src/aiContext.ts), [src-tauri/src/aichat.rs](../src-tauri/src/aichat.rs))
 - **Diseño de flujo moderno (no genérico):** dock de comando unificado al pie (`.ai-dock`) con controles integrados, mensajes del usuario como bloques de instrucción con riel de acento izquierdo (`.ai-user`) y pasos de agente/razonamiento agrupados en una traza vertical de ejecución (`.ai-trace`).
 - **Detección instantánea y recarga automática del plan:** `ai_detect` se ejecuta al iniciar la aplicación (`initAi`), y al iniciar sesión con `claude auth login` el editor detecta el regreso del foco y el cambio de estado automáticamente para cargar el plan al instante sin pasos manuales extra.
 - **Selector específico de modelos y esfuerzo:** lista versiones concretas (`Claude Sonnet 5.5`, `Claude Opus 5.5`, `Claude Sonnet 5.0`, `Claude Sonnet 4.8`, `Claude Sonnet 4.6`, `Claude Haiku 4.5` o ID manual) además de los alias oficiales, selector de esfuerzo (`--effort`: *Auto*, *Bajo*, *Medio*, *Alto*, *Máx*) soportado en `aichat.rs`, y traducción de la versión exacta resuelta en vivo (`formatModelName`).
 - **Uso real del plan (`% usado`):** descarta ventanas expiradas (`pruneUsage`) y limpia caché al cambiar de cuenta/sesión; muestra exactamente el **porcentaje usado** (`usedPercent`), barras de progreso lineales y la hora exacta de restablecimiento (`resetClockText`: *«Se restablece a las …»*).
-- **Cierre limpio y extras:** `AiState::stop_all` en `RunEvent::Exit` ([src-tauri/src/lib.rs](file:///c:/Users/ASUS/Documents/Pulso%20Editor/src-tauri/src/lib.rs)), botón `+` para adjuntar archivos (`extraFiles`), botón `⚡` de acciones rápidas, **Insertar**/**Copiar** en bloques de código y resumen de archivos modificados (`touchedFiles`).
+- **Cierre limpio y extras:** `AiState::stop_all` en `RunEvent::Exit` ([src-tauri/src/lib.rs](../src-tauri/src/lib.rs)), botón `+` para adjuntar archivos (`extraFiles`), botón `⚡` de acciones rápidas, **Insertar**/**Copiar** en bloques de código y resumen de archivos modificados (`touchedFiles`).
 
-### 4.5 Barra de actividad personalizable ([src/activityOrder.ts](file:///c:/Users/ASUS/Documents/Pulso%20Editor/src/activityOrder.ts), [src/activityBar.ts](file:///c:/Users/ASUS/Documents/Pulso%20Editor/src/activityBar.ts), [src/styles.css](file:///c:/Users/ASUS/Documents/Pulso%20Editor/src/styles.css), [src/main.ts](file:///c:/Users/ASUS/Documents/Pulso%20Editor/src/main.ts))
+### 4.5 Barra de actividad personalizable ([src/activityOrder.ts](../src/activityOrder.ts), [src/activityBar.ts](../src/activityBar.ts), [src/styles.css](../src/styles.css), [src/main.ts](../src/main.ts))
 - **Arrastrar y soltar con puntero:** los iconos de `#activitybar` (excepto Configuración al pie) se reordenan arrastrando verticalmente (`>= 6 px`) con línea indicadora de inserción y cancelación con `Esc`.
 - **Menú contextual y teclado:** clic derecho sobre la barra permite **Mover arriba / abajo**, **Ocultar / mostrar** cada vista (garantizando que siempre quede al menos una visible) o **Restablecer orden predeterminado**; también admite `Alt+↑` / `Alt+↓` con el foco en un botón.
 - **Paleta de comandos y persistencia:** comandos **«Ver: Organizar botones de la barra lateral…»** y **«Ver: Restablecer botones de la barra lateral»**; la configuración se guarda en `localStorage` (`pulso.activityBar`).
@@ -162,7 +162,7 @@ Además de la actualización del cliente LSP, se implementaron las siguientes me
   - `src/chatModel.test.ts` (19 pruebas, incluyendo `#issues` y `archivo:línea`).
   - `src/activityOrder.test.ts` (4 pruebas de normalización, movimiento, visibilidad mínima y persistencia).
 
-### 5.2 Referencia de rendimiento medida ([docs/RENDIMIENTO.md](file:///c:/Users/ASUS/Documents/Pulso%20Editor/docs/RENDIMIENTO.md))
+### 5.2 Referencia de rendimiento medida ([docs/RENDIMIENTO.md](../docs/RENDIMIENTO.md))
 En la medición documentada sobre un proyecto sintético de 3.000 archivos TS en Windows 11 (compilación de producción):
 - Arranque hasta explorador listo: **0,9–1,2 s**.
 - Apertura de archivo de 5 MB: **0,36 s** (modo archivo grande `> 1.000.000` caracteres desactiva emparejamiento/coloración de corchetes y resaltado de coincidencias).
@@ -174,7 +174,7 @@ En la medición documentada sobre un proyecto sintético de 3.000 archivos TS en
 
 ## 6. Próximos pasos técnicos recomendados
 
-1. **Seguridad antes de distribuir**: definir una `csp` estricta en [src-tauri/tauri.conf.json](file:///c:/Users/ASUS/Documents/Pulso%20Editor/src-tauri/tauri.conf.json) y restringir las operaciones de archivos en [src-tauri/src/lib.rs](file:///c:/Users/ASUS/Documents/Pulso%20Editor/src-tauri/src/lib.rs) al workspace activo.
+1. **Seguridad antes de distribuir**: definir una `csp` estricta en [src-tauri/tauri.conf.json](../src-tauri/tauri.conf.json) y restringir las operaciones de archivos en [src-tauri/src/lib.rs](../src-tauri/src/lib.rs) al workspace activo.
 2. **Cierre limpio del asistente de IA**: cuando finalice la integración en curso de `aichat.rs`, añadir el cierre de procesos activos de `AiState` dentro de `RunEvent::Exit` en `lib.rs`.
 3. **File Watcher nativo (`notify`) + búsqueda con `ignore`**: vigilar cambios externos del sistema de archivos en tiempo real y respetar `.gitignore` en búsquedas y apertura rápida (`Ctrl+P`).
 4. **Arquitectura Multi-LSP y Output Channel**: generalizar el registro de servidores en `lsp.rs` / `lsp.ts` por lenguaje (Python, Rust, HTML/CSS/JSON) y añadir un panel de salida para consultar logs de `stderr` y diagnósticos de proyecto completo.

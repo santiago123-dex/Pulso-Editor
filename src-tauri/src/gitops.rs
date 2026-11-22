@@ -34,7 +34,9 @@ pub struct Changes {
 fn git_command(dir: &str) -> Command {
     let mut c = background_command("git");
     c.arg("-C").arg(dir).args(["-c", "core.quotepath=false"]);
-    c.env("GIT_TERMINAL_PROMPT", "0").env("GIT_OPTIONAL_LOCKS", "0");
+    c.env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .env("LC_ALL", "C");
     c
 }
 
@@ -100,9 +102,10 @@ pub fn parse_changes(out: &str) -> Changes {
             }
             continue;
         }
-        if rec.len() < 4 { continue; }
-        let (xy, path) = rec.split_at(3);
-        let (x, y) = (xy.as_bytes()[0] as char, xy.as_bytes()[1] as char);
+        let bytes = rec.as_bytes();
+        if bytes.len() < 4 || bytes[2] != b' ' { continue; }
+        let path = &rec[3..];
+        let (x, y) = (bytes[0] as char, bytes[1] as char);
         let orig = if matches!(x, 'R' | 'C') || matches!(y, 'R' | 'C') { records.next().map(|s| s.to_string()) } else { None };
         let make = |status: &str| Change { path: path.to_string(), status: status.to_string(), orig: orig.clone() };
         if (x, y) == ('?', '?') { c.unstaged.push(make("U")); continue; }
@@ -173,8 +176,15 @@ fn commit_sync(root: &str, message: &str) -> Result<CommitResult, String> {
         .args(["commit", "-q", "-F", "-"])
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
         .spawn().map_err(|e| format!("No se pudo ejecutar git: {e}"))?;
-    child.stdin.take().ok_or("No se pudo enviar el mensaje a git")?.write_all(message.as_bytes()).map_err(|e| e.to_string())?;
+    let mut stdin = child.stdin.take().ok_or("No se pudo enviar el mensaje a git")?;
+    let msg_bytes = message.as_bytes().to_vec();
+    let writer = std::thread::spawn(move || stdin.write_all(&msg_bytes));
     let o = child.wait_with_output().map_err(|e| e.to_string())?;
+    if let Ok(Err(e)) = writer.join() {
+        if o.status.success() {
+            return Err(e.to_string());
+        }
+    }
     if !o.status.success() { return Err(text(&o)); }
     let hash = run(&top, &["rev-parse", "--short", "HEAD"])?.trim().to_string();
     Ok(CommitResult { hash, summary: message.lines().next().unwrap_or("").to_string() })
@@ -189,21 +199,50 @@ pub struct DiffSources {
 
 const MAX_DIFF_BYTES: usize = 2_000_000;
 
-/// Contenido de `spec` (por ejemplo `HEAD:ruta` o `:ruta`). Cadena vacía si no existe en esa versión.
+/// Contenido de `spec` (por ejemplo `HEAD:ruta` o `:ruta`). Comprueba primero el tamaño con `cat-file -s`
+/// para no cargar blobs enormes en RAM. Cadena vacía si no existe en esa versión.
 fn blob(top: &str, spec: &str) -> Result<Vec<u8>, String> {
-    if !succeeds(top, &["cat-file", "-e", spec]) { return Ok(Vec::new()); }
+    let size_out = git_command(top)
+        .args(["cat-file", "-s", spec])
+        .output()
+        .map_err(|e| format!("No se pudo ejecutar git: {e}"))?;
+    if !size_out.status.success() {
+        return Ok(Vec::new());
+    }
+    if let Ok(sz) = String::from_utf8_lossy(&size_out.stdout).trim().parse::<usize>() {
+        if sz > MAX_DIFF_BYTES {
+            return Err("El archivo es demasiado grande para mostrar diferencias".into());
+        }
+    }
     let o = git_command(top).args(["show", spec]).output().map_err(|e| format!("No se pudo ejecutar git: {e}"))?;
     if !o.status.success() { return Err(text(&o)); }
     Ok(o.stdout)
 }
 
+fn read_disk_for_diff(path: &std::path::Path) -> Result<Vec<u8>, String> {
+    match fs::metadata(path) {
+        Ok(m) => {
+            if m.len() > MAX_DIFF_BYTES as u64 {
+                return Err("El archivo es demasiado grande para mostrar diferencias".into());
+            }
+            fs::read(path).map_err(|e| e.to_string())
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 /// Las dos versiones que se comparan: preparado = HEAD contra el índice; sin preparar = índice contra el disco.
 fn diff_sources_sync(root: &str, path: &str, orig: Option<&str>, staged: bool) -> Result<DiffSources, String> {
+    if !safe_relative(path) { return Err("Ruta no válida".into()); }
+    if let Some(o) = orig {
+        if !safe_relative(o) { return Err("Ruta de origen no válida".into()); }
+    }
     let top = top_of(root)?;
     let (a, b) = if staged {
         (blob(&top, &format!("HEAD:{}", orig.unwrap_or(path)))?, blob(&top, &format!(":{}", path))?)
     } else {
-        (blob(&top, &format!(":{}", path))?, fs::read(std::path::Path::new(&top).join(path)).unwrap_or_default())
+        (blob(&top, &format!(":{}", path))?, read_disk_for_diff(&std::path::Path::new(&top).join(path))?)
     };
     if a.len() > MAX_DIFF_BYTES || b.len() > MAX_DIFF_BYTES {
         return Err("El archivo es demasiado grande para mostrar diferencias".into());
@@ -270,6 +309,10 @@ fn switch_sync(root: &str, name: &str, create: bool) -> Result<(), String> {
     let is_local = succeeds(&top, &["show-ref", "--verify", "--quiet", &format!("refs/heads/{name}")]);
     if !is_local && succeeds(&top, &["show-ref", "--verify", "--quiet", &format!("refs/remotes/{name}")]) {
         let short = name.split_once('/').map(|(_, s)| s).unwrap_or(name);
+        valid_branch_name(short)?;
+        if !succeeds(&top, &["check-ref-format", "--branch", short]) {
+            return Err(format!("«{short}» no es un nombre de rama válido"));
+        }
         return run(&top, &["switch", "-c", short, "--track", name]).map(|_| ());
     }
     run(&top, &["switch", name]).map(|_| ())
@@ -282,10 +325,14 @@ pub struct DiscardItem {
     pub status: String,
 }
 
-/// La ruta debe quedarse dentro del repositorio: nada de `..` ni rutas absolutas.
+/// La ruta debe quedarse dentro del repositorio: nada de `..`, rutas absolutas ni unidades de Windows.
 fn safe_relative(path: &str) -> bool {
     let p = std::path::Path::new(path);
+    let has_drive = path.len() >= 2 && path.as_bytes()[0].is_ascii_alphabetic() && path.as_bytes()[1] == b':';
     !path.is_empty()
+        && !has_drive
+        && !path.starts_with('/')
+        && !path.starts_with('\\')
         && p.is_relative()
         && !p.components().any(|c| matches!(c, std::path::Component::ParentDir | std::path::Component::Prefix(_) | std::path::Component::RootDir))
 }
@@ -313,7 +360,10 @@ const NET_TIMEOUT_SECS: u64 = 120;
 fn run_timeout(mut cmd: Command, secs: u64) -> Result<Output, String> {
     use std::{io::Read, thread, time::{Duration, Instant}};
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    crate::procguard::configure_child(&mut cmd);
     let mut child = cmd.spawn().map_err(|e| format!("No se pudo ejecutar git: {e}"))?;
+    crate::procguard::attach_job(&child);
+    let pid = child.id();
     let mut out = child.stdout.take().ok_or("sin salida")?;
     let mut err = child.stderr.take().ok_or("sin salida de error")?;
     let t_out = thread::spawn(move || { let mut b = Vec::new(); let _ = out.read_to_end(&mut b); b });
@@ -323,8 +373,11 @@ fn run_timeout(mut cmd: Command, secs: u64) -> Result<Output, String> {
         match child.try_wait().map_err(|e| e.to_string())? {
             Some(s) => break s,
             None if Instant::now() >= deadline => {
+                crate::procguard::kill_tree(pid);
                 let _ = child.kill();
                 let _ = child.wait();
+                let _ = t_out.join();
+                let _ = t_err.join();
                 return Err(format!("La operación tardó más de {secs} s y se canceló. Si Git esperaba un inicio de sesión, inicia sesión desde una terminal y reinténtalo"));
             }
             None => thread::sleep(Duration::from_millis(50)),
@@ -515,6 +568,9 @@ fn commit_files_sync(root: &str, hash: &str) -> Result<Vec<CommitFile>, String> 
 fn commit_sources_sync(root: &str, hash: &str, path: &str, orig: Option<&str>) -> Result<DiffSources, String> {
     if !valid_hash(hash) { return Err("Identificador de commit no válido".into()); }
     if !safe_relative(path) { return Err("Ruta no válida".into()); }
+    if let Some(o) = orig {
+        if !safe_relative(o) { return Err("Ruta de origen no válida".into()); }
+    }
     let top = top_of(root)?;
     let a = blob(&top, &format!("{hash}^:{}", orig.unwrap_or(path)))?;
     let b = blob(&top, &format!("{hash}:{path}"))?;
@@ -880,7 +936,16 @@ mod tests {
         for bad in ["../fuera.txt", "/etc/passwd", "C:/Windows/x", "sub/../../x", ""] {
             let err = discard_sync(&r.s(), vec![DiscardItem { path: bad.into(), status: "U".into() }], &|_| panic!("no debe borrar nada")).unwrap_err();
             assert!(err.contains("Ruta no válida"), "{bad}: {err}");
+            assert!(diff_sources_sync(&r.s(), bad, None, false).is_err(), "diff_sources debe rechazar {bad}");
+            assert!(diff_sources_sync(&r.s(), "a.txt", Some(bad), true).is_err(), "diff_sources orig debe rechazar {bad}");
         }
+    }
+
+    #[test]
+    fn parse_changes_ignores_malformed_utf8_records_without_panic() {
+        let c = parse_changes("ñ\0M  ok.txt\0");
+        assert_eq!(c.staged.len(), 1);
+        assert_eq!(c.staged[0].path, "ok.txt");
     }
 
     #[test]

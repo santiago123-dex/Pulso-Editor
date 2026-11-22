@@ -1,12 +1,19 @@
 import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { bus } from "./core/events";
+import { readStorage, removeStorage } from "./core/storage";
+import {
+  EFFORTS, EXAMPLES, PROVIDERS, QUICK_PROMPTS,
+  type AiModelInfo, type AiTool, type AllAiTools, type AntigravityBucket, type AntigravityUsage, type CodexQuota, type ExtraUsage, type ModelOption, type ProviderMeta, type WindowQuota,
+} from "./ai/catalog";
+import { applyAiAppearance, buildAppearancePopover } from "./ai/appearance";
 import { parseInline, parseMarkdown } from "./aiMarkdown";
 import { buildPrompt, chipLabels, type EditorContext } from "./aiContext";
 import {
-  createProviderNormalizer, emptyConversation, exitEvent, formatModelName, isAuthError, parseUsageText, planLabel, pruneUsage,
+  createProviderNormalizer, emptyConversation, exitEvent, formatModelName, isAuthError, needsCommandPermission, parseUsageText, planLabel, pruneUsage,
   reduce, remainingPercent, remainingRatio, resetClockText, resetCountdown, resetIn, resetTimeFromIso, toolSummary, touchedFiles,
-  userEvent, type AiEvent, type AiProvider, type Block, type Conversation, type Turn, type UsageWindow,
+  userEvent, type AiEvent, type AiProvider, type Block, type Conversation, type DeniedAction, type Turn, type UsageWindow,
 } from "./aiModel";
 import { chatsFor, deleteChat, flushHistoryNow, initHistory, loadChats, newChatId, saveChat, titleFrom, type SavedChat } from "./aiStore";
 import { checkExternal } from "./docs";
@@ -20,139 +27,15 @@ import { promptText, quickPick, setStatus, showDialog, type PickItem } from "./u
 import { $, baseName, dirName, h, norm } from "./util";
 import { rel, ws } from "./workspace";
 import { openExternal } from "./external";
+import { extractProposedEdits } from "./workflow/issueWorkflowModel";
+import { clearActiveIssueWork, createPrForActiveIssue, getActiveIssueWork, reviewProposedEdit } from "./workflow/issueWorkflow";
 import "./aiChat.css";
 
 /**
  * Asistente de IA: conversa en la carpeta del proyecto con Claude Code, ChatGPT/Codex (`codex app-server`) o Antigravity (`agy`).
  * Pulso nunca ve ni guarda credenciales; cada herramienta administra su propia sesión.
  */
-interface AiModelInfo { id: string; label: string; note: string }
-interface AiTool { installed: boolean; version: string; logged_in: boolean; auth_method: string; plan: string; error: string; models?: AiModelInfo[] }
-interface WindowQuota { used_percent: number; resets_at: number }
-interface CodexQuota { plan: string; five_hour?: WindowQuota; seven_day?: WindowQuota }
-interface AntigravityBucket { id: string; name: string; window: string; remaining_fraction: number; reset_time: string }
-interface AntigravityQuotaGroup { name: string; description: string; buckets: AntigravityBucket[] }
-interface AntigravityUsage { groups: AntigravityQuotaGroup[] }
-interface ExtraUsage { codex?: CodexQuota; antigravity?: AntigravityUsage }
-interface AllAiTools { claude: AiTool; codex: AiTool; antigravity: AiTool }
 interface Live { id: string; provider: AiProvider; normalize: (ev: AiEvent) => AiEvent[]; convo: Conversation; cwd: string; title: string; stopping?: boolean }
-
-interface ModelOption {
-  value: string;
-  label: string;
-  tier: string;
-  badge?: string;
-  hint: string;
-}
-
-interface ProviderMeta {
-  id: AiProvider;
-  short: string;
-  title: string;
-  accountTitle: string;
-  npmPkg?: string;
-  installCmdPs?: string;
-  installCmdSh?: string;
-  loginCmd: string;
-  loginBtn: string;
-  installHint: string;
-  docsUrl: string;
-  modelKey: string;
-  supportsEffort: boolean;
-  models: ModelOption[];
-  specific: ModelOption[];
-}
-
-// Los alias («fable», «opus»…) los resuelve Claude Code al modelo más reciente de tu plan; los nombres con versión son los de la familia actual.
-const MODELS: ModelOption[] = [
-  { value: "", label: "Predeterminado", tier: "Cuenta", badge: "Auto", hint: "Modelo configurado por defecto en tu sesión de Claude Code" },
-  { value: "fable", label: "Claude Fable 5.2", tier: "Máxima capacidad", badge: "Nuevo", hint: "Alias «fable»: el Fable más reciente. Si tu plan no lo incluye, Claude Code lo avisará" },
-  { value: "opus", label: "Claude Opus 5.5", tier: "Profundo", badge: "Nuevo", hint: "Alias «opus» para análisis complejo y arquitectura" },
-  { value: "sonnet", label: "Claude Sonnet 5.5", tier: "Equilibrado", badge: "Nuevo", hint: "Alias «sonnet» (último Sonnet disponible en tu plan)" },
-  { value: "haiku", label: "Claude Haiku 5.5", tier: "Rápido", badge: "Ligero", hint: "Alias «haiku» para respuestas inmediatas" },
-];
-
-const SPECIFIC_MODELS: ModelOption[] = [
-  { value: "claude-fable-5-2", label: "Claude Fable 5.2", tier: "claude-fable-5-2", badge: "Fijo", hint: "Fijar versión Fable 5.2" },
-  { value: "claude-opus-5-5", label: "Claude Opus 5.5", tier: "claude-opus-5-5", badge: "Fijo", hint: "Fijar versión Opus 5.5" },
-  { value: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", tier: "claude-sonnet-5-5", badge: "Fijo", hint: "Fijar versión Sonnet 5.5" },
-  { value: "claude-haiku-5-5", label: "Claude Haiku 5.5", tier: "claude-haiku-5-5", badge: "Fijo", hint: "Fijar versión Haiku 5.5" },
-];
-
-const PROVIDERS: Record<AiProvider, ProviderMeta> = {
-  claude: {
-    id: "claude",
-    short: "Claude",
-    title: "Claude Code",
-    accountTitle: "Claude (Anthropic)",
-    loginCmd: "claude auth login",
-    loginBtn: "Iniciar sesión con Claude Code",
-    installHint: "Instálalo, inicia sesión con tu cuenta y pulsa «Volver a comprobar». El asistente usa tu suscripción; Pulso no guarda ninguna clave.",
-    docsUrl: "https://claude.com/claude-code",
-    modelKey: "pulso.ai.model",
-    supportsEffort: true,
-    models: MODELS,
-    specific: SPECIFIC_MODELS,
-  },
-  codex: {
-    id: "codex",
-    short: "Codex",
-    title: "ChatGPT / Codex",
-    accountTitle: "ChatGPT / Codex (OpenAI)",
-    npmPkg: "@openai/codex",
-    loginCmd: "codex login",
-    loginBtn: "Iniciar sesión con ChatGPT",
-    installHint: "Instala la app de Codex o `@openai/codex` (`npm i -g @openai/codex`), inicia sesión con tu cuenta de ChatGPT y pulsa «Volver a comprobar».",
-    docsUrl: "https://chatgpt.com/codex",
-    modelKey: "pulso.ai.model.codex",
-    supportsEffort: true,
-    models: [
-      { value: "", label: "Predeterminado", tier: "Cuenta", badge: "Auto", hint: "Modelo configurado en tu cuenta de ChatGPT / Codex" },
-    ],
-    specific: [],
-  },
-  antigravity: {
-    id: "antigravity",
-    short: "Antigravity",
-    title: "Antigravity (agy)",
-    accountTitle: "Antigravity (Google)",
-    installCmdPs: "irm https://antigravity.google/cli/install.ps1 | iex",
-    installCmdSh: "curl -fsSL https://antigravity.google/cli/install.sh | bash",
-    loginCmd: "agy acp --login",
-    loginBtn: "Iniciar sesión con Google (Antigravity)",
-    installHint: "Instala Antigravity CLI (`agy`) con el instalador oficial de Google, inicia sesión con tu cuenta y pulsa «Volver a comprobar».",
-    docsUrl: "https://antigravity.google",
-    modelKey: "pulso.ai.model.antigravity",
-    supportsEffort: true,
-    models: [
-      { value: "", label: "Predeterminado", tier: "Cuenta", badge: "Auto", hint: "Antigravity selecciona automáticamente el mejor modelo" },
-    ],
-    specific: [],
-  },
-};
-
-const EFFORTS: { value: string; label: string; short: string }[] = [
-  { value: "", label: "Auto", short: "" },
-  { value: "low", label: "Bajo", short: "Bajo" },
-  { value: "medium", label: "Medio", short: "Medio" },
-  { value: "high", label: "Alto", short: "Alto" },
-  { value: "max", label: "Máx", short: "Máx" },
-];
-
-const QUICK_PROMPTS: { label: string; tag: string; prompt: string }[] = [
-  { label: "Explicar este código", tag: "Lectura", prompt: "Explica paso a paso qué hace este código y sus dependencias principales." },
-  { label: "Buscar posibles errores", tag: "Revisión", prompt: "Revisa este código en busca de errores, condiciones de carrera o casos borde sin cubrir." },
-  { label: "Escribir pruebas unitarias", tag: "Tests", prompt: "Propón e implementa pruebas unitarias claras cubriendo casos normales y límites." },
-  { label: "Refactorizar para claridad", tag: "Mejora", prompt: "Refactoriza este fragmento para hacerlo más legible y modular sin cambiar su comportamiento." },
-  { label: "Documentar funciones", tag: "Docs", prompt: "Añade comentarios JSDoc/TSDoc concisos explicando parámetros, retorno y propósito." },
-];
-
-const EXAMPLES: { code: string; label: string; tag: string; prompt: string }[] = [
-  { code: "01", label: "Explica qué hace este archivo", tag: "Lectura", prompt: "Explica qué hace este archivo" },
-  { code: "02", label: "Busca posibles errores en lo que tengo abierto", tag: "Revisión", prompt: "Busca posibles errores en lo que tengo abierto" },
-  { code: "03", label: "Propón pruebas para la selección", tag: "Tests", prompt: "Propón pruebas para la selección" },
-  { code: "04", label: "Simplifica y refactoriza este bloque", tag: "Refactor", prompt: "Simplifica este código para hacerlo más claro y mantenible sin cambiar su comportamiento." },
-];
 
 // v2: la clave anterior pudo quedar con cifras de pruebas; se ignora y se borra al arrancar.
 const USAGE_KEY = "pulso.ai.usage.v2";
@@ -161,8 +44,8 @@ const FULL_KEY = "pulso.aiFull";
 
 function readStoredUsage(): Conversation["usage"] {
   try {
-    localStorage.removeItem("pulso.ai.usage");
-    const raw = JSON.parse(localStorage.getItem(USAGE_KEY) ?? "{}");
+    removeStorage("pulso.ai.usage");
+    const raw = JSON.parse(readStorage(USAGE_KEY) ?? "{}");
     return pruneUsage(raw);
   } catch {
     return {};
@@ -170,7 +53,7 @@ function readStoredUsage(): Conversation["usage"] {
 }
 
 function savedProvider(): AiProvider {
-  const p = localStorage.getItem("pulso.ai.provider");
+  const p = readStorage("pulso.ai.provider");
   if (p === "codex") return "codex";
   if (p === "antigravity" || p === "gemini") return "antigravity";
   return "claude";
@@ -188,9 +71,15 @@ let usageSyncing = false;
 let usageError = "";
 let shown = false;
 let historyOpen = false;
+type AiMode = "read" | "edit" | "full";
+function savedMode(): AiMode {
+  const m = localStorage.getItem("pulso.ai.mode");
+  if (m === "full" || m === "edit") return m;
+  return "read";
+}
 let model = localStorage.getItem(PROVIDERS[activeProvider].modelKey) ?? "";
 let effort = localStorage.getItem("pulso.ai.effort") ?? "";
-let mode: "read" | "edit" = localStorage.getItem("pulso.ai.mode") === "edit" ? "edit" : "read";
+let mode: AiMode = savedMode();
 let useFile = true;
 let useSel = true;
 let extraFiles: string[] = [];
@@ -653,7 +542,17 @@ function stepGroup(traceKey: string, items: Block[], running: boolean): HTMLElem
   const { title, live } = traceLabel(items, running);
   const d = h("details", `ai-step-group${running ? " running" : ""}`);
   if (openTraces.has(traceKey)) d.open = true;
-  d.ontoggle = () => { if (d.open) openTraces.add(traceKey); else openTraces.delete(traceKey); };
+  d.ontoggle = () => {
+    if (d.open) {
+      if (openTraces.size >= 100) {
+        const oldest = openTraces.values().next().value;
+        if (oldest !== undefined) openTraces.delete(oldest);
+      }
+      openTraces.add(traceKey);
+    } else {
+      openTraces.delete(traceKey);
+    }
+  };
 
   const sum = h("summary", "ai-step-summary");
   const orb = h("span", `ai-step-orb${running ? " pulse" : ""}`);
@@ -1420,11 +1319,13 @@ function buildEmptyWorkbench(): HTMLElement {
   const empty = h("div", "ai-empty ai-bench");
   const main = h("div", "ai-bench-main");
 
+  const modeShort = mode === "full" ? "Agente" : mode === "edit" ? "Puede editar" : "Solo leer";
+  const modeCls = mode === "full" ? " full" : mode === "edit" ? " edit" : "";
   const eyebrow = h("div", "ai-bench-eyebrow");
   eyebrow.append(
     h("span", "ai-bench-dot", ""),
     h("span", "ai-bench-kicker", "PULSO // ESTACIÓN DE CÓDIGO"),
-    h("span", `ai-meta-pill${mode === "edit" ? " edit" : ""}`, mode === "edit" ? "Puede editar" : "Solo leer"),
+    h("span", `ai-meta-pill${modeCls}`, modeShort),
     buildProviderTabs(),
   );
 
@@ -1487,7 +1388,7 @@ function buildEmptyWorkbench(): HTMLElement {
     const effOpt = EFFORTS.find((e) => e.value === effort)?.label ?? "Auto";
     spec.append(
       h("div", "ai-spec-row", `Motor activo: ${activeOpt.label}`),
-      h("div", "ai-spec-row", `Esfuerzo: ${effOpt} · Modo: ${mode === "edit" ? "Edición directa" : "Solo lectura"}`),
+      h("div", "ai-spec-row", `Esfuerzo: ${effOpt} · Modo: ${mode === "full" ? "Agente completo" : mode === "edit" ? "Edición directa" : "Solo lectura"}`),
       h("div", "ai-inst-note", `Tus hilos guardados en ${wsName} aparecerán aquí para retomarlos en un clic.`),
     );
     threadsCard.append(spec);
@@ -1496,6 +1397,127 @@ function buildEmptyWorkbench(): HTMLElement {
   rail.append(quotaCard, threadsCard);
   empty.append(main, rail);
   return empty;
+}
+
+/** Estado de revisión de propuestas de diff generadas por la IA en esta sesión. */
+const proposalStatus = new Map<string, "applied" | "discarded">();
+/** Tarjetas de permiso bloqueado descartadas manualmente por turno. */
+const dismissedDenials = new Set<string>();
+
+function buildDenialCard(live: Live, denials: number, actions: readonly DeniedAction[] | undefined, dismissKey: string): HTMLElement {
+  const card = h("div", "ai-denial-card");
+  card.setAttribute("role", "region");
+  card.setAttribute("aria-label", "Permiso requerido por el agente");
+
+  const wantsFull = mode !== "read" || needsCommandPermission(actions);
+  const targetMode: AiMode = wantsFull ? "full" : "edit";
+  const targetLabel = targetMode === "full" ? "Agente" : "Puede editar";
+
+  const head = h("div", "ai-denial-head");
+  head.append(
+    h("span", "ai-denial-badge", "PERMISO REQUERIDO"),
+    h("span", "ai-denial-title", denials === 1 ? "El agente necesitó ejecutar una acción bloqueada" : `El agente necesitó ejecutar ${denials} acciones bloqueadas`),
+  );
+  card.append(head);
+
+  if (actions?.length) {
+    const list = h("div", "ai-denial-list");
+    for (const a of actions.slice(0, 4)) {
+      const row = h("div", "ai-denial-item");
+      row.append(h("span", "ai-denial-tool", a.tool));
+      if (a.detail) row.append(h("code", "ai-denial-detail", a.detail));
+      if (a.reason) row.append(h("span", "ai-denial-reason", a.reason));
+      list.append(row);
+    }
+    card.append(list);
+  } else {
+    const explain = targetMode === "full"
+      ? "El modo actual no permite ejecutar comandos de terminal (como run_command o Bash). Aprueba esta acción para que el agente pueda completar la tarea."
+      : "El modo «Solo leer» impide modificar archivos. Aprueba la edición para que el agente pueda continuar.";
+    card.append(h("p", "ai-denial-msg", explain));
+  }
+
+  const acts = h("div", "ai-denial-acts");
+  const onceBtn = h("button", "ai-denial-btn primary", "Permitir una vez y continuar");
+  onceBtn.type = "button";
+  onceBtn.onclick = () => {
+    dismissedDenials.add(dismissKey);
+    const contPrompt = targetMode === "full"
+      ? "El usuario aprobó ejecutar el comando o herramienta que quedó bloqueada en el paso anterior. Ejecútalo ahora y completa la tarea pendiente."
+      : "El usuario aprobó modificar archivos para el paso anterior. Aplica los cambios y completa la tarea pendiente.";
+    void dispatchPrompt(live, "Permiso concedido (una vez) · continuar", contPrompt, targetMode);
+  };
+
+  const switchBtn = h("button", "ai-denial-btn", `Activar «${targetLabel}» y continuar`);
+  switchBtn.type = "button";
+  switchBtn.onclick = () => {
+    dismissedDenials.add(dismissKey);
+    mode = targetMode;
+    localStorage.setItem("pulso.ai.mode", mode);
+    localStorage.setItem(targetMode === "full" ? "pulso.ai.fullOk" : "pulso.ai.editOk", "1");
+    build();
+    const contPrompt = targetMode === "full"
+      ? "El usuario activó el modo Agente completo (edición y comandos de terminal aprobados). Ejecuta lo que quedó pendiente y completa la tarea."
+      : "El usuario activó el modo Puede editar. Aplica los cambios y completa la tarea pendiente.";
+    void dispatchPrompt(live, `Modo «${targetLabel}» activado · continuar`, contPrompt, targetMode);
+  };
+
+  const dismissBtn = h("button", "ai-denial-btn ghost", "No permitir");
+  dismissBtn.type = "button";
+  dismissBtn.onclick = () => {
+    dismissedDenials.add(dismissKey);
+    renderBody();
+  };
+
+  acts.append(onceBtn, switchBtn, dismissBtn);
+  card.append(acts);
+  return card;
+}
+
+function renderIssueBanner() {
+  const banner = q(".ai-issue-banner");
+  if (!banner) return;
+  const work = getActiveIssueWork();
+  if (!work) {
+    banner.hidden = true;
+    banner.replaceChildren();
+    return;
+  }
+  banner.hidden = false;
+  const info = h("div", "ai-issue-info");
+  info.append(
+    h("span", "ai-issue-num", `#${work.number}`),
+    h("span", "ai-issue-title", work.title),
+    h("code", "ai-issue-branch", work.branch),
+  );
+  const acts = h("div", "ai-issue-acts");
+  const prBtn = h("button", "ai-issue-btn primary", "Crear PR");
+  prBtn.type = "button";
+  prBtn.title = `Crear pull request enlazando Closes #${work.number}`;
+  prBtn.onclick = () => {
+    const files = current ? touchedFiles(current.convo.messages) : [];
+    void createPrForActiveIssue(files);
+  };
+  const endBtn = h("button", "ai-issue-btn", "Finalizar");
+  endBtn.type = "button";
+  endBtn.title = "Dejar de asociar esta issue al asistente";
+  endBtn.onclick = () => { clearActiveIssueWork(); renderIssueBanner(); };
+  acts.append(prBtn, endBtn);
+  banner.replaceChildren(info, acts);
+}
+
+/** Caché incremental de nodos renderizados por turno: evita reconstruir toda la conversación en cada token (O(1) por frame). */
+interface TurnCacheEntry { turn: Turn; active: boolean; slot: HTMLElement }
+let renderedChatId = "";
+let renderedTurns: TurnCacheEntry[] = [];
+let turnsHost: HTMLElement | null = null;
+let tailHost: HTMLElement | null = null;
+
+function resetTurnCache() {
+  renderedChatId = "";
+  renderedTurns = [];
+  turnsHost = null;
+  tailHost = null;
 }
 
 function renderBody() {
@@ -1527,12 +1549,14 @@ function renderBody() {
   }
   const histBtn = q<HTMLButtonElement>('.ai-tools button[title="Conversaciones anteriores"]');
   if (histBtn) { histBtn.classList.toggle("active", historyOpen); histBtn.setAttribute("aria-pressed", String(historyOpen)); }
+  renderIssueBanner();
   renderFoot();
   const recheck = () => { toolAt = 0; void detect(true); };
   const ready = !!curTool?.installed && curTool.logged_in && !!ws.root;
   compose.hidden = !ready || historyOpen;
-  if (!curTool) { body.replaceChildren(setupMessage(`Detectando ${meta.title}`, "Comprobando sesión y estado de tu cuenta…")); return; }
+  if (!curTool) { resetTurnCache(); body.replaceChildren(setupMessage(`Detectando ${meta.title}`, "Comprobando sesión y estado de tu cuenta…")); return; }
   if (!curTool.installed) {
+    resetTurnCache();
     const canInstall = !!(meta.npmPkg || meta.installCmdPs);
     const installBtn = canInstall ? (() => { const b = h("button", "foot-btn ai-btn-primary", "Instalar y conectar"); b.type = "button"; b.onclick = () => void installAndConnect(prov); return b; })() : null;
     const again = h("button", canInstall ? "foot-btn foot-btn-line" : "foot-btn ai-btn-primary", "Volver a comprobar"); again.type = "button"; again.onclick = recheck;
@@ -1546,6 +1570,7 @@ function renderBody() {
     return;
   }
   if (!curTool.logged_in) {
+    resetTurnCache();
     const login = h("button", "foot-btn ai-btn-primary", meta.loginBtn); login.type = "button";
     login.onclick = () => startLoginFlow(prov);
     const again = h("button", "foot-btn foot-btn-line", "Ya inicié sesión: volver a comprobar"); again.type = "button"; again.onclick = recheck;
@@ -1561,67 +1586,137 @@ function renderBody() {
     body.replaceChildren(setupMessage(title, desc, ...extraBtns));
     return;
   }
-  if (!ws.root) { body.replaceChildren(setupMessage("Abre un proyecto", "Abre una carpeta de proyecto para que el asistente pueda leer tu código y ayudarte dentro de ella.")); return; }
-  if (historyOpen) { renderHistory(body); return; }
+  if (!ws.root) { resetTurnCache(); body.replaceChildren(setupMessage("Abre un proyecto", "Abre una carpeta de proyecto para que el asistente pueda leer tu código y ayudarte dentro de ella.")); return; }
+  if (historyOpen) { resetTurnCache(); renderHistory(body); return; }
 
   const live = current ?? (current = newLive());
   const c = live.convo;
   syncModelButton();
   const atBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 80;
-  const nodes: HTMLElement[] = [];
+
   if (!c.messages.length) {
-    nodes.push(buildEmptyWorkbench());
-  }
-  let userNum = 0;
-  c.messages.forEach((t, idx) => {
-    if (t.role === "user") userNum += 1;
-    const activeTurn = c.running && idx === c.messages.length - 1 && t.role === "assistant";
-    nodes.push(...turnNodes(t, userNum, activeTurn));
-  });
-  const last = c.messages[c.messages.length - 1];
-  const lastEl = nodes[nodes.length - 1];
-  const hasRunningTrace = c.running && lastEl?.classList.contains("ai-step-group") && lastEl.classList.contains("running");
-  if (c.running && (!last || last.role === "user" || (!last.done && !hasRunningTrace))) {
-    const w = h("div", "ai-working-pill");
-    w.append(h("span", "ai-step-orb pulse"), h("span", "ai-working-lbl", "Pensando"));
-    nodes.push(w);
-  }
-  if (c.error) {
-    const e = h("div", "ai-error");
-    e.append(h("div", "", c.error));
-    if (isAuthError(c.error)) {
-      const b = h("button", "foot-btn foot-btn-line", "Iniciar sesión en la terminal"); b.type = "button";
-      b.onclick = () => startLoginFlow(live.provider);
-      e.append(b);
+    resetTurnCache();
+    body.replaceChildren(buildEmptyWorkbench());
+  } else {
+    const canReuse = renderedChatId === live.id && turnsHost && tailHost && body.contains(turnsHost) && body.contains(tailHost);
+    if (!canReuse) {
+      renderedChatId = live.id;
+      renderedTurns = [];
+      turnsHost = h("div", "ai-turns-host");
+      tailHost = h("div", "ai-tail-host");
+      body.replaceChildren(turnsHost, tailHost);
     }
-    nodes.push(e);
-  } else if (c.outcome?.ok && !c.running) {
-    const files = touchedFiles(c.messages);
-    if (files.length) {
-      const box = h("div", "ai-touched");
-      box.append(h("span", "ai-touched-label", "Archivos modificados:"));
-      for (const fp of files) {
-        const resolved = resolveToolFile(fp);
-        const btn = h("button", "ai-touched-file", baseName(fp));
-        btn.type = "button";
-        btn.title = fp;
-        btn.onclick = () => {
-          if (!resolved) return;
-          if (isFull()) setFull(false);
-          void openFile(resolved);
-        };
-        box.append(btn);
+
+    // Recortar turnos sobrantes si la lista se acortó.
+    while (renderedTurns.length > c.messages.length) {
+      renderedTurns.pop()?.slot.remove();
+    }
+
+    let userNum = 0;
+    c.messages.forEach((t, idx) => {
+      if (t.role === "user") userNum += 1;
+      const activeTurn = c.running && idx === c.messages.length - 1 && t.role === "assistant";
+      const existing = renderedTurns[idx];
+      if (existing && existing.turn === t && existing.active === activeTurn) {
+        return; // Sin cambios: conserva el DOM y cualquier selección de texto del usuario.
       }
-      nodes.push(box);
+      const slot = existing ? existing.slot : h("div", "ai-turn-slot");
+      if (!existing) {
+        turnsHost!.append(slot);
+      }
+      slot.replaceChildren(...turnNodes(t, userNum, activeTurn));
+      renderedTurns[idx] = { turn: t, active: activeTurn, slot };
+    });
+
+    const tailNodes: HTMLElement[] = [];
+    const last = c.messages[c.messages.length - 1];
+    const lastSlot = renderedTurns[renderedTurns.length - 1]?.slot;
+    const lastEl = lastSlot?.lastElementChild as HTMLElement | null;
+    const hasRunningTrace = c.running && lastEl?.classList.contains("ai-step-group") && lastEl.classList.contains("running");
+    if (c.running && (!last || last.role === "user" || (!last.done && !hasRunningTrace))) {
+      const w = h("div", "ai-working-pill");
+      w.append(h("span", "ai-step-orb pulse"), h("span", "ai-working-lbl", "Pensando"));
+      tailNodes.push(w);
     }
-    const secs = c.outcome.durationMs ? ` · ${(c.outcome.durationMs / 1000).toFixed(1).replace(".", ",")} s` : "";
-    const modelTag = c.model ? ` · ${formatModelName(c.model)}` : "";
-    const o = h("div", "ai-outcome", `Listo${secs}${modelTag}`);
-    if (c.touched) o.append(` · ${c.touched} archivo${c.touched === 1 ? "" : "s"} modificado${c.touched === 1 ? "" : "s"}`);
-    if (c.outcome.denials) o.append(` · ${c.outcome.denials} acción${c.outcome.denials === 1 ? "" : "es"} no permitida${c.outcome.denials === 1 ? "" : "s"}${mode === "read" ? ": cambia a «Puede editar» si quieres que modifique archivos" : ""}`);
-    nodes.push(o);
+    if (c.error) {
+      const e = h("div", "ai-error");
+      e.append(h("div", "", c.error));
+      if (isAuthError(c.error)) {
+        const b = h("button", "foot-btn foot-btn-line", "Iniciar sesión en la terminal"); b.type = "button";
+        b.onclick = () => startLoginFlow(live.provider);
+        e.append(b);
+      }
+      tailNodes.push(e);
+      if (!c.running && c.outcome?.denials) {
+        const dKey = `${live.id}:${c.messages.length}`;
+        if (!dismissedDenials.has(dKey)) {
+          tailNodes.push(buildDenialCard(live, c.outcome.denials, c.outcome.deniedActions, dKey));
+        }
+      }
+    } else if (!c.running) {
+      // Propuestas revisables en bloques ```lang path=... del último turno del asistente.
+      const lastAssistant = [...c.messages].reverse().find((m) => m.role === "assistant");
+      const assistantMd = lastAssistant
+        ? lastAssistant.blocks.filter((b): b is Extract<Block, { kind: "text" }> => b.kind === "text").map((b) => b.text).join("\n")
+        : "";
+      const proposals = assistantMd ? extractProposedEdits(assistantMd) : [];
+      if (proposals.length) {
+        const pbox = h("div", "ai-proposals");
+        pbox.append(h("span", "ai-touched-label", `Revisar cambios propuestos (${proposals.length}):`));
+        for (const edit of proposals) {
+          const pkey = `${live.id}:${lastAssistant?.id ?? ""}:${edit.path}`;
+          const st = proposalStatus.get(pkey);
+          const label = st === "applied" ? `${baseName(edit.path)} ✓` : st === "discarded" ? `${baseName(edit.path)} ✕` : `Diff: ${baseName(edit.path)}`;
+          const btn = h("button", `ai-prop-btn${st ? ` ${st}` : ""}`, label);
+          btn.type = "button";
+          btn.title = `${edit.path} — Revisar diferencias antes de aplicar`;
+          btn.onclick = () => {
+            if (isFull()) setFull(false);
+            void reviewProposedEdit(
+              edit,
+              () => { proposalStatus.set(pkey, "applied"); renderBody(); },
+              () => { proposalStatus.set(pkey, "discarded"); renderBody(); },
+            );
+          };
+          pbox.append(btn);
+        }
+        tailNodes.push(pbox);
+      }
+      if (c.outcome?.ok) {
+        const files = touchedFiles(c.messages);
+        if (files.length) {
+          const box = h("div", "ai-touched");
+          box.append(h("span", "ai-touched-label", "Archivos modificados:"));
+          for (const fp of files) {
+            const resolved = resolveToolFile(fp);
+            const btn = h("button", "ai-touched-file", baseName(fp));
+            btn.type = "button";
+            btn.title = fp;
+            btn.onclick = () => {
+              if (!resolved) return;
+              if (isFull()) setFull(false);
+              void openFile(resolved);
+            };
+            box.append(btn);
+          }
+          tailNodes.push(box);
+        }
+        if (c.outcome.denials) {
+          const dKey = `${live.id}:${c.messages.length}`;
+          if (!dismissedDenials.has(dKey)) {
+            tailNodes.push(buildDenialCard(live, c.outcome.denials, c.outcome.deniedActions, dKey));
+          }
+        }
+        const secs = c.outcome.durationMs ? ` · ${(c.outcome.durationMs / 1000).toFixed(1).replace(".", ",")} s` : "";
+        const modelTag = c.model ? ` · ${formatModelName(c.model)}` : "";
+        const o = h("div", "ai-outcome", `Listo${secs}${modelTag}`);
+        if (c.touched) o.append(` · ${c.touched} archivo${c.touched === 1 ? "" : "s"} modificado${c.touched === 1 ? "" : "s"}`);
+        if (c.outcome.denials) o.append(` · ${c.outcome.denials} acción${c.outcome.denials === 1 ? "" : "es"} no permitida${c.outcome.denials === 1 ? "" : "s"}`);
+        tailNodes.push(o);
+      }
+    }
+    tailHost!.replaceChildren(...tailNodes);
   }
-  body.replaceChildren(...nodes);
   if (atBottom) body.scrollTop = body.scrollHeight;
   const send = q<HTMLButtonElement>(".ai-send")!;
   send.innerHTML = c.running ? ICON_STOP : ICON_SEND;
@@ -1717,15 +1812,8 @@ function autosize() {
   if (t) { t.style.height = "auto"; t.style.height = `${Math.min(t.scrollHeight, 160)}px`; }
 }
 
-async function send() {
-  const live = current;
-  const input = q<HTMLTextAreaElement>(".ai-input");
-  if (!live || !input || !ws.root) return;
-  if (live.convo.running) { live.stopping = true; await invoke("ai_stop", { id: live.id }).catch(() => {}); return; }
-  const text = input.value.trim();
-  if (!text) return;
-  const prompt = buildPrompt(text, editorContext());
-  input.value = ""; autosize();
+async function dispatchPrompt(live: Live, displayText: string, prompt: string, effectiveMode: AiMode) {
+  if (!ws.root || live.convo.running) return;
   live.cwd = ws.root;
   live.stopping = false;
   if (!live.convo.messages.length) {
@@ -1735,12 +1823,24 @@ async function send() {
   const useEffort = PROVIDERS[live.provider].supportsEffort && !(live.provider === "antigravity" && model)
     ? effort || null
     : null;
-  apply(live, userEvent(text));
+  apply(live, userEvent(displayText));
   try {
-    await invoke("ai_send", { id: live.id, cwd: ws.root, prompt, session: live.convo.sessionId || null, model: model || null, effort: useEffort, mode, provider: live.provider });
+    await invoke("ai_send", { id: live.id, cwd: ws.root, prompt, session: live.convo.sessionId || null, model: model || null, effort: useEffort, mode: effectiveMode, provider: live.provider });
   } catch (e) {
     apply(live, exitEvent(1, String(e)));
   }
+}
+
+async function send() {
+  const live = current;
+  const input = q<HTMLTextAreaElement>(".ai-input");
+  if (!live || !input || !ws.root) return;
+  if (live.convo.running) { live.stopping = true; await invoke("ai_stop", { id: live.id }).catch(() => {}); return; }
+  const text = input.value.trim();
+  if (!text) return;
+  const prompt = buildPrompt(text, editorContext());
+  input.value = ""; autosize();
+  await dispatchPrompt(live, text, prompt, mode);
 }
 
 function newConversation() {
@@ -1763,7 +1863,7 @@ function applyMode() {
 
 function setFull(full: boolean) {
   localStorage.setItem(FULL_KEY, full ? "1" : "0");
-  if (full) window.dispatchEvent(new CustomEvent("pulso-overlay", { detail: "ai" }));
+  if (full) bus.emit("overlay", "ai");
   applyMode();
 }
 
@@ -1771,12 +1871,10 @@ function onKey(e: KeyboardEvent) {
   if (e.key === "Escape" && !closePopover && isFull() && !document.querySelector(".modal")) { e.preventDefault(); e.stopPropagation(); setFull(false); }
 }
 
-async function chooseMode(next: "read" | "edit") {
+async function chooseMode(next: AiMode) {
   if (next === mode) return;
   if (next === "edit" && localStorage.getItem("pulso.ai.editOk") !== "1") {
-    const msg = activeProvider === "claude"
-      ? "Con «Puede editar», Claude Code podrá modificar y crear archivos de tu proyecto sin preguntar cada vez. Verás los cambios en el panel de Git y podrás descartarlos. Nunca se le permite ejecutar comandos desde aquí."
-      : `Con «Puede editar», ${PROVIDERS[activeProvider].title} podrá modificar y crear archivos en tu proyecto según las reglas de su sandbox. Verás los cambios en el panel de Git y podrás descartarlos.`;
+    const msg = `Con «Puede editar», ${PROVIDERS[activeProvider].title} podrá modificar y crear archivos en tu proyecto sin preguntar cada vez. Verás los cambios en el panel de Git y podrás descartarlos. Si necesita ejecutar un comando de terminal, Pulso te pedirá permiso.`;
     const r = await showDialog({
       title: "Permitir que la IA edite archivos",
       message: msg,
@@ -1784,155 +1882,23 @@ async function chooseMode(next: "read" | "edit") {
     });
     if (r !== "ok") { build(); return; }
     localStorage.setItem("pulso.ai.editOk", "1");
+  } else if (next === "full" && localStorage.getItem("pulso.ai.fullOk") !== "1") {
+    const msg = `Con «Agente», ${PROVIDERS[activeProvider].title} podrá modificar archivos Y ejecutar comandos de terminal (pruebas, búsquedas, diagnósticos, git, etc.) dentro de tu proyecto sin pedir confirmación en cada paso. Actívalo solo en proyectos en los que confíes.`;
+    const r = await showDialog({
+      title: "Activar modo Agente completo",
+      message: msg,
+      buttons: [{ label: "Cancelar", value: "cancel" }, { label: "Activar modo Agente", value: "ok", primary: true }],
+    });
+    if (r !== "ok") { build(); return; }
+    localStorage.setItem("pulso.ai.fullOk", "1");
   }
   mode = next;
   localStorage.setItem("pulso.ai.mode", mode);
   build();
 }
 
-const BG_KEY = "pulso.ai.appearance";
-
-interface AiAppearance {
-  bg: string;
-  pattern: "dots" | "solid";
-  scope: "assistant" | "global";
-}
-
-const BG_PRESETS: { name: string; color: string; swatch: string }[] = [
-  { name: "Tema actual", color: "", swatch: "var(--bg)" },
-  { name: "Negro puro", color: "#050507", swatch: "#050507" },
-  { name: "Azul noche", color: "#071022", swatch: "#071022" },
-  { name: "Pizarra", color: "#0d141c", swatch: "#0d141c" },
-  { name: "Índigo", color: "#0e0b1a", swatch: "#0e0b1a" },
-  { name: "Bosque", color: "#071410", swatch: "#071410" },
-];
-
-function loadAppearance(): AiAppearance {
-  try {
-    const raw = JSON.parse(localStorage.getItem(BG_KEY) ?? "{}");
-    return {
-      bg: typeof raw.bg === "string" && /^#[0-9a-f]{6}$/i.test(raw.bg) ? raw.bg : "",
-      pattern: raw.pattern === "solid" ? "solid" : "dots",
-      scope: raw.scope === "global" ? "global" : "assistant",
-    };
-  } catch {
-    return { bg: "", pattern: "dots", scope: "assistant" };
-  }
-}
-
-function isLightHex(hex: string): boolean {
-  const n = Number.parseInt(hex.slice(1), 16);
-  const r = (n >> 16) & 255; const g = (n >> 8) & 255; const b = n & 255;
-  return (r * 299 + g * 587 + b * 114) / 1000 > 150;
-}
-
-function applyAiAppearance(cfg: AiAppearance = loadAppearance()) {
-  const view = viewEl();
-  const root = document.documentElement.style;
-  view.classList.toggle("ai-bg-solid", cfg.pattern === "solid");
-  const clearVars = (s: CSSStyleDeclaration, vars: string[]) => vars.forEach((v) => s.removeProperty(v));
-  const vars = ["--bg", "--editor", "--sidebar", "--activity", "--hover", "--selected", "--border", "--fg", "--muted"];
-  if (!cfg.bg) {
-    clearVars(view.style, vars);
-    clearVars(root, vars);
-    return;
-  }
-  const light = isLightHex(cfg.bg);
-  const mix = light ? "#000000" : "#ffffff";
-  const surface = `color-mix(in srgb, ${cfg.bg} ${light ? "93%" : "91%"}, ${mix})`;
-  const hover = `color-mix(in srgb, ${cfg.bg} 84%, ${mix})`;
-  const selected = `color-mix(in srgb, ${cfg.bg} 76%, ${mix})`;
-  const border = `color-mix(in srgb, ${cfg.bg} ${light ? "82%" : "83%"}, ${mix})`;
-  const fg = light ? "#191b22" : "#eceef4";
-  const muted = light ? "#5e6473" : "#8b93a7";
-  const target = cfg.scope === "global" ? root : view.style;
-  clearVars(cfg.scope === "global" ? view.style : root, vars);
-  target.setProperty("--bg", cfg.bg);
-  target.setProperty("--editor", cfg.bg);
-  target.setProperty("--sidebar", surface);
-  target.setProperty("--activity", cfg.bg);
-  target.setProperty("--hover", hover);
-  target.setProperty("--selected", selected);
-  target.setProperty("--border", border);
-  target.setProperty("--fg", fg);
-  target.setProperty("--muted", muted);
-}
-
-function saveAppearance(cfg: AiAppearance) {
-  try { localStorage.setItem(BG_KEY, JSON.stringify(cfg)); } catch { /* sin acceso */ }
-  applyAiAppearance(cfg);
-}
-
 function openAppearancePopover(anchor: HTMLElement) {
-  const pop = h("div", "ai-popover ai-theme-pop");
-  const render = () => {
-    const cfg = loadAppearance();
-    pop.replaceChildren();
-    const head = h("div", "ai-usage-pop-head");
-    head.append(h("span", "ai-usage-group", "Fondo y estilo"));
-    if (cfg.bg || cfg.pattern !== "dots" || cfg.scope !== "assistant") {
-      const rst = h("button", "ai-usage-sync", "Restablecer");
-      rst.type = "button";
-      rst.onclick = () => { saveAppearance({ bg: "", pattern: "dots", scope: "assistant" }); render(); };
-      head.append(rst);
-    }
-    pop.append(head);
-
-    const grid = h("div", "ai-swatch-grid");
-    for (const p of BG_PRESETS) {
-      const active = cfg.bg.toLowerCase() === p.color.toLowerCase();
-      const b = h("button", `ai-swatch${active ? " active" : ""}`);
-      b.type = "button";
-      b.title = p.name;
-      const dot = h("span", "ai-swatch-dot");
-      dot.style.background = p.swatch;
-      b.append(dot, h("span", "ai-swatch-name", p.name));
-      b.onclick = () => { saveAppearance({ ...cfg, bg: p.color }); render(); };
-      grid.append(b);
-    }
-    pop.append(grid);
-
-    const customRow = h("label", "ai-color-custom");
-    const picker = h("input");
-    picker.type = "color";
-    picker.value = cfg.bg || "#0e0e0f";
-    const hexLbl = h("span", "ai-color-hex", cfg.bg ? cfg.bg.toUpperCase() : "Tema");
-    picker.oninput = () => {
-      hexLbl.textContent = picker.value.toUpperCase();
-      saveAppearance({ ...cfg, bg: picker.value });
-      grid.querySelectorAll(".ai-swatch").forEach((s) => s.classList.remove("active"));
-    };
-    customRow.append(h("span", "ai-pop-effort-lbl", "Color personalizado"), picker, hexLbl);
-    pop.append(h("div", "ai-pop-sep"), customRow);
-
-    const optRow = h("div", "ai-theme-opts");
-    const makeToggle = (label: string, opts: [string, string, boolean, () => void][]) => {
-      const row = h("div", "ai-pop-effort");
-      row.append(h("span", "ai-pop-effort-lbl", label));
-      const pills = h("div", "ai-effort-pills");
-      for (const [, text, active, fn] of opts) {
-        const b = h("button", `ai-effort-pill${active ? " active" : ""}`, text);
-        b.type = "button";
-        b.onclick = () => { fn(); render(); };
-        pills.append(b);
-      }
-      row.append(pills);
-      return row;
-    };
-    optRow.append(
-      makeToggle("Textura", [
-        ["dots", "Puntos", cfg.pattern === "dots", () => saveAppearance({ ...cfg, pattern: "dots" })],
-        ["solid", "Liso", cfg.pattern === "solid", () => saveAppearance({ ...cfg, pattern: "solid" })],
-      ]),
-      makeToggle("Aplicar en", [
-        ["assistant", "Asistente", cfg.scope === "assistant", () => saveAppearance({ ...cfg, scope: "assistant" })],
-        ["global", "Todo Pulso", cfg.scope === "global", () => saveAppearance({ ...cfg, scope: "global" })],
-      ]),
-    );
-    pop.append(h("div", "ai-pop-sep"), optRow);
-  };
-  render();
-  openPopover(anchor, pop, "below");
+  openPopover(anchor, buildAppearancePopover(viewEl()), "below");
 }
 
 const ICON_PALETTE = '<svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0 0 18c1.1 0 1.8-.7 1.8-1.6 0-.4-.2-.8-.4-1.1-.3-.3-.4-.6-.4-1a1.5 1.5 0 0 1 1.5-1.5h2A4.5 4.5 0 0 0 21 11.3C21 6.7 17 3 12 3z"/><circle cx="7.5" cy="11.5" r="1"/><circle cx="10.5" cy="7.5" r="1"/><circle cx="15.5" cy="8.5" r="1"/></svg>';
@@ -1992,10 +1958,12 @@ function build() {
   const seg = h("div", "seg ai-mode");
   seg.setAttribute("role", "tablist");
   seg.setAttribute("aria-label", "Permisos");
-  const editHint = activeProvider === "claude"
-    ? "La IA puede editar y crear archivos sin preguntar. Nunca ejecuta comandos"
-    : "La IA puede editar y crear archivos en tu proyecto dentro de su sandbox";
-  for (const [value, label, hint] of [["read", "Solo leer", "La IA puede leer y buscar en tu proyecto, pero no modificarlo"], ["edit", "Puede editar", editHint]] as const) {
+  const modeOptions: readonly [AiMode, string, string][] = [
+    ["read", "Solo leer", "La IA puede leer y buscar en tu proyecto, pero no modificarlo"],
+    ["edit", "Puede editar", "La IA puede editar archivos directamente. Si intenta ejecutar comandos, Pulso te pedirá permiso"],
+    ["full", "Agente", "La IA puede editar archivos y ejecutar comandos de terminal en tu proyecto para completar tareas"],
+  ];
+  for (const [value, label, hint] of modeOptions) {
     const b = h("button", "", label); b.type = "button"; b.title = hint; b.setAttribute("role", "tab"); b.setAttribute("aria-selected", String(mode === value));
     b.onclick = () => void chooseMode(value);
     seg.append(b);
@@ -2012,8 +1980,10 @@ function build() {
   compose.onsubmit = (e) => { e.preventDefault(); void send(); };
   input.oninput = autosize;
   input.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); void send(); } };
+  const issueBanner = h("div", "ai-issue-banner");
+  issueBanner.hidden = true;
   const foot = h("div", "ai-foot");
-  shell.append(head, body, compose, foot);
+  shell.append(head, issueBanner, body, compose, foot);
   root.replaceChildren(shell);
   applyMode();
   renderBody();
@@ -2026,14 +1996,14 @@ export function setAiVisible(visible: boolean) {
   window.removeEventListener("keydown", onKey, true);
   if (!visible) { dismissPopover(); return; }
   window.addEventListener("keydown", onKey, true);
-  if (isFull()) window.dispatchEvent(new CustomEvent("pulso-overlay", { detail: "ai" }));
+  if (isFull()) bus.emit("overlay", "ai");
   if (!q(".ai-shell")) build(); else { applyMode(); renderBody(); }
   void detect(!tool?.logged_in);
   q<HTMLTextAreaElement>(".ai-input")?.focus();
 }
 
 export function initAi() {
-  applyAiAppearance();
+  applyAiAppearance(viewEl());
   if (!("__TAURI_INTERNALS__" in window)) return;
   // El historial vive en un archivo: se carga una vez, recupera si cerró ejecutando y repinta si corresponde.
   void initHistory().then(() => {
@@ -2074,14 +2044,26 @@ export function initAi() {
     const live = lives.get(e.payload.id);
     if (live) apply(live, exitEvent(live.stopping ? null : e.payload.code, e.payload.stderr));
   });
-  // El contexto adjunto sigue al editor: archivo y selección actuales.
+  // El contexto adjunto sigue al editor: archivo y selección actuales, liberando listeners al cerrar el editor.
   const attach = (ed: monaco.editor.ICodeEditor) => {
-    ed.onDidChangeCursorSelection(() => { if (shown && ed === focusedEditor()) { useSel = true; renderChips(); } });
-    ed.onDidFocusEditorText(() => { const p = activePath() ?? ""; if (p !== lastFile) { lastFile = p; useFile = true; } if (shown) renderChips(); });
+    const d1 = ed.onDidChangeCursorSelection(() => { if (shown && ed === focusedEditor()) { useSel = true; renderChips(); } });
+    const d2 = ed.onDidFocusEditorText(() => { const p = activePath() ?? ""; if (p !== lastFile) { lastFile = p; useFile = true; } if (shown) renderChips(); });
+    ed.onDidDispose(() => { d1.dispose(); d2.dispose(); });
   };
   monaco.editor.getEditors().forEach(attach);
   monaco.editor.onDidCreateEditor(attach);
-  window.addEventListener("pulso-overlay", (e) => { if ((e as CustomEvent).detail === "board" && isFull()) setFull(false); });
+  bus.on("overlay", (kind) => { if (kind === "board" && isFull()) setFull(false); });
+  bus.on("issue-workflow-start", ({ body: prompt }) => {
+    historyOpen = false;
+    newConversation();
+    renderIssueBanner();
+    const inp = q<HTMLTextAreaElement>(".ai-input");
+    if (inp) {
+      inp.value = prompt;
+      autosize();
+      inp.focus();
+    }
+  });
 }
 
 /** «IA: Nueva conversación» desde la paleta. */

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { bus } from "./core/events";
 import { openDiff, closeDiff } from "./diffView";
 import { checkExternal } from "./docs";
 import { refreshGitDecorations, refreshTree } from "./explorer";
@@ -28,7 +29,7 @@ export async function refreshScm() {
     const c = await invoke<Changes>("git_changes", { root: ws.root });
     if (id !== seq) return;
     changes = c; problem = "";
-    window.dispatchEvent(new Event("pulso-scm-refreshed"));
+    bus.emit("scm-refreshed");
   } catch (e) {
     if (id !== seq) return;
     changes = null; problem = String(e);
@@ -87,6 +88,12 @@ function section(title: string, list: Change[], staged: boolean, bulk: (() => vo
   return wrap;
 }
 
+function syncCommitButton() {
+  const commitBtn = $("scm-commit") as HTMLButtonElement;
+  commitBtn.disabled = busy || !canCommit(changes, msgBox().value);
+  commitBtn.title = !changes ? "" : !changes.staged.length ? "Prepara al menos un archivo" : !msgBox().value.trim() ? "Escribe un mensaje" : "Confirmar los cambios preparados (Ctrl+Enter)";
+}
+
 function paint() {
   const box = $("scm-list");
   box.replaceChildren();
@@ -103,9 +110,7 @@ function paint() {
   $("scm-push").title = sync.pushTip;
   ($("scm-pull") as HTMLButtonElement).disabled = busy;
   ($("scm-push") as HTMLButtonElement).disabled = busy;
-  const commitBtn = $("scm-commit") as HTMLButtonElement;
-  commitBtn.disabled = busy || !canCommit(changes, msgBox().value);
-  commitBtn.title = !changes ? "" : !changes.staged.length ? "Prepara al menos un archivo" : !msgBox().value.trim() ? "Escribe un mensaje" : "Confirmar los cambios preparados (Ctrl+Enter)";
+  syncCommitButton();
   $("scm-compose").hidden = !changes;
   if (!changes) { box.append(h("div", "scm-empty", problem)); return; }
   const parts = [
@@ -228,7 +233,7 @@ export function initScm() {
   $("scm-branch-btn").onclick = () => void pickBranch();
   $("scm-pull").onclick = () => void pullChanges();
   $("scm-push").onclick = () => void pushChanges();
-  msgBox().oninput = () => paint();
+  msgBox().oninput = () => syncCommitButton();
   msgBox().onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void commitStaged(); } };
   onGitChange(() => void refreshScm());
   window.addEventListener("focus", () => void refreshScm());

@@ -1116,16 +1116,174 @@ mod console {
 #[cfg(not(windows))]
 mod console {
     use super::Key;
+    use std::io::Read;
 
     pub fn enable_ansi() {}
-    pub fn term_width() -> usize { 90 }
 
-    pub struct RawConsole;
+    pub fn term_width() -> usize {
+        unsafe {
+            let mut ws: libc::winsize = std::mem::zeroed();
+            if libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut ws) == 0 && ws.ws_col > 0 {
+                return ws.ws_col as usize;
+            }
+        }
+        90
+    }
+
+    pub fn decode_unix_seq(bytes: &[u8]) -> Key {
+        match bytes {
+            [0x03] => Key::CtrlC,
+            [0x04] => Key::CtrlD,
+            [0x0c] => Key::CtrlL,
+            [0x15] => Key::CtrlU,
+            [0x17] => Key::CtrlW,
+            [b'\r'] | [b'\n'] => Key::Enter,
+            [0x7f] | [0x08] => Key::Backspace,
+            [b'\t'] => Key::Tab,
+            [0x1b] => Key::Esc,
+            [0x1b, b'[', b'Z'] => Key::ShiftTab,
+            [0x1b, b'[', b'A'] => Key::Up,
+            [0x1b, b'[', b'B'] => Key::Down,
+            [0x1b, b'[', b'C'] => Key::Right,
+            [0x1b, b'[', b'D'] => Key::Left,
+            [0x1b, b'[', b'H'] | [0x1b, b'O', b'H'] => Key::Home,
+            [0x1b, b'[', b'F'] | [0x1b, b'O', b'F'] => Key::End,
+            [0x1b, b'[', b'3', b'~'] => Key::Delete,
+            _ => {
+                if let Ok(s) = std::str::from_utf8(bytes) {
+                    if let Some(ch) = s.chars().next() {
+                        if !ch.is_control() {
+                            return Key::Char(ch);
+                        }
+                    }
+                }
+                Key::None
+            }
+        }
+    }
+
+    pub struct RawConsole {
+        orig: libc::termios,
+    }
+
     impl RawConsole {
-        pub fn enter() -> Option<Self> { None }
-        pub fn read_key(&self) -> Key { Key::None }
-        pub fn poll_ctrl_c(&self) -> bool { false }
+        pub fn enter() -> Option<Self> {
+            unsafe {
+                if libc::isatty(libc::STDIN_FILENO) == 0 {
+                    return None;
+                }
+                let mut orig: libc::termios = std::mem::zeroed();
+                if libc::tcgetattr(libc::STDIN_FILENO, &mut orig) != 0 {
+                    return None;
+                }
+                let mut raw = orig;
+                raw.c_lflag &= !(libc::ICANON | libc::ECHO | libc::ISIG | libc::IEXTEN);
+                raw.c_iflag &= !(libc::IXON | libc::ICRNL);
+                raw.c_cc[libc::VMIN] = 1;
+                raw.c_cc[libc::VTIME] = 0;
+                if libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &raw) != 0 {
+                    return None;
+                }
+                Some(Self { orig })
+            }
+        }
+
+        fn read_byte_timeout(ms: i32) -> Option<u8> {
+            unsafe {
+                let mut pfd = libc::pollfd {
+                    fd: libc::STDIN_FILENO,
+                    events: libc::POLLIN,
+                    revents: 0,
+                };
+                if libc::poll(&mut pfd, 1, ms) > 0 && (pfd.revents & libc::POLLIN) != 0 {
+                    let mut b = [0u8; 1];
+                    if std::io::stdin().read(&mut b).ok()? == 1 {
+                        return Some(b[0]);
+                    }
+                }
+            }
+            None
+        }
+
+        pub fn read_key(&self) -> Key {
+            let mut b = [0u8; 1];
+            if std::io::stdin().read(&mut b).ok().unwrap_or(0) == 0 {
+                return Key::CtrlD;
+            }
+            let first = b[0];
+            if first == 0x1b {
+                let mut seq = vec![0x1b];
+                if let Some(b2) = Self::read_byte_timeout(20) {
+                    seq.push(b2);
+                    if b2 == b'[' || b2 == b'O' {
+                        if let Some(b3) = Self::read_byte_timeout(20) {
+                            seq.push(b3);
+                            if b3.is_ascii_digit() {
+                                if let Some(b4) = Self::read_byte_timeout(20) {
+                                    seq.push(b4);
+                                }
+                            }
+                        }
+                    }
+                }
+                return decode_unix_seq(&seq);
+            }
+            // Caracteres UTF-8 multibyte.
+            let expected = if first & 0x80 == 0 {
+                1
+            } else if first & 0xE0 == 0xC0 {
+                2
+            } else if first & 0xF0 == 0xE0 {
+                3
+            } else if first & 0xF8 == 0xF0 {
+                4
+            } else {
+                1
+            };
+            let mut buf = vec![first];
+            for _ in 1..expected {
+                if let Some(next) = Self::read_byte_timeout(20) {
+                    buf.push(next);
+                }
+            }
+            decode_unix_seq(&buf)
+        }
+
+        pub fn poll_ctrl_c(&self) -> bool {
+            while let Some(b) = Self::read_byte_timeout(0) {
+                if b == 0x03 {
+                    return true;
+                }
+            }
+            false
+        }
+    }
+
+    impl Drop for RawConsole {
+        fn drop(&mut self) {
+            unsafe {
+                let _ = libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &self.orig);
+            }
+        }
     }
 }
 
 use console::{enable_ansi, term_width, RawConsole};
+
+#[cfg(all(test, not(windows)))]
+mod unix_cli_tests {
+    use super::{console::decode_unix_seq, Key};
+
+    #[test]
+    fn decodifica_atajos_y_flechas_ansi_en_unix() {
+        assert_eq!(decode_unix_seq(&[0x03]), Key::CtrlC);
+        assert_eq!(decode_unix_seq(&[0x04]), Key::CtrlD);
+        assert_eq!(decode_unix_seq(&[b'\r']), Key::Enter);
+        assert_eq!(decode_unix_seq(&[0x7f]), Key::Backspace);
+        assert_eq!(decode_unix_seq(b"\x1b[Z"), Key::ShiftTab);
+        assert_eq!(decode_unix_seq(b"\x1b[A"), Key::Up);
+        assert_eq!(decode_unix_seq(b"\x1b[B"), Key::Down);
+        assert_eq!(decode_unix_seq(b"\x1b[3~"), Key::Delete);
+        assert_eq!(decode_unix_seq("ñ".as_bytes()), Key::Char('ñ'));
+    }
+}

@@ -1,5 +1,5 @@
 import { commands } from "./commands";
-import { disconnectGithub, getAccount, getToken, refreshAccount, setToken } from "./github";
+import { disconnectGithub, getAccount, hasToken, refreshAccount, setToken } from "./github";
 import { connectFlow } from "./githubConnect";
 import { buildKeybindings } from "./keybindingsView";
 import { ACCENTS, DEFAULTS, FONTS, commit, currentTheme, setTheme, state, syntaxOptionsFor, type Settings } from "./settings";
@@ -240,11 +240,17 @@ function buildGithub() {
   token.placeholder = "ghp_… (opcional)";
   token.autocomplete = "off";
   token.onchange = async () => {
-    const saved = await setToken(token.value);
+    const val = token.value;
+    const saved = await setToken(val);
+    token.value = "";
     setStatus(saved ? "Token guardado en el almacén de credenciales del sistema" : "No se pudo guardar el token de forma segura: solo se usará en esta sesión");
     onTokenChange();
+    sync();
   };
-  syncers.push(() => { token.value = getToken(); });
+  syncers.push(() => {
+    token.value = "";
+    token.placeholder = hasToken() ? "•••••••• (guardado en el almacén del sistema)" : "ghp_… (opcional)";
+  });
   const who = h("span", "sp-ver", "");
   const connect = button("st-gh-connect", "Conectar con GitHub", async () => {
     if (await connectFlow()) { onTokenChange(); sync(); }
@@ -258,7 +264,7 @@ function buildGithub() {
   const account = h("div", "sp-account");
   account.append(who, connect, disconnect);
   const paintAccount = () => {
-    const has = !!getToken();
+    const has = hasToken();
     who.textContent = has ? (getAccount() ? `Conectado como ${getAccount()}` : "Conectado (token guardado)") : "Sin conectar";
     connect.textContent = has ? "Volver a conectar" : "Conectar con GitHub";
     disconnect.hidden = !has;

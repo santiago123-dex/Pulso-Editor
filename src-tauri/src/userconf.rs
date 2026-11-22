@@ -64,8 +64,10 @@ pub fn find_configs(candidates: &[(&'static str, PathBuf)]) -> Vec<ConfigFile> {
 
 /// Configuración de VS Code y de Windows Terminal, si existen.
 #[tauri::command]
-pub fn terminal_config_files() -> Vec<ConfigFile> {
-    find_configs(&candidates())
+pub async fn terminal_config_files() -> Vec<ConfigFile> {
+    tauri::async_runtime::spawn_blocking(|| find_configs(&candidates()))
+        .await
+        .unwrap_or_default()
 }
 
 // ---------- Fuentes instaladas ----------
@@ -85,6 +87,7 @@ pub fn family_of(name: &str) -> String {
 
 /// Interpreta la salida de `reg query ...\Fonts`: "    Nombre (TrueType)    REG_SZ    archivo.ttf".
 pub fn parse_reg_fonts(text: &str) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
     let mut out: Vec<String> = Vec::new();
     for line in text.lines() {
         let Some(idx) = line.find("REG_") else { continue };
@@ -93,7 +96,7 @@ pub fn parse_reg_fonts(text: &str) -> Vec<String> {
         let name = name.rsplit_once(" (").map(|(n, _)| n).unwrap_or(name);
         for part in name.split(" & ") {
             let fam = family_of(part.trim());
-            if !fam.is_empty() && !out.contains(&fam) {
+            if !fam.is_empty() && seen.insert(fam.clone()) {
                 out.push(fam);
             }
         }
@@ -102,6 +105,7 @@ pub fn parse_reg_fonts(text: &str) -> Vec<String> {
 }
 
 fn query_fonts() -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
     let mut all: Vec<String> = Vec::new();
     #[cfg(windows)]
     {
@@ -111,7 +115,7 @@ fn query_fonts() -> Vec<String> {
         ] {
             if let Ok(out) = crate::background_command("reg").args(["query", key]).output() {
                 for f in parse_reg_fonts(&String::from_utf8_lossy(&out.stdout)) {
-                    if !all.contains(&f) {
+                    if seen.insert(f.clone()) {
                         all.push(f);
                     }
                 }
@@ -124,7 +128,7 @@ fn query_fonts() -> Vec<String> {
             for line in String::from_utf8_lossy(&out.stdout).lines() {
                 for fam in line.split(',') {
                     let fam = fam.trim().to_string();
-                    if !fam.is_empty() && !all.contains(&fam) {
+                    if !fam.is_empty() && seen.insert(fam.clone()) {
                         all.push(fam);
                     }
                 }

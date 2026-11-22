@@ -2,7 +2,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./github", () => {
   class GithubError extends Error { constructor(readonly status: number, writing = false) { super(`error ${status}${writing ? " (escritura)" : ""}`); } }
-  return { getToken: () => "token-prueba", apiBase: () => "https://api.github.com", GithubError };
+  const githubFetch = async (path: string, opts: { method?: string; body?: unknown; accept?: string; ifNoneMatch?: string } = {}) => {
+    const headers: Record<string, string> = { Accept: opts.accept ?? "application/vnd.github+json", Authorization: "Bearer token-prueba" };
+    if (opts.body !== undefined) headers["Content-Type"] = "application/json";
+    if (opts.ifNoneMatch) headers["If-None-Match"] = opts.ifNoneMatch;
+    const res = await fetch(`https://api.github.com${path}`, {
+      method: opts.method ?? "GET",
+      headers,
+      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+    });
+    return {
+      ok: res.ok,
+      status: res.status,
+      etag: res.headers?.get?.("etag") ?? null,
+      link: res.headers?.get?.("link") ?? null,
+      text: () => res.text(),
+      json: <T = unknown>() => res.json() as Promise<T>,
+    };
+  };
+  return { githubFetch, GithubError };
 });
 import { githubChatStore } from "./repoChatApi";
 

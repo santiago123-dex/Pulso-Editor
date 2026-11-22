@@ -1,9 +1,10 @@
+import { bus } from "./core/events";
+import { currentRepo } from "./core/repo";
 import { ago, buildItems, insertMention, lastSpoke, MAX_MESSAGE, mentionAt, mentionsPerson, mergeComments, splitBody, suggestMembers, unreadCount, type ChatComment, type ChatUser } from "./chatModel";
 import { openExternal } from "./external";
-import { getAccount, getToken, isAuthProblem } from "./github";
+import { getAccount, hasToken, isAuthProblem } from "./github";
 import { connectButton } from "./githubConnect";
 import { openFile } from "./groups";
-import { currentRepo } from "./issues";
 import { githubChatStore as store, type ChatRepo, type ChatRoom } from "./repoChatApi";
 import { setStatus, showDialog } from "./ui";
 import { $, h } from "./util";
@@ -59,7 +60,7 @@ function startBackground() {
   window.clearInterval(background);
   background = window.setInterval(async () => {
     const r = current;
-    if (!r || isOpen() || document.visibilityState !== "visible" || !getToken() || ws.root === null) return;
+    if (!r || isOpen() || document.visibilityState !== "visible" || !hasToken() || ws.root === null) return;
     try {
       const fresh = await store.newer(r.repo, r.room.number, sinceOf(r.comments));
       if (!fresh || current !== r) return;
@@ -92,7 +93,7 @@ function applyMode() {
 
 function setFull(full: boolean) {
   localStorage.setItem(FULL_KEY, full ? "1" : "0");
-  if (full) window.dispatchEvent(new CustomEvent("pulso-overlay", { detail: "chat" }));
+  if (full) bus.emit("overlay", "chat");
   applyMode();
 }
 
@@ -116,6 +117,17 @@ export function stopChat() {
   window.removeEventListener("keydown", onKey, true);
   if (onFocusTick) { window.removeEventListener("focus", onFocusTick); onFocusTick = null; }
   if (current) setBadge(unreadCount(current.comments, readSeen(current.repo), current.me));
+}
+
+/** Al cambiar o cerrar carpeta se descarta la sala del repositorio anterior y se detiene el polling en segundo plano. */
+export function resetRepoChat() {
+  current = null;
+  session++;
+  window.clearInterval(pollTimer);
+  window.clearInterval(background);
+  background = 0;
+  setBadge(0);
+  if (shown) void openChat();
 }
 
 /** Lo llama el selector de vistas de la barra lateral. */
@@ -153,7 +165,7 @@ export async function openChat(known?: ChatRoom) {
   stopChat();
   shown = true;
   const mine = session;
-  if (isFull()) window.dispatchEvent(new CustomEvent("pulso-overlay", { detail: "chat" }));
+  if (isFull()) bus.emit("overlay", "chat");
   window.addEventListener("keydown", onKey, true);
   const ui = shell("Chat del equipo", "Conversación del repositorio");
   viewEl().replaceChildren(ui.root);
@@ -165,7 +177,7 @@ export async function openChat(known?: ChatRoom) {
   if (mine !== session) return;
   if (!repo) { show(message("Abre una carpeta cuyo remoto «origin» sea un repositorio de GitHub para chatear con su equipo.")); return; }
   ui.root.querySelector(".chat-sub")!.textContent = `${repo.owner}/${repo.repo}`;
-  if (!getToken()) {
+  if (!hasToken()) {
     show(message("Conecta tu cuenta de GitHub para leer y escribir en el chat del equipo. Es un clic: se usa la sesión de Git de este equipo o se abre el navegador para autorizar.", connectButton(() => void openChat())));
     return;
   }
@@ -489,4 +501,4 @@ function mount(ui: { root: HTMLElement; head: HTMLElement; body: HTMLElement; to
   startBackground();
 }
 // Abrir el tablero con el chat en pantalla completa lo devuelve a la barra lateral.
-window.addEventListener("pulso-overlay", (e) => { if ((e as CustomEvent).detail === "board" && isFull()) setFull(false); });
+bus.on("overlay", (kind) => { if (kind === "board" && isFull()) setFull(false); });

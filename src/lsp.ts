@@ -179,8 +179,9 @@ export function setLspWorkspace(root: string | null) {
     session = s;
     try {
       const rootUri = monaco.Uri.file(root).toString();
+      const hostPid = await invoke<number>("lsp_host_pid").catch(() => null);
       const result = await request(s, "initialize", {
-        processId: null,
+        processId: hostPid,
         rootUri,
         workspaceFolders: [{ uri: rootUri, name: root.split(/[\\/]/).pop() || root }],
         capabilities: {

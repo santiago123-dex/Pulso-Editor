@@ -7,7 +7,14 @@ import { $, baseName, h } from "./util";
 export interface DiffTarget { root: string; top: string; path: string; orig: string | null; staged: boolean; status: string }
 export interface Sources { original: string; modified: string; binary: boolean }
 
-/** Cualquier comparación de dos textos: la del control de código, la de un commit o la de una pull request. */
+export interface DiffAction {
+  label: string;
+  primary?: boolean;
+  danger?: boolean;
+  run: () => void | Promise<void>;
+}
+
+/** Cualquier comparación de dos textos: la del control de código, la de un commit, la de una PR o una propuesta de IA. */
 export interface DiffRequest {
   title: string;
   sub: string;
@@ -18,6 +25,8 @@ export interface DiffRequest {
   openPath?: string;
   /** Texto a la derecha del título (por ejemplo «+3 −1»). */
   note?: string;
+  /** Acciones adicionales en la cabecera (p. ej. Aplicar / Descartar en Diff Review de IA). */
+  actions?: DiffAction[];
 }
 
 let editor: monaco.editor.IStandaloneDiffEditor | null = null;
@@ -78,6 +87,12 @@ export async function openDiffRequest(t: DiffRequest) {
     const p = t.openPath;
     open.onclick = () => { closeDiff(); void openFile(p); };
     head.append(open);
+  }
+  for (const act of t.actions ?? []) {
+    const btn = h("button", `diff-btn${act.primary ? " primary" : ""}${act.danger ? " danger" : ""}`, act.label);
+    btn.type = "button";
+    btn.onclick = () => void act.run();
+    head.append(btn);
   }
   head.append(close);
   const body = h("div", "diff-body");

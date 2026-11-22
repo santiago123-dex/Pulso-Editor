@@ -342,7 +342,7 @@ function tabMenu(g: Group, path: string): MenuItem[] {
     "sep",
     { label: "Copiar ruta", run: () => void navigator.clipboard.writeText(path) },
     { label: "Copiar ruta relativa", run: () => void navigator.clipboard.writeText(rel(path)) },
-    { label: "Mostrar en el Explorador de Windows", run: () => void invoke("reveal_in_explorer", { path }) },
+    { label: "Mostrar en el explorador de archivos", run: () => void invoke("reveal_in_explorer", { path }) },
   ];
 }
 
@@ -430,7 +430,10 @@ export async function closeTab(g: Group, path: string, force = false): Promise<b
     if (r === "cancel") return false;
     if (r === "save" && !(await saveDoc(d))) return false;
   }
-  if (!force) closedStack.push(path);
+  if (!force) {
+    closedStack.push(path);
+    if (closedStack.length > 50) closedStack.shift();
+  }
   removeFromGroup(g, path);
   releaseIfUnused(path);
   return true;

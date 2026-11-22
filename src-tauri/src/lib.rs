@@ -19,9 +19,12 @@ pub mod aichat;
 mod cli;
 pub mod termchat;
 pub mod termui;
+pub mod fsguard;
+pub mod procguard;
 
 /// Los procesos auxiliares no deben abrir ventanas de consola en Windows.
 fn background_command(program: &str) -> Command {
+    #[allow(unused_mut)]
     let mut command = Command::new(program);
     #[cfg(windows)]
     { use std::os::windows::process::CommandExt; command.creation_flags(0x08000000); }
@@ -42,9 +45,24 @@ struct Entry {
     is_dir: bool,
 }
 
+const MAX_OPEN_FILE_BYTES: u64 = 50 * 1024 * 1024;
+const MAX_THEME_FILE_BYTES: u64 = 2 * 1024 * 1024;
+
 #[tauri::command]
-async fn list_dir(path: String) -> Result<Vec<Entry>, String> {
-    tauri::async_runtime::spawn_blocking(move || list_dir_sync(path)).await.map_err(|e| e.to_string())?
+async fn set_workspace_root(
+    guard: tauri::State<'_, fsguard::WorkspaceGuard>,
+    path: Option<String>,
+) -> Result<Option<String>, String> {
+    let resolved = guard.set_root(path.as_deref())?;
+    Ok(resolved.map(|p| norm(&p)))
+}
+
+#[tauri::command]
+async fn list_dir(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: String) -> Result<Vec<Entry>, String> {
+    let safe = guard.ensure_read(&path)?;
+    tauri::async_runtime::spawn_blocking(move || list_dir_sync(safe.to_string_lossy().into_owned()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 fn list_dir_sync(path: String) -> Result<Vec<Entry>, String> {
@@ -84,8 +102,11 @@ fn walk(root: &str, mut f: impl FnMut(PathBuf) -> bool) {
 
 /// Lista recursivamente todos los archivos de `path` (para abrir archivo rápido).
 #[tauri::command]
-async fn list_files(path: String) -> Result<Vec<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || list_files_sync(path)).await.map_err(|e| e.to_string())?
+async fn list_files(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: String) -> Result<Vec<String>, String> {
+    let safe = guard.ensure_read(&path)?;
+    tauri::async_runtime::spawn_blocking(move || list_files_sync(safe.to_string_lossy().into_owned()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 fn list_files_sync(path: String) -> Result<Vec<String>, String> {
@@ -97,9 +118,43 @@ fn list_files_sync(path: String) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
+fn read_file_sync(path: &Path) -> Result<String, String> {
+    let meta = fs::metadata(path).map_err(|e| e.to_string())?;
+    if meta.len() > MAX_OPEN_FILE_BYTES {
+        return Err(format!(
+            "El archivo es demasiado grande ({:.1} MB; límite {} MB)",
+            meta.len() as f64 / (1024.0 * 1024.0),
+            MAX_OPEN_FILE_BYTES / (1024 * 1024)
+        ));
+    }
+    fs::read_to_string(path).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
-async fn read_file(path: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || fs::read_to_string(&path).map_err(|e| e.to_string())).await.map_err(|e| e.to_string())?
+async fn read_file(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: String) -> Result<String, String> {
+    let safe = guard.ensure_read(&path)?;
+    tauri::async_runtime::spawn_blocking(move || read_file_sync(&safe))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Lectura acotada para importar archivos de tema `.json`/`.jsonc` elegidos con el diálogo del sistema.
+#[tauri::command]
+async fn read_theme_file(path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = Path::new(&path);
+        let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+        if ext != "json" && ext != "jsonc" {
+            return Err("Solo se pueden importar archivos de tema .json o .jsonc".into());
+        }
+        let meta = fs::metadata(p).map_err(|e| e.to_string())?;
+        if !meta.is_file() || meta.len() > MAX_THEME_FILE_BYTES {
+            return Err("El archivo de tema es demasiado grande o no es válido".into());
+        }
+        fs::read_to_string(p).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 fn mtime_ms(p: &Path) -> Option<u64> {
@@ -155,8 +210,18 @@ fn write_checked(path: &Path, bytes: &[u8], expected_mtime: Option<u64>) -> Resu
 
 /// Guarda el archivo. Si `expected_mtime` no coincide con el del disco devuelve "CONFLICT".
 #[tauri::command]
-async fn write_file(path: String, contents: String, expected_mtime: Option<u64>) -> Result<u64, String> {
-    tauri::async_runtime::spawn_blocking(move || write_file_sync(path, contents, expected_mtime)).await.map_err(|e| e.to_string())?
+async fn write_file(
+    guard: tauri::State<'_, fsguard::WorkspaceGuard>,
+    path: String,
+    contents: String,
+    expected_mtime: Option<u64>,
+) -> Result<u64, String> {
+    let safe = guard.ensure_write(&path)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        write_file_sync(safe.to_string_lossy().into_owned(), contents, expected_mtime)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 fn write_file_sync(path: String, contents: String, expected_mtime: Option<u64>) -> Result<u64, String> {
@@ -165,8 +230,11 @@ fn write_file_sync(path: String, contents: String, expected_mtime: Option<u64>) 
 
 /// Fecha de modificación en milisegundos desde la época Unix.
 #[tauri::command]
-async fn file_mtime(path: String) -> Result<u64, String> {
-    tauri::async_runtime::spawn_blocking(move || file_mtime_sync(path)).await.map_err(|e| e.to_string())?
+async fn file_mtime(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: String) -> Result<u64, String> {
+    let safe = guard.ensure_read(&path)?;
+    tauri::async_runtime::spawn_blocking(move || file_mtime_sync(safe.to_string_lossy().into_owned()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 fn file_mtime_sync(path: String) -> Result<u64, String> {
@@ -282,87 +350,160 @@ async fn backup_list(app: tauri::AppHandle) -> Result<Vec<Backup>, String> {
 // ---------- Almacén seguro de credenciales del sistema ----------
 const SECRET_SERVICE: &str = "pulso-editor";
 
-#[tauri::command]
-fn secret_get(name: String) -> Result<Option<String>, String> {
-    let entry = keyring::Entry::new(SECRET_SERVICE, &name).map_err(|e| e.to_string())?;
-    match entry.get_password() {
-        Ok(p) => Ok(Some(p)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(e.to_string()),
+fn ensure_allowed_secret_key(name: &str) -> Result<(), String> {
+    if name == "github-token" {
+        Ok(())
+    } else {
+        Err("Clave de credencial no permitida".into())
     }
 }
 
 #[tauri::command]
-fn secret_set(name: String, value: String) -> Result<(), String> {
-    keyring::Entry::new(SECRET_SERVICE, &name)
-        .and_then(|e| e.set_password(&value))
-        .map_err(|e| e.to_string())
+async fn secret_get(name: String) -> Result<Option<String>, String> {
+    ensure_allowed_secret_key(&name)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let entry = keyring::Entry::new(SECRET_SERVICE, &name).map_err(|e| e.to_string())?;
+        match entry.get_password() {
+            Ok(p) => Ok(Some(p)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(e) => Err(e.to_string()),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn secret_delete(name: String) -> Result<(), String> {
-    match keyring::Entry::new(SECRET_SERVICE, &name).and_then(|e| e.delete_credential()) {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(e.to_string()),
-    }
+async fn secret_set(name: String, value: String) -> Result<(), String> {
+    ensure_allowed_secret_key(&name)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        keyring::Entry::new(SECRET_SERVICE, &name)
+            .and_then(|e| e.set_password(&value))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn create_file(path: String) -> Result<(), String> {
-    let p = Path::new(&path);
-    if p.exists() {
-        return Err("Ya existe un archivo o carpeta con ese nombre".into());
-    }
-    if let Some(parent) = p.parent() {
+async fn secret_delete(name: String) -> Result<(), String> {
+    ensure_allowed_secret_key(&name)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        match keyring::Entry::new(SECRET_SERVICE, &name).and_then(|e| e.delete_credential()) {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(e) => Err(e.to_string()),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn create_file_sync(path: &Path) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    fs::File::create(p).map(|_| ()).map_err(|e| e.to_string())
+    match fs::OpenOptions::new().write(true).create_new(true).open(path) {
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            Err("Ya existe un archivo o carpeta con ese nombre".into())
+        }
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 #[tauri::command]
-fn create_dir(path: String) -> Result<(), String> {
-    if Path::new(&path).exists() {
+async fn create_file(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: String) -> Result<(), String> {
+    let safe = guard.ensure_write(&path)?;
+    tauri::async_runtime::spawn_blocking(move || create_file_sync(&safe))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn create_dir_sync(path: &Path) -> Result<(), String> {
+    if path.exists() {
         return Err("Ya existe un archivo o carpeta con ese nombre".into());
     }
-    fs::create_dir_all(&path).map_err(|e| e.to_string())
+    fs::create_dir_all(path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn rename_path(from: String, to: String) -> Result<(), String> {
-    if Path::new(&to).exists() {
+async fn create_dir(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: String) -> Result<(), String> {
+    let safe = guard.ensure_write(&path)?;
+    tauri::async_runtime::spawn_blocking(move || create_dir_sync(&safe))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn rename_path_sync(from: &Path, to: &Path) -> Result<(), String> {
+    if to.exists() {
         return Err("Ya existe un archivo o carpeta con ese nombre".into());
     }
-    let f = from.replace('\\', "/");
-    let t = to.replace('\\', "/");
-    if t.starts_with(&format!("{}/", f.trim_end_matches('/'))) {
+    let from_res = fsguard::resolve_safe(from).unwrap_or_else(|_| from.to_path_buf());
+    let to_res = fsguard::resolve_safe(to).unwrap_or_else(|_| to.to_path_buf());
+    if to_res.starts_with(&from_res) && to_res != from_res {
         return Err("No se puede mover una carpeta dentro de sí misma".into());
     }
-    fs::rename(&from, &to).map_err(|e| e.to_string())
+    fs::rename(from, to).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn rename_path(
+    guard: tauri::State<'_, fsguard::WorkspaceGuard>,
+    from: String,
+    to: String,
+) -> Result<(), String> {
+    let safe_from = guard.ensure_write(&from)?;
+    let safe_to = guard.ensure_write(&to)?;
+    tauri::async_runtime::spawn_blocking(move || rename_path_sync(&safe_from, &safe_to))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Mueve el archivo o carpeta a la papelera de reciclaje.
 #[tauri::command]
-fn delete_path(path: String) -> Result<(), String> {
-    trash::delete(&path).map_err(|e| e.to_string())
+async fn delete_path(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: String) -> Result<(), String> {
+    let safe = guard.ensure_write(&path)?;
+    tauri::async_runtime::spawn_blocking(move || trash::delete(&safe).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn reveal_in_explorer(path: String) -> Result<(), String> {
-    #[cfg(windows)]
-    {
-        let p = path.replace('/', "\\");
-        let _ = Command::new("explorer").arg(format!("/select,{}", p)).spawn();
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let _ = Command::new("open").args(["-R", &path]).spawn();
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        let dir = Path::new(&path).parent().map(|d| d.to_path_buf()).unwrap_or_default();
-        let _ = Command::new("xdg-open").arg(dir).spawn();
-    }
-    Ok(())
+async fn reveal_in_explorer(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: String) -> Result<(), String> {
+    let safe = guard.ensure_read(&path)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(any(windows, target_os = "macos"))]
+        let p_str = safe.to_string_lossy().into_owned();
+        #[cfg(windows)]
+        let mut cmd = {
+            let p = p_str.replace('/', "\\");
+            let mut c = Command::new("explorer");
+            c.arg(format!("/select,{}", p));
+            c
+        };
+        #[cfg(target_os = "macos")]
+        let mut cmd = {
+            let mut c = Command::new("open");
+            c.args(["-R", &p_str]);
+            c
+        };
+        #[cfg(all(unix, not(target_os = "macos")))]
+        let mut cmd = {
+            let dir = if safe.is_dir() {
+                safe.clone()
+            } else {
+                safe.parent().map(|d| d.to_path_buf()).unwrap_or(safe)
+            };
+            let mut c = Command::new("xdg-open");
+            c.arg(dir);
+            c
+        };
+        let child = cmd.spawn().map_err(|e| format!("No se pudo abrir el explorador de archivos: {e}"))?;
+        procguard::reap_detached(child);
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 fn build_regex(query: &str, case_sensitive: bool, use_regex: bool, whole_word: bool) -> Result<Regex, String> {
@@ -388,21 +529,33 @@ struct Match {
     text: String,
 }
 
-fn included(path: &str, include: &[String]) -> bool {
+fn prepare_include(include: &[String]) -> Option<Vec<String>> {
     if include.is_empty() {
-        return true;
+        return None;
     }
+    Some(
+        include
+            .iter()
+            .map(|p| p.trim().to_lowercase().replace('\\', "/"))
+            .filter(|p| !p.is_empty())
+            .collect(),
+    )
+}
+
+fn included_prepared(path: &str, patterns: &Option<Vec<String>>) -> bool {
+    let Some(patterns) = patterns else {
+        return true;
+    };
     let lower = path.to_lowercase();
-    include.iter().any(|pat| {
-        let pat = pat.trim().to_lowercase().replace('\\', "/");
-        if pat.is_empty() {
-            return false;
-        }
-        match pat.strip_prefix('*') {
-            Some(rest) => lower.ends_with(rest),
-            None => lower.contains(&pat),
-        }
+    patterns.iter().any(|pat| match pat.strip_prefix('*') {
+        Some(rest) => lower.ends_with(rest),
+        None => lower.contains(pat),
     })
+}
+
+#[cfg(test)]
+fn included(path: &str, include: &[String]) -> bool {
+    included_prepared(path, &prepare_include(include))
 }
 
 /// Lee un archivo de texto; devuelve None si es binario, muy grande o no UTF-8.
@@ -419,11 +572,17 @@ fn read_text(path: &Path) -> Option<String> {
 
 #[tauri::command]
 async fn search_files(
+    guard: tauri::State<'_, fsguard::WorkspaceGuard>,
     root: String, query: String, case_sensitive: bool, use_regex: bool, whole_word: bool, include: Vec<String>,
     unsaved: Option<std::collections::HashMap<String, String>>,
 ) -> Result<Vec<Match>, String> {
+    let safe_root = guard.ensure_read(&root)?;
     let unsaved = unsaved.unwrap_or_default();
-    tauri::async_runtime::spawn_blocking(move || search_files_sync(root, query, case_sensitive, use_regex, whole_word, include, &unsaved)).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        search_files_sync(safe_root.to_string_lossy().into_owned(), query, case_sensitive, use_regex, whole_word, include, &unsaved)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 fn search_files_sync(
@@ -435,39 +594,99 @@ fn search_files_sync(
     include: Vec<String>,
     unsaved: &std::collections::HashMap<String, String>,
 ) -> Result<Vec<Match>, String> {
+    use std::sync::{atomic::AtomicUsize, Mutex};
     const MAX: usize = 5000;
     let re = build_regex(&query, case_sensitive, use_regex, whole_word)?;
-    let mut out: Vec<Match> = Vec::new();
-    walk(&root, |p| {
-        let path = norm(&p);
-        if !included(&path, &include) {
-            return true;
-        }
-        // Un documento abierto con cambios sin guardar se busca con su contenido en pantalla, no con el del disco.
-        let text = match unsaved.get(&path) {
-            Some(t) => t.clone(),
-            None => match read_text(&p) { Some(t) => t, None => return true },
-        };
-        for (i, line) in text.lines().enumerate() {
-            for m in re.find_iter(line) {
-                if m.start() == m.end() {
-                    continue;
-                }
-                out.push(Match {
-                    path: path.clone(),
-                    line: (i + 1) as u32,
-                    col: line[..m.start()].encode_utf16().count() as u32 + 1,
-                    len: line[m.start()..m.end()].encode_utf16().count() as u32,
-                    text: line.chars().take(300).collect(),
-                });
-                if out.len() >= MAX {
+    let patterns = prepare_include(&include);
+    let out = Mutex::new(Vec::<Match>::new());
+    let total = AtomicUsize::new(0);
+
+    let mut builder = ignore::WalkBuilder::new(&root);
+    builder
+        .hidden(false)
+        .git_ignore(true)
+        .git_global(false)
+        .git_exclude(true)
+        .require_git(false)
+        .filter_entry(|entry| {
+            if entry.depth() == 0 {
+                return true;
+            }
+            if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+                let name = entry.file_name().to_string_lossy();
+                if SKIP_DIRS.contains(&name.as_ref()) {
                     return false;
                 }
             }
-        }
-        true
+            true
+        });
+
+    builder.build_parallel().run(|| {
+        Box::new(|entry_res| {
+            if total.load(Ordering::Relaxed) >= MAX {
+                return ignore::WalkState::Quit;
+            }
+            let Ok(entry) = entry_res else { return ignore::WalkState::Continue };
+            if !entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
+                return ignore::WalkState::Continue;
+            }
+            let p = entry.path();
+            let path = norm(p);
+            if !included_prepared(&path, &patterns) {
+                return ignore::WalkState::Continue;
+            }
+            // Un documento abierto con cambios sin guardar se busca con su contenido en pantalla, no con el del disco.
+            let owned;
+            let text: &str = match unsaved.get(&path) {
+                Some(t) => t.as_str(),
+                None => match read_text(p) {
+                    Some(t) => { owned = t; owned.as_str() }
+                    None => return ignore::WalkState::Continue,
+                },
+            };
+            let mut local: Vec<Match> = Vec::new();
+            for (i, line) in text.lines().enumerate() {
+                for m in re.find_iter(line) {
+                    if m.start() == m.end() {
+                        continue;
+                    }
+                    local.push(Match {
+                        path: path.clone(),
+                        line: (i + 1) as u32,
+                        col: line[..m.start()].encode_utf16().count() as u32 + 1,
+                        len: line[m.start()..m.end()].encode_utf16().count() as u32,
+                        text: line.chars().take(300).collect(),
+                    });
+                    if local.len() >= MAX {
+                        break;
+                    }
+                }
+                if local.len() >= MAX {
+                    break;
+                }
+            }
+            if !local.is_empty() {
+                if let Ok(mut guard) = out.lock() {
+                    let rem = MAX.saturating_sub(guard.len());
+                    if rem == 0 {
+                        total.store(MAX, Ordering::Relaxed);
+                        return ignore::WalkState::Quit;
+                    }
+                    let take = local.len().min(rem);
+                    guard.extend(local.into_iter().take(take));
+                    total.store(guard.len(), Ordering::Relaxed);
+                    if guard.len() >= MAX {
+                        return ignore::WalkState::Quit;
+                    }
+                }
+            }
+            ignore::WalkState::Continue
+        })
     });
-    Ok(out)
+
+    let mut results = out.into_inner().unwrap_or_default();
+    results.sort_by(|a, b| a.path.cmp(&b.path).then(a.line.cmp(&b.line)).then(a.col.cmp(&b.col)));
+    Ok(results)
 }
 
 /// Reemplaza las coincidencias de un archivo con las mismas reglas que la búsqueda (línea a línea,
@@ -475,10 +694,16 @@ fn search_files_sync(
 /// Si `expected` no coincide con lo que hay ahora en disco, no escribe nada.
 #[tauri::command]
 async fn replace_in_file(
+    guard: tauri::State<'_, fsguard::WorkspaceGuard>,
     path: String, query: String, replacement: String, case_sensitive: bool, use_regex: bool, whole_word: bool,
     expected: Option<u32>,
 ) -> Result<u32, String> {
-    tauri::async_runtime::spawn_blocking(move || replace_in_file_sync(path, query, replacement, case_sensitive, use_regex, whole_word, expected)).await.map_err(|e| e.to_string())?
+    let safe = guard.ensure_write(&path)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        replace_in_file_sync(safe.to_string_lossy().into_owned(), query, replacement, case_sensitive, use_regex, whole_word, expected)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 fn replace_in_file_sync(
@@ -536,7 +761,13 @@ struct ThemeRef {
 
 /// Busca los temas de color de las extensiones instaladas en VS Code.
 #[tauri::command]
-fn scan_vscode_themes() -> Vec<ThemeRef> {
+async fn scan_vscode_themes() -> Vec<ThemeRef> {
+    tauri::async_runtime::spawn_blocking(scan_vscode_themes_sync)
+        .await
+        .unwrap_or_default()
+}
+
+fn scan_vscode_themes_sync() -> Vec<ThemeRef> {
     let home = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")).unwrap_or_default();
     let mut out = Vec::new();
     let Ok(rd) = fs::read_dir(Path::new(&home).join(".vscode").join("extensions")) else { return out };
@@ -579,8 +810,15 @@ struct GitInfo {
 }
 
 fn git_out(path: &str, args: &[&str]) -> Option<String> {
-    // Solo lectura: sin candados opcionales, para que consultar el estado nunca haga fallar un commit que la persona haga a la vez.
-    let out = background_command("git").env("GIT_OPTIONAL_LOCKS", "0").arg("-C").arg(path).args(args).output().ok()?;
+    // Solo lectura: sin candados opcionales y en locale C para parseo determinista.
+    let out = background_command("git")
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .env("LC_ALL", "C")
+        .arg("-C")
+        .arg(path)
+        .args(args)
+        .output()
+        .ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
@@ -603,9 +841,10 @@ fn parse_git_status(text: &str, top: &str) -> GitInfo {
             }
             continue;
         }
-        if rec.len() < 4 { continue; }
-        let (xy, file) = rec.split_at(3);
-        let (x, y) = (xy.as_bytes()[0] as char, xy.as_bytes()[1] as char);
+        let bytes = rec.as_bytes();
+        if bytes.len() < 4 || bytes[2] != b' ' { continue; }
+        let file = &rec[3..];
+        let (x, y) = (bytes[0] as char, bytes[1] as char);
         if x == 'R' || x == 'C' || y == 'R' || y == 'C' { records.next(); }
         let status = match (x, y) {
             ('?', '?') => "U",
@@ -647,6 +886,7 @@ async fn git_remote(path: String) -> Result<String, String> {
 
 fn git_remote_sync(path: String) -> Result<String, String> {
     let out = background_command("git")
+        .env("LC_ALL", "C")
         .args(["-C", &path, "remote", "get-url", "origin"])
         .output()
         .map_err(|e| e.to_string())?;
@@ -656,15 +896,31 @@ fn git_remote_sync(path: String) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+fn authorize_cli_targets(guard: &fsguard::WorkspaceGuard, targets: &[cli::CliTarget]) {
+    for t in targets {
+        if t.kind == "file" {
+            guard.allow_file(Path::new(&t.path));
+        }
+    }
+}
+
 /// Argumentos con los que se lanzó este proceso (`pulso archivo`, `pulso -g archivo:línea`).
 #[tauri::command]
-fn cli_startup_targets() -> Vec<cli::CliTarget> {
-    cli::startup_targets()
+fn cli_startup_targets(guard: tauri::State<'_, fsguard::WorkspaceGuard>) -> Vec<cli::CliTarget> {
+    let targets = cli::startup_targets();
+    authorize_cli_targets(&guard, &targets);
+    targets
 }
 
 /// Añade la carpeta del programa (donde está `pulso.exe`) al PATH del usuario, para escribir `pulso .` en cualquier terminal.
 #[tauri::command]
-fn install_cli_command() -> Result<String, String> {
+async fn install_cli_command() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(install_cli_command_sync)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn install_cli_command_sync() -> Result<String, String> {
     #[cfg(not(windows))]
     { return Ok("En Linux y macOS el paquete ya instala el comando `pulso` en el PATH; no hace falta hacer nada más.".into()); }
     #[cfg(windows)]
@@ -686,6 +942,7 @@ pub fn run() {
         // Una sola ventana: si se vuelve a lanzar `pulso archivo`, los argumentos llegan a la que ya está abierta.
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             let targets = cli::parse_args(&args[1.min(args.len())..], std::path::Path::new(&cwd));
+            authorize_cli_targets(&app.state::<fsguard::WorkspaceGuard>(), &targets);
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.unminimize();
                 let _ = w.show();
@@ -696,16 +953,20 @@ pub fn run() {
             }
             let _ = app.emit("cli-open", targets);
         }))
+        .manage(fsguard::WorkspaceGuard::default())
+        .manage(githubauth::GithubState::default())
         .manage(term::TermState::default())
         .manage(lsp::LspState::default())
         .manage(aichat::AiState::default())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
+            set_workspace_root,
             list_dir,
             cli_startup_targets,
             install_cli_command,
             list_files,
             read_file,
+            read_theme_file,
             write_file,
             file_mtime,
             backup_write,
@@ -724,6 +985,7 @@ pub fn run() {
             term::term_resize,
             term::term_kill,
             term::term_kill_all,
+            lsp::lsp_host_pid,
             lsp::lsp_start,
             lsp::lsp_send,
             lsp::lsp_stop,
@@ -751,7 +1013,12 @@ pub fn run() {
             gitops::git_commit_files,
             gitops::git_commit_sources,
             gitops::git_blame,
-            githubauth::github_credential,
+            githubauth::github_init,
+            githubauth::github_has_token,
+            githubauth::github_set_token,
+            githubauth::github_connect,
+            githubauth::github_disconnect,
+            githubauth::github_api,
             githubauth::open_external,
             aichat::ai_detect,
             aichat::ai_detect_provider,

@@ -1,10 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openDiffRequest } from "./diffView";
 import { openExternal } from "./external";
-import { getToken, isAuthProblem } from "./github";
+import { hasToken, isAuthProblem } from "./github";
 import { connectButton } from "./githubConnect";
 import { agoIso } from "./historyModel";
-import { currentRepo } from "./issues";
+import { currentRepo } from "./core/repo";
 import { branchLabel, fileLetter, newPullProblem, PR_STATE_LABEL, prState, suggestTitle, totals, type PullFile, type PullSummary } from "./prModel";
 import { createPull, defaultBranch, getPull, listPulls, mergeBase, pullFiles, pullSources } from "./pulls";
 import { setStatus, showDialog, showForm } from "./ui";
@@ -149,11 +149,11 @@ function paintDetail() {
 }
 
 /** «Nueva pull request»: la rama actual contra la rama principal (o la que se indique). */
-export async function newPull() {
-  if (!ws.root) { setStatus("Abre una carpeta para crear una pull request"); return; }
+export async function newPull(prefill?: { title?: string; body?: string; issueNumber?: number }): Promise<PullSummary | null> {
+  if (!ws.root) { setStatus("Abre una carpeta para crear una pull request"); return null; }
   const found = await resolveRepo();
-  if (!found) { await showDialog({ title: "Sin repositorio de GitHub", message: "Esta carpeta no tiene un remoto de GitHub.", buttons: [{ label: "Entendido", value: "ok" }] }); return; }
-  if (!getToken()) { body().replaceChildren(message("Conecta tu cuenta de GitHub para crear pull requests.", connectButton(() => void loadPulls()))); return; }
+  if (!found) { await showDialog({ title: "Sin repositorio de GitHub", message: "Esta carpeta no tiene un remoto de GitHub.", buttons: [{ label: "Entendido", value: "ok" }] }); return null; }
+  if (!hasToken()) { body().replaceChildren(message("Conecta tu cuenta de GitHub para crear pull requests.", connectButton(() => void loadPulls()))); return null; }
   try {
     const [branches, base, log] = await Promise.all([
       invoke<{ name: string; current: boolean; upstream: string | null }[]>("git_branches", { root: ws.root }),
@@ -162,20 +162,20 @@ export async function newPull() {
     ]);
     const current = branches.find((b) => b.current);
     const problem = newPullProblem({ title: "x", head: current?.name ?? "", base, hasUpstream: !!current?.upstream });
-    if (problem) { await showDialog({ title: "Aún no se puede crear", message: problem, buttons: [{ label: "Entendido", value: "ok" }] }); return; }
+    if (problem) { await showDialog({ title: "Aún no se puede crear", message: problem, buttons: [{ label: "Entendido", value: "ok" }] }); return null; }
     const values = await showForm({
-      title: "Nueva pull request",
+      title: prefill?.issueNumber ? `Nueva pull request para #${prefill.issueNumber}` : "Nueva pull request",
       submitLabel: "Crear",
       fields: [
-        { key: "title", label: "Título", value: suggestTitle(log[0]?.subject ?? null, current!.name), required: true },
-        { key: "body", label: "Descripción (opcional)", multiline: true },
+        { key: "title", label: "Título", value: prefill?.title ?? suggestTitle(log[0]?.subject ?? null, current!.name), required: true },
+        { key: "body", label: "Descripción (opcional)", value: prefill?.body ?? "", multiline: true },
         { key: "base", label: "Rama de destino", value: base, required: true },
       ],
       hint: `Se propondrán los cambios de «${current!.name}» hacia la rama de destino. Se crea en GitHub, en ${found.owner}/${found.repo}.`,
     });
-    if (!values) return;
+    if (!values) return null;
     const finalProblem = newPullProblem({ title: values.title, head: current!.name, base: values.base, hasUpstream: true });
-    if (finalProblem) { await showDialog({ title: "Aún no se puede crear", message: finalProblem, buttons: [{ label: "Entendido", value: "ok" }] }); return; }
+    if (finalProblem) { await showDialog({ title: "Aún no se puede crear", message: finalProblem, buttons: [{ label: "Entendido", value: "ok" }] }); return null; }
     setStatus("Creando la pull request en GitHub…", 30000);
     const made = await createPull(found.owner, found.repo, { title: values.title, head: current!.name, base: values.base, body: values.body });
     setStatus(`Pull request #${made.number} creada`);
@@ -183,14 +183,30 @@ export async function newPull() {
     syncFilter();
     await loadPulls();
     await openDetail(made);
+    return made;
   } catch (e) {
     setStatus("No se pudo crear la pull request", 4000);
     await showDialog({ title: "No se pudo crear la pull request", message: e instanceof Error ? e.message : String(e), buttons: [{ label: "Entendido", value: "ok" }] });
+    return null;
   }
 }
 
 function syncFilter() {
   document.querySelectorAll<HTMLButtonElement>("#prs-filter button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.v === filter)));
+}
+
+/** Al cambiar o cerrar carpeta se descartan los PRs y el detalle del repositorio anterior. */
+export function resetPrs() {
+  seq++;
+  repo = null;
+  list = [];
+  detail = null;
+  loaded = false;
+  lastLoad = 0;
+  const repoEl = document.getElementById("prs-repo");
+  if (repoEl) repoEl.textContent = "";
+  if (visible) void loadPulls();
+  else if (document.getElementById("prs-body")) body().replaceChildren();
 }
 
 /** Lo llama el selector de vistas: se carga al mostrarse y se mantiene al día mientras se ve. */
@@ -205,6 +221,6 @@ export function initPrs() {
   document.querySelectorAll<HTMLButtonElement>("#prs-filter button").forEach((b) => {
     b.onclick = () => { filter = b.dataset.v as typeof filter; syncFilter(); detail = null; void loadPulls(); };
   });
-  window.setInterval(() => { if (visible && !detail && document.visibilityState === "visible" && Date.now() - lastLoad > 20_000) void loadPulls(true); }, 5_000);
-  window.addEventListener("focus", () => { if (visible && !detail && Date.now() - lastLoad > 10_000) void loadPulls(true); });
+  window.setInterval(() => { if (ws.root && visible && !detail && document.visibilityState === "visible" && Date.now() - lastLoad > 20_000) void loadPulls(true); }, 5_000);
+  window.addEventListener("focus", () => { if (ws.root && visible && !detail && Date.now() - lastLoad > 10_000) void loadPulls(true); });
 }

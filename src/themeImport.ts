@@ -18,7 +18,7 @@ function joinPath(dir: string, rel: string): string {
 
 /** Lee un tema de VS Code y resuelve su `include` (muchos temas heredan de otro archivo). */
 async function loadRaw(path: string, depth = 0): Promise<any> {
-  const raw = parseJsonc(await invoke<string>("read_file", { path }));
+  const raw = parseJsonc(await invoke<string>("read_theme_file", { path }));
   if (typeof raw.include === "string" && depth < 4) {
     const base = await loadRaw(joinPath(dirName(path), raw.include), depth + 1);
     return {

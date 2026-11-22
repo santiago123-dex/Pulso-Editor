@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-vi.mock("./github", () => ({ getToken: () => "token", apiBase: () => "https://api.github.com", explainStatus: (status: number) => `GitHub ${status}` }));
+vi.mock("./github", () => ({
+  explainStatus: (status: number) => `GitHub ${status}`,
+  githubFetch: async (path: string, opts: { method?: string; body?: unknown } = {}) => {
+    const res = await fetch(`https://api.github.com${path}`, {
+      method: opts.method ?? "GET",
+      headers: { Accept: "application/vnd.github+json", Authorization: "Bearer token", ...(opts.body ? { "Content-Type": "application/json" } : {}) },
+      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+    });
+    return { ok: res.ok, status: res.status, etag: null, link: null, text: () => res.text(), json: () => res.json() };
+  },
+}));
 import { ensureBoardLabel } from "./boardLabels";
 
 afterEach(() => vi.unstubAllGlobals());

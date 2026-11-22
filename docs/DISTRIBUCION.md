@@ -41,5 +41,5 @@ Probado el 17/11/2026 en un solo equipo con Windows 11 (el del desarrollo, con N
 - El instalador MSI (solo se generó NSIS) y la desinstalación completa.
 - Firma de código: el instalador no está firmado, así que SmartScreen mostrará una advertencia.
 - Actualizaciones automáticas.
-- La política de seguridad del contenido (`csp`) sigue en `null` en `tauri.conf.json`; conviene acotarla antes de distribuir.
+- La política de seguridad del contenido (`csp`) ya está acotada en `src-tauri/tauri.conf.json` (con `connect-src` restringido a IPC local; las llamadas a GitHub salen desde Rust).
 - La app instalada y la de desarrollo comparten datos (mismo identificador `dev.pulso.editor`): configuración, sesión y copias de recuperación.

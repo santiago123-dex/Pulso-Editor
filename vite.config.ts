@@ -9,5 +9,16 @@ export default defineConfig({
     // y retrasaba cada solicitud del modo desarrollo, entre ellas los iconos de carpetas nuevas.
     watch: { ignored: ["**/src-tauri/**"] },
   },
-  build: { target: "es2022" },
+  build: {
+    target: "es2022",
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules/monaco-editor")) return "monaco";
+          if (id.includes("node_modules/@xterm")) return "xterm";
+          if (id.includes("node_modules/@tauri-apps")) return "tauri";
+        },
+      },
+    },
+  },
 });

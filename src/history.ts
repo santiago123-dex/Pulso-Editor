@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { bus } from "./core/events";
 import { openDiffRequest, type Sources } from "./diffView";
 import { activePath } from "./groups";
 import { agoIso, mayHaveMore, mergeCommits, PAGE, refChips, relativeToTop, STATUS_LABEL, type CommitFile, type CommitInfo } from "./historyModel";
@@ -149,6 +150,9 @@ export function showFileHistory() {
   return true;
 }
 
+/** Abre la pestaña de historial del panel Git sin depender de clicks sintéticos en el DOM. */
+export function openHistoryTab() { setTab(true); }
+
 /** Al cambiar de carpeta el historial anterior ya no sirve. */
 export function resetHistory() { commits = []; more = false; fileFilter = null; expanded.clear(); if (isHistoryTab()) void loadHistory(true); }
 
@@ -156,6 +160,6 @@ export function refreshHistory() { if (isHistoryTab()) void loadHistory(true, tr
 
 export function initHistory() {
   // Tras un commit, un pull o un cambio de rama el panel de cambios se recarga: el historial también.
-  window.addEventListener("pulso-scm-refreshed", () => refreshHistory());
+  bus.on("scm-refreshed", () => refreshHistory());
   document.querySelectorAll<HTMLButtonElement>("#scm-tabs button").forEach((b) => { b.onclick = () => setTab(b.dataset.tab === "history"); });
 }

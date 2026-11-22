@@ -1,4 +1,4 @@
-import { apiBase, authHeaders, getJson, GithubError } from "./github";
+import { getJson, githubFetch, GithubError } from "./github";
 import { explainCreateError, type PullFile, type PullSummary } from "./prModel";
 import type { Sources } from "./diffView";
 
@@ -42,9 +42,8 @@ export async function mergeBase(owner: string, repo: string, pr: PullSummary): P
 
 /** Contenido de un archivo en un commit. Cadena vacía si no existe allí (archivo añadido o eliminado). */
 export async function fileAt(owner: string, repo: string, ref: string, path: string): Promise<string> {
-  const url = `${apiBase()}${repoPath(owner, repo)}/contents/${path.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(ref)}`;
-  const headers = { ...authHeaders(), Accept: "application/vnd.github.raw+json" };
-  const res = await fetch(url, { headers, cache: "no-store" });
+  const apiPath = `${repoPath(owner, repo)}/contents/${path.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(ref)}`;
+  const res = await githubFetch(apiPath, { accept: "application/vnd.github.raw+json" });
   if (res.status === 404) return "";
   if (!res.ok) throw new GithubError(res.status);
   const text = await res.text();
@@ -66,16 +65,14 @@ export interface NewPull { title: string; head: string; base: string; body: stri
 
 /** Crea la pull request (una rama del mismo repositorio contra otra). El error se explica en español. */
 export async function createPull(owner: string, repo: string, p: NewPull): Promise<PullSummary> {
-  const res = await fetch(`${apiBase()}${repoPath(owner, repo)}/pulls`, {
+  const res = await githubFetch(`${repoPath(owner, repo)}/pulls`, {
     method: "POST",
-    headers: authHeaders(true),
-    cache: "no-store",
-    body: JSON.stringify({ title: p.title, head: p.head, base: p.base, body: p.body }),
+    body: { title: p.title, head: p.head, base: p.base, body: p.body },
   });
   if (!res.ok) {
-    let body = null;
-    try { body = await res.json(); } catch { /* sin cuerpo */ }
+    let body: Parameters<typeof explainCreateError>[1] = null;
+    try { body = await res.json<Parameters<typeof explainCreateError>[1]>(); } catch { /* sin cuerpo */ }
     throw new Error(explainCreateError(res.status, body));
   }
-  return (await res.json()) as PullSummary;
+  return res.json<PullSummary>();
 }

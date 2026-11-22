@@ -56,9 +56,18 @@ pub fn short_path(dir: &Path, home: Option<&Path>) -> String {
     }
     let prefix = format!("{}/", h_norm.trim_end_matches('/'));
     if d_norm.starts_with(&prefix) {
-        let rest = &raw[raw.len().saturating_sub(d_norm.len() - h_norm.len())..];
         let sep = if cfg!(windows) { '\\' } else { '/' };
-        return format!("~{sep}{}", rest.trim_start_matches(['\\', '/']));
+        let stripped_raw = raw.strip_prefix(r"\\?\").or_else(|| raw.strip_prefix("//?/")).unwrap_or(&raw);
+        let h_count = h_norm.trim_end_matches('/').split('/').filter(|s| !s.is_empty()).count();
+        let tail: Vec<&str> = stripped_raw
+            .split(['/', '\\'])
+            .filter(|s| !s.is_empty())
+            .skip(h_count)
+            .collect();
+        if tail.is_empty() {
+            return "~".into();
+        }
+        return format!("~{sep}{}", tail.join(&sep.to_string()));
     }
     raw
 }
@@ -84,8 +93,8 @@ pub fn git_branch(dir: &Path) -> Option<String> {
                 if let Some(r) = head.strip_prefix("ref: refs/heads/") {
                     return Some(r.to_string());
                 }
-                if head.len() >= 7 {
-                    return Some(head[..7].to_string());
+                if head.chars().count() >= 7 {
+                    return Some(head.chars().take(7).collect());
                 }
             }
             return None;
@@ -242,8 +251,14 @@ pub fn broad_dir_reason(dir: &Path, home: Option<&Path>) -> Option<&'static str>
     }
     let on_drive = d.len() > 3 && d.as_bytes().get(1) == Some(&b':') && d.as_bytes().get(2) == Some(&b'/');
     let rest = if on_drive { &d[3..] } else { d.trim_start_matches('/') };
+    let first = rest.split('/').next().unwrap_or("");
     let top_level = if on_drive { !rest.contains('/') } else { d.starts_with('/') && !rest.contains('/') };
     if top_level && ["windows", "program files", "program files (x86)", "programdata", "users", "etc", "usr", "bin", "sbin", "var", "system", "library", "applications"].contains(&rest) {
+        return Some("es una carpeta del sistema");
+    }
+    if (d.starts_with('/') && ["etc", "usr", "bin", "sbin", "system"].contains(&first))
+        || (on_drive && (rest == "windows/system32" || rest.starts_with("windows/system32/") || rest == "windows/syswow64" || rest.starts_with("windows/syswow64/")))
+    {
         return Some("es una carpeta del sistema");
     }
     None
@@ -355,7 +370,7 @@ mod tests {
     #[test]
     fn carpetas_demasiado_amplias() {
         let home = Path::new("C:/Users/ana");
-        for p in ["C:/", "C:\\", "C:/Users/ana", "C:/Users/ana/Documents", "C:/Windows", "C:/Program Files", "/", "/etc"] {
+        for p in ["C:/", "C:\\", "C:/Users/ana", "C:/Users/ana/Documents", "C:/Windows", "C:/Windows/System32", "C:/Program Files", "/", "/etc", "/etc/ssh"] {
             assert!(broad_dir_reason(Path::new(p), Some(home)).is_some(), "{p}");
         }
         for p in ["C:/Users/ana/proyectos/web", "C:/Users/ana/Documents/Pulso Editor", "D:/trabajo", "/home/ana/app", "C:/Windows/Temp/x"] {
@@ -403,6 +418,10 @@ mod tests {
         assert!(short_path(proj, Some(home)).ends_with("pulso"));
         assert_eq!(short_path(home, Some(home)), "~");
         assert_eq!(short_path(Path::new("D:\\repo"), Some(home)), "D:\\repo");
+        // Caracteres Unicode cuyo case-folding cambia la longitud en bytes (p. ej. 'İ') no deben producir pánico.
+        let uni_home = Path::new("/home/İsmail");
+        let uni_proj = Path::new("/home/İsmail/proyectos/pulso");
+        assert!(short_path(uni_proj, Some(uni_home)).ends_with("pulso"));
     }
 
     #[test]

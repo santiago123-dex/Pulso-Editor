@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createProviderNormalizer, emptyConversation, exitEvent, formatModelName, isAuthError, isFileChange, MAX_RESULT, percent, planLabel, friendlyToolError, parseResetText, parseUsageText, pruneUsage, reduce, remainingPercent, resetClockText, resetCountdown, resetIn, resetTimeFromIso, toolSummary, touchedFiles, usedPercent, usedRatio, userEvent, type AiEvent, type Block, type Conversation } from "./aiModel";
+import { createProviderNormalizer, emptyConversation, exitEvent, formatModelName, isAuthError, isFileChange, MAX_RESULT, needsCommandPermission, parseDeniedActions, percent, planLabel, friendlyToolError, parseResetText, parseUsageText, pruneUsage, reduce, remainingPercent, resetClockText, resetCountdown, resetIn, resetTimeFromIso, toolSummary, touchedFiles, usedPercent, usedRatio, userEvent, type AiEvent, type Block, type Conversation } from "./aiModel";
 
 const run = (events: AiEvent[], start: Conversation = emptyConversation()) => events.reduce(reduce, start);
 const se = (event: unknown): AiEvent => ({ type: "stream_event", event });
@@ -196,6 +196,19 @@ describe("etiquetas del plan", () => {
       },
     ])).toEqual(["src/b.ts"]);
   });
+
+  it("usa structural sharing durante el streaming sin clonar turnos anteriores", () => {
+    let c = reduce(emptyConversation(), userEvent("primero"));
+    c = reduce(c, { type: "stream_event", event: { type: "message_start", message: { id: "a1" } } });
+    c = reduce(c, { type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } } });
+    const before = c;
+    const after = reduce(before, { type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "hola" } } });
+    expect(after).not.toBe(before);
+    expect(after.messages[0]).toBe(before.messages[0]); // turno previo intacto por referencia
+    expect(after.messages[1]).not.toBe(before.messages[1]); // solo el turno activo cambia
+    expect(after.messages[1].blocks[0]).toEqual({ kind: "text", text: "hola" });
+    expect(before.messages[1].blocks[0]).toEqual({ kind: "text", text: "" });
+  });
 });
 
 describe("uso real del plan (/usage)", () => {
@@ -298,5 +311,31 @@ describe("errores conocidos de las herramientas", () => {
   it("explica la carpeta no confiable y deja el resto tal cual", () => {
     expect(friendlyToolError("Gemini CLI is not running in a trusted directory.")).toContain("no confía");
     expect(friendlyToolError("  boom  ")).toBe("boom");
+  });
+
+  it("conserva el detalle de acciones denegadas en Outcome para pedir permiso al usuario", () => {
+    const parsed = parseDeniedActions([
+      { tool_name: "run_command", tool_input: { CommandLine: "node -v" }, reason: "headless mode" },
+      "Bash: npm test",
+    ]);
+    expect(parsed).toHaveLength(2);
+    expect(parsed[0]).toEqual({ tool: "run_command", detail: "node -v", reason: "headless mode" });
+    expect(needsCommandPermission(parsed)).toBe(true);
+    expect(needsCommandPermission([{ tool: "Edit", detail: "src/a.ts", reason: "" }])).toBe(false);
+
+    const norm = createProviderNormalizer("antigravity", "claude-opus-5-5-high");
+    let convo = reduce(emptyConversation(), userEvent("revisa node"));
+    for (const ev of norm({
+      type: "result",
+      result: {
+        conversation_id: "agy_2",
+        status: "SUCCESS",
+        response: "Necesito comprobar node.",
+        denied_actions: [{ tool: "run_command", input: { command: "node -v" }, reason: "requires approval" }],
+      },
+    })) convo = reduce(convo, ev);
+    expect(convo.outcome?.denials).toBe(1);
+    expect(convo.outcome?.deniedActions?.[0]?.tool).toBe("run_command");
+    expect(convo.outcome?.deniedActions?.[0]?.detail).toBe("node -v");
   });
 });
