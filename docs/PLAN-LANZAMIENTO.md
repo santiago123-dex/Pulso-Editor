@@ -108,7 +108,7 @@ Puntos fuertes:
    - prueba en un Windows limpio.
 2. **Beta pública:**
    - traducciones;
-   - incluir Node o adoptar `tsgo`;
+   - ~~incluir Node o adoptar `tsgo`~~ hecho: TypeScript 7 nativo incluido;
    - inicio de sesión OAuth propio;
    - agente propio con modelos locales;
    - diferencias antes de aplicar los cambios de la IA;

@@ -67,9 +67,7 @@
     },
     "resources": {
       "../scripts/lsp-no-console.cjs": "lsp/no-console.cjs",
-      "../node_modules/typescript-language-server/lib/cli.mjs": "lsp/node_modules/typescript-language-server/lib/cli.mjs",
-      "../node_modules/typescript/lib/": "lsp/node_modules/typescript/lib/",
-      "../node_modules/typescript/package.json": "lsp/node_modules/typescript/package.json"
+      "../node_modules/typescript-language-server/lib/cli.mjs": "lsp/node_modules/typescript-language-server/lib/cli.mjs"
     },
     "icon": [
       "icons/32x32.png",

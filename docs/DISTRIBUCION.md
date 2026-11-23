@@ -6,7 +6,7 @@
 npm run tauri build -- --bundles nsis
 ```
 
-Produce `src-tauri/target/release/bundle/nsis/Pulso Editor_0.1.0_x64-setup.exe` (≈ 8,4 MB). La primera compilación de producción tarda unos 3 minutos. El instalador se instala por usuario en `%LOCALAPPDATA%\Pulso Editor` (`/S` para instalación silenciosa). Incluye el servidor de TypeScript y la configuración que usa el LSP; no incluye Node.js.
+Produce `src-tauri/target/release/bundle/nsis/Pulso Editor_0.1.0_x64-setup.exe` (≈ 8,4 MB). La primera compilación de producción tarda unos 3 minutos. El instalador se instala por usuario en `%LOCALAPPDATA%\Pulso Editor` (`/S` para instalación silenciosa). Incluye el servidor nativo de TypeScript 7 (unos 28 MB sin comprimir; el instalador pasó de 11,9 a 16,3 MB), así que la inteligencia de TypeScript y JavaScript funciona sin Node.js. Node solo hace falta para el modo compatible de proyectos con TypeScript 5 o 6, que ya lo tienen.
 
 Si el equipo no tiene WebView2, el instalador descarga el instalador de Microsoft y lo ejecuta sin preguntar (`webviewInstallMode: downloadBootstrapper` en `tauri.conf.json`). Para eso necesita conexión a internet. En Windows 11 y en la mayoría de los Windows 10 actualizados ya viene instalado.
 
@@ -34,7 +34,7 @@ Probado el 17/11/2026 en un solo equipo con Windows 11 (el del desarrollo, con N
 
 - Las pruebas e2e (44) pasan contra la aplicación instalada, que se sirve desde `tauri.localhost` y no desde el servidor de desarrollo.
 - El LSP funciona con los recursos empaquetados: primer Ctrl+clic, cursor, hover y diagnóstico (`PULSO_EXE=… npm run test:lsp:ui`).
-- Sin Node ni Git en el `PATH` la aplicación arranca, no lanza errores de página y degrada con mensajes claros: «LSP: detenido» con el motivo y la indicación de instalar Node.js, y el panel Git explica que falta Git.
+- Sin Node ni Git en el `PATH` la aplicación arranca, no lanza errores de página y degrada con mensajes claros: «LSP: detenido» con el motivo y la indicación de instalar Node.js, y el panel Git explica que falta Git. (Prueba anterior al servidor nativo de TypeScript 7; desde entonces, sin Node el LSP debería arrancar igual. Falta repetirla.)
 - `npm run perf` contra la compilación de producción da cifras parecidas a las de depuración (ver [Rendimiento](RENDIMIENTO.md)).
 
 ## Publicar una versión desde GitHub

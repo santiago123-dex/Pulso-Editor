@@ -70,7 +70,7 @@ vi.mock("monaco-editor", () => ({
 }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: async (name: string, callback: (event: any) => void) => { h.handlers.set(name, callback); return () => {}; } }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: async (command: string, args: any) => {
-  if (command === "lsp_start") return 1;
+  if (command === "lsp_start") return { id: 1, mode: "native", tsserver: null, notice: null };
   if (command === "lsp_send") {
     h.sent.push(args.message);
     if (args.message.id !== undefined && args.message.method) {
@@ -91,6 +91,8 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: async (command: string, args: a
         ? [{ name: "saludar", detail: "() => void", kind: 12, range: { start: { line: 0, character: 0 }, end: { line: 2, character: 1 } }, selectionRange: { start: { line: 0, character: 9 }, end: { line: 0, character: 16 } }, children: [] }]
         : m === "textDocument/inlayHint"
         ? [{ position: { line: 0, character: 10 }, label: "a:", kind: 2, paddingRight: true }]
+        : m === "textDocument/diagnostic"
+        ? { kind: "full", items: [{ range: { start: { line: 0, character: 6 }, end: { line: 0, character: 12 } }, message: "Type 'number' is not assignable to type 'string'.", severity: 1, code: 2322, source: "ts" }] }
         : {};
       queueMicrotask(() => h.handlers.get("lsp-message")?.({ payload: { id: 1, message: { jsonrpc: "2.0", id: args.message.id, result } } }));
     }
@@ -145,6 +147,36 @@ describe("cliente LSP", () => {
     expect(openFile).toHaveBeenCalledWith("C:/project/other.ts", { line: 3, col: 4 });
     h.line.text = "const saludo = 1;";
     setLspWorkspace(null);
+  });
+
+  it("con el servidor nativo pide los diagnósticos y da la configuración de inlay hints", async () => {
+    h.sent.length = 0;
+    h.markers.mockClear();
+    const caps = { ...h.serverCaps };
+    h.serverCaps.diagnosticProvider = { interFileDependencies: true, workspaceDiagnostics: false };
+    try {
+      initLsp();
+      setLspWorkspace("C:/project");
+      await vi.waitFor(() => expect(h.sent.some((m) => m.method === "textDocument/diagnostic")).toBe(true), { timeout: 2000 });
+      await vi.waitFor(() => expect(h.markers).toHaveBeenCalledWith(h.model, "pulso-lsp", [expect.objectContaining({ startLineNumber: 1, startColumn: 7, code: "2322" })]));
+      const init = h.sent.find((m) => m.method === "initialize");
+      expect(init.params.capabilities.textDocument.diagnostic).toBeDefined();
+      expect(init.params.initializationOptions.tsserver).toBeUndefined();
+      // El servidor pide su configuración: las secciones de TypeScript reciben los ajustes de inlay hints.
+      h.handlers.get("lsp-message")!({ payload: { id: 1, message: { jsonrpc: "2.0", id: 900, method: "workspace/configuration", params: { items: [{ section: "typescript" }, { section: "editor" }] } } } });
+      await vi.waitFor(() => expect(h.sent.some((m) => m.id === 900)).toBe(true));
+      const answer = h.sent.find((m) => m.id === 900).result;
+      expect(answer[0].inlayHints.parameterNames.enabled).toBe("literals");
+      expect(answer[1]).toEqual({});
+      // Tras un cambio se vuelven a pedir.
+      const before = h.sent.filter((m) => m.method === "textDocument/diagnostic").length;
+      h.triggerChange();
+      await vi.waitFor(() => expect(h.sent.filter((m) => m.method === "textDocument/diagnostic").length).toBeGreaterThan(before), { timeout: 2000 });
+    } finally {
+      for (const k of Object.keys(h.serverCaps)) delete h.serverCaps[k];
+      Object.assign(h.serverCaps, caps);
+      setLspWorkspace(null);
+    }
   });
 
   it("provee firma, acciones de código, símbolos, inlay hints y workspace/applyEdit respetando capacidades", async () => {

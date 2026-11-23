@@ -35,8 +35,19 @@ fn background_command(program: &str) -> Command {
 const SKIP_DIRS: [&str; 7] = [".git", "node_modules", "target", "dist", "build", ".next", ".venv"];
 
 /// Normaliza a barras `/` para que el frontend use un solo formato de ruta.
+/// Ruta para la interfaz, con `/`. Quita el prefijo «verbatim» de Windows (`\\?\C:\…`, `\\?\UNC\…`)
+/// que deja `canonicalize` en las rutas que valida `fsguard`: si no, el explorador, Ctrl+P y la búsqueda
+/// devolverían `//?/C:/…` y el mismo archivo se abriría en dos pestañas distintas.
 fn norm(p: &Path) -> String {
-    p.to_string_lossy().replace('\\', "/")
+    let raw = p.to_string_lossy();
+    let plain = if let Some(unc) = raw.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{unc}")
+    } else if let Some(local) = raw.strip_prefix(r"\\?\") {
+        local.to_string()
+    } else {
+        raw.into_owned()
+    };
+    plain.replace('\\', "/")
 }
 
 #[derive(Serialize)]

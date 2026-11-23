@@ -7,6 +7,7 @@ import { setLspState } from "./lspState";
 import { setStatus } from "./ui";
 import { applyTextEdits, collectEdits } from "./lspEdits";
 import { fileKey } from "./util";
+import { diagnosticsStillValid, lspConfiguration } from "./lspConfig";
 
 type Json = any; // LSP messages are validated at the boundary where they are used.
 type Pending = { resolve: (value: Json) => void; reject: (error: Error) => void; timer: number };
@@ -31,7 +32,15 @@ type Session = {
   models: Map<string, monaco.IDisposable>;
   openedAt: Map<string, number>;
   definitions: Map<string, Promise<monaco.languages.LocationLink[]>>;
+  /** El servidor nativo de TypeScript 7 no envía diagnósticos: hay que pedirlos (`textDocument/diagnostic`). */
+  pull: boolean;
+  /** Un cambio en un archivo puede cambiar los errores de otros: se vuelven a pedir los de todos. */
+  pullInterFile: boolean;
+  pullQueue: Set<monaco.editor.ITextModel>;
+  pullTimer: number;
 };
+/** Respuesta de `lsp_start`: qué servidor quedó en marcha. */
+type Started = { id: number; mode: "native" | "compat"; tsserver: string | null; notice: string | null };
 let session: Session | null = null;
 let generation = 0;
 let transition: Promise<void> = Promise.resolve();
@@ -76,7 +85,32 @@ function request(s: Session, method: string, params: Json, token?: monaco.Cancel
     });
   });
 }
+function setMarkers(model: monaco.editor.ITextModel, diagnostics: Json[]) {
+  monaco.editor.setModelMarkers(model, owner, diagnostics.map((d: Json) => ({ ...range(d.range), message: d.message, severity: [monaco.MarkerSeverity.Error, monaco.MarkerSeverity.Warning, monaco.MarkerSeverity.Info, monaco.MarkerSeverity.Hint][(d.severity ?? 1) - 1] ?? monaco.MarkerSeverity.Error, code: d.code === undefined ? undefined : String(d.code), source: d.source })));
+}
+/** Pide los diagnósticos poco después del último cambio. Sin `model`, los de todos los abiertos. */
+function schedulePull(s: Session, model?: monaco.editor.ITextModel) {
+  if (!s.pull) return;
+  if (model && !s.pullInterFile) s.pullQueue.add(model);
+  else for (const m of monaco.editor.getModels()) if (s.models.has(uri(m))) s.pullQueue.add(m);
+  clearTimeout(s.pullTimer);
+  s.pullTimer = window.setTimeout(() => {
+    const models = [...s.pullQueue];
+    s.pullQueue.clear();
+    for (const m of models) void pullDiagnostics(s, m);
+  }, 300);
+}
+async function pullDiagnostics(s: Session, model: monaco.editor.ITextModel) {
+  if (session !== s || model.isDisposed() || !s.models.has(uri(model))) return;
+  const version = model.getVersionId();
+  const result = await request(s, "textDocument/diagnostic", { textDocument: { uri: uri(model) } }).catch(() => null);
+  // Si el documento cambió mientras tanto, ya hay otra petición en camino con la versión nueva.
+  if (session !== s || !diagnosticsStillValid(version, model.isDisposed() ? -1 : model.getVersionId(), model.isDisposed())) return;
+  if (result?.kind === "full" && Array.isArray(result.items)) setMarkers(model, result.items);
+}
 function clear(s: Session) {
+  clearTimeout(s.pullTimer);
+  s.pullQueue.clear();
   for (const p of s.pending.values()) { clearTimeout(p.timer); p.reject(new Error("Servidor LSP cerrado")); }
   s.pending.clear();
   for (const d of s.models.values()) d.dispose();
@@ -104,9 +138,11 @@ function openModel(s: Session, model: monaco.editor.ITextModel) {
       ? event.changes.map((c) => ({ range: { start: { line: c.range.startLineNumber - 1, character: c.range.startColumn - 1 }, end: { line: c.range.endLineNumber - 1, character: c.range.endColumn - 1 } }, text: c.text }))
       : [{ text: model.getValue() }];
     notify(s, "textDocument/didChange", { textDocument: { uri: documentUri, version: model.getVersionId() }, contentChanges });
+    schedulePull(s, model);
   });
   const dispose = model.onWillDispose(() => { change.dispose(); dispose.dispose(); s.models.delete(documentUri); s.openedAt.delete(documentUri); notify(s, "textDocument/didClose", { textDocument: { uri: documentUri } }); });
   s.models.set(documentUri, { dispose: () => { change.dispose(); dispose.dispose(); } });
+  schedulePull(s, model);
 }
 function handleMessage(id: number, msg: Json) {
   const s = session;
@@ -124,14 +160,15 @@ function handleMessage(id: number, msg: Json) {
       void send(s, { jsonrpc: "2.0", id: msg.id, result: null });
       return;
     }
-    const result = msg.method === "workspace/configuration" ? (msg.params?.items ?? []).map(() => ({})) : null;
+    if (msg.method === "workspace/diagnostic/refresh") schedulePull(s);
+    const result = msg.method === "workspace/configuration" ? (msg.params?.items ?? []).map((item: Json) => lspConfiguration(item?.section)) : null;
     void send(s, { jsonrpc: "2.0", id: msg.id, result });
   } else if (msg.method === "textDocument/publishDiagnostics") {
     const resource = monaco.Uri.parse(msg.params.uri);
     const model = monaco.editor.getModel(resource) ?? findOpenDoc(resource.fsPath)?.model;
     if (!model || !Array.isArray(msg.params.diagnostics)) return;
     if (typeof msg.params.version === "number" && msg.params.version < model.getVersionId()) return;
-    monaco.editor.setModelMarkers(model, owner, msg.params.diagnostics.map((d: Json) => ({ ...range(d.range), message: d.message, severity: [monaco.MarkerSeverity.Error, monaco.MarkerSeverity.Warning, monaco.MarkerSeverity.Info, monaco.MarkerSeverity.Hint][(d.severity ?? 1) - 1] ?? monaco.MarkerSeverity.Error, code: d.code === undefined ? undefined : String(d.code), source: d.source })));
+    setMarkers(model, msg.params.diagnostics);
   } else if (msg.id !== undefined && !msg.method) {
     const p = s.pending.get(msg.id);
     if (!p) return;
@@ -161,10 +198,10 @@ export function setLspWorkspace(root: string | null) {
     if (!root || current !== generation) return;
     await ensureListeners();
     if (current !== generation) return;
-    const id = await invoke<number>("lsp_start", { root });
+    const started = await invoke<Started>("lsp_start", { root });
     if (current !== generation) { await invoke("lsp_stop"); return; }
     const s: Session = {
-      id,
+      id: started.id,
       root,
       ready: false,
       incremental: false,
@@ -175,6 +212,10 @@ export function setLspWorkspace(root: string | null) {
       models: new Map(),
       openedAt: new Map(),
       definitions: new Map(),
+      pull: false,
+      pullInterFile: false,
+      pullQueue: new Set(),
+      pullTimer: 0,
     };
     session = s;
     try {
@@ -190,10 +231,12 @@ export function setLspWorkspace(root: string | null) {
             applyEdit: true,
             executeCommand: { dynamicRegistration: false },
             inlayHint: { refreshSupport: true },
+            diagnostics: { refreshSupport: true },
             workspaceEdit: { documentChanges: true },
           },
           textDocument: {
             publishDiagnostics: { versionSupport: true },
+            diagnostic: { dynamicRegistration: false },
             completion: { completionItem: { snippetSupport: true, resolveSupport: { properties: ["documentation", "detail", "additionalTextEdits"] } } },
             hover: { contentFormat: ["markdown", "plaintext"] },
             definition: { linkSupport: true },
@@ -210,6 +253,8 @@ export function setLspWorkspace(root: string | null) {
         },
         initializationOptions: {
           hostInfo: "Pulso",
+          // Modo compatible (TypeScript 5 o 6 del proyecto): typescript-language-server usa ese tsserver.
+          ...(started.tsserver ? { tsserver: { path: started.tsserver } } : {}),
           disableAutomaticTypingAcquisition: true,
           maxTsServerMemory: 1536,
           preferences: {
@@ -232,12 +277,17 @@ export function setLspWorkspace(root: string | null) {
         formatting: caps?.documentFormattingProvider !== false,
         executeCommand: !!caps?.executeCommandProvider,
       };
+      s.pull = !!caps?.diagnosticProvider;
+      s.pullInterFile = !!caps?.diagnosticProvider?.interFileDependencies;
       notify(s, "initialized", {});
       s.ready = true;
       builtIn(false);
       setLspState({ kind: "ready" });
       for (const model of monaco.editor.getModels()) openModel(s, model);
-      setStatus("Inteligencia de TypeScript y JavaScript activada");
+      if (started.notice) setStatus(started.notice, 15000);
+      else setStatus(started.mode === "compat"
+        ? "Inteligencia de TypeScript y JavaScript activada (con el TypeScript del proyecto)"
+        : "Inteligencia de TypeScript y JavaScript activada");
     } catch (e) { fail(s, String(e)); }
   }).catch((e) => { if (current === generation) { builtIn(true); setLspState({ kind: "stopped", reason: String(e) }); setStatus(String(e).startsWith("No se pudo iniciar") ? String(e) : `No se pudo iniciar LSP: ${e}`, 12000); } });
 }

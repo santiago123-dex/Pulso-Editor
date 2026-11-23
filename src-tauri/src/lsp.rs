@@ -115,6 +115,55 @@ fn read_message(reader: &mut impl BufRead) -> Result<Option<serde_json::Value>, 
     serde_json::from_slice(&bytes).map(Some).map_err(|e| e.to_string())
 }
 
+/// Carpeta del paquete nativo de TypeScript 7 para esta plataforma (`@typescript/typescript-<plataforma>`).
+fn native_platform() -> Option<&'static str> {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("windows", "x86_64") => Some("win32-x64"),
+        ("windows", "aarch64") => Some("win32-arm64"),
+        ("linux", "x86_64") => Some("linux-x64"),
+        ("linux", "aarch64") => Some("linux-arm64"),
+        ("macos", "x86_64") => Some("darwin-x64"),
+        ("macos", "aarch64") => Some("darwin-arm64"),
+        _ => None,
+    }
+}
+
+const NATIVE_EXE: &str = if cfg!(windows) { "tsc.exe" } else { "tsc" };
+
+/// El servidor nativo de TypeScript 7 (`tsc --lsp --stdio`): un ejecutable sin Node que el instalador
+/// incluye en `lsp/typescript/` junto a sus `lib.*.d.ts`.
+fn native_server_path(app: &AppHandle) -> Option<PathBuf> {
+    let packaged = app.path().resource_dir().ok().map(|p| p.join("lsp/typescript").join(NATIVE_EXE));
+    let development = native_platform().map(|platform| {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../node_modules/@typescript")
+            .join(format!("typescript-{platform}"))
+            .join("lib")
+            .join(NATIVE_EXE)
+    });
+    packaged
+        .filter(|p| p.is_file())
+        .or_else(|| development.filter(|p| p.is_file()))
+}
+
+/// TypeScript instalado en el proyecto (en su `node_modules` o en el de una carpeta superior, como
+/// lo resolvería Node): versión principal y ruta de su `tsserver.js`.
+fn project_typescript(root: &Path) -> Option<(u32, PathBuf)> {
+    root.ancestors().find_map(|dir| {
+        let package = dir.join("node_modules/typescript");
+        let text = std::fs::read_to_string(package.join("package.json")).ok()?;
+        let json: serde_json::Value = serde_json::from_str(&text).ok()?;
+        let major = json["version"].as_str()?.split('.').next()?.parse::<u32>().ok()?;
+        Some((major, package.join("lib/tsserver.js")))
+    })
+}
+
+/// TypeScript 7 eliminó opciones antiguas (`baseUrl`, `moduleResolution: "node"`, …). Un proyecto que
+/// instala TypeScript 5 o 6 se comprueba con su propia versión, como antes; todos los demás con el nativo.
+fn wants_compat(project: Option<&(u32, PathBuf)>) -> bool {
+    matches!(project, Some((major, tsserver)) if *major < 7 && tsserver.is_file())
+}
+
 fn server_path(app: &AppHandle) -> Option<PathBuf> {
     let relative = Path::new("lsp/node_modules/typescript-language-server/lib/cli.mjs");
     let packaged = app.path().resource_dir().ok().map(|p| p.join(relative));
@@ -155,35 +204,69 @@ pub fn lsp_host_pid() -> u32 {
     std::process::id()
 }
 
-#[tauri::command]
-pub async fn lsp_start(app: AppHandle, root: String) -> Result<u64, String> {
-    let script = node_path(
-        server_path(&app).ok_or("No se encontró el servidor de TypeScript de Pulso")?,
-    );
+/// Qué servidor quedó en marcha. `tsserver` solo en el modo compatible: el cliente se lo pasa al servidor.
+#[derive(Serialize)]
+pub struct Started {
+    id: u64,
+    mode: &'static str,
+    tsserver: Option<String>,
+    notice: Option<String>,
+}
+
+fn spawn_native(app: &AppHandle, root: &str) -> Result<Child, String> {
+    let exe = native_server_path(app).ok_or("No se encontró el servidor de TypeScript de Pulso")?;
+    let mut command = crate::background_command(&exe.to_string_lossy());
+    command.args(["--lsp", "--stdio"]);
+    spawn_piped(command, root).map_err(|e| format!("No se pudo iniciar el servidor de TypeScript: {e}"))
+}
+
+fn spawn_compat(app: &AppHandle, root: &str) -> Result<Child, String> {
+    let script = node_path(server_path(app).ok_or("No se encontró el servidor de TypeScript de Pulso")?);
     let preload = node_path(
-        preload_path(&app).ok_or("No se encontró la configuración del servidor de lenguaje")?,
+        preload_path(app).ok_or("No se encontró la configuración del servidor de lenguaje")?,
     );
+    let node = crate::aichat::node_program(Path::new(root));
+    let mut command = crate::background_command(&node);
+    command.arg("--require").arg(preload).arg(script).arg("--stdio");
+    spawn_piped(command, root).map_err(|e| e.to_string())
+}
+
+fn spawn_piped(mut command: std::process::Command, root: &str) -> std::io::Result<Child> {
+    command
+        .current_dir(root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    crate::procguard::configure_child(&mut command);
+    command.spawn()
+}
+
+#[tauri::command]
+pub async fn lsp_start(app: AppHandle, root: String) -> Result<Started, String> {
     tauri::async_runtime::spawn_blocking(move || {
         if !Path::new(&root).is_dir() {
             return Err("La carpeta de trabajo ya no existe".into());
         }
         let state = app.state::<LspState>();
         state.stop();
-        let node = crate::aichat::node_program(Path::new(&root));
-        let mut command = crate::background_command(&node);
-        command
-            .arg("--require")
-            .arg(preload)
-            .arg(script)
-            .arg("--stdio")
-            .current_dir(root)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        crate::procguard::configure_child(&mut command);
-        let mut child = command.spawn().map_err(|e| {
-            format!("No se pudo iniciar LSP. Instala Node.js 22.22.2 o superior y reinicia Pulso: {e}")
-        })?;
+        let project = project_typescript(Path::new(&root));
+        let (mut child, mode, tsserver, notice) = if wants_compat(project.as_ref()) {
+            let (major, tsserver) = project.expect("comprobado en wants_compat");
+            match spawn_compat(&app, &root) {
+                Ok(child) => (child, "compat", Some(tsserver.to_string_lossy().into_owned()), None),
+                // Sin Node no hay modo compatible: mejor el nativo, que puede avisar de opciones retiradas.
+                Err(e) => (
+                    spawn_native(&app, &root)?,
+                    "native",
+                    None,
+                    Some(format!(
+                        "El proyecto usa TypeScript {major}, pero no se pudo iniciar Node.js ({e}). Se usa TypeScript 7, que puede marcar opciones de tsconfig que ya no existen."
+                    )),
+                ),
+            }
+        } else {
+            (spawn_native(&app, &root)?, "native", None, None)
+        };
         crate::procguard::attach_job(&child);
         let pid = child.id();
         let stdin = Arc::new(Mutex::new(
@@ -223,7 +306,7 @@ pub async fn lsp_start(app: AppHandle, root: String) -> Result<u64, String> {
             let error = if detail.is_empty() { error } else { format!("{error}: {detail}") };
             let _ = app_ev.emit("lsp-exit", Exit { id, error });
         });
-        Ok(id)
+        Ok(Started { id, mode, tsserver, notice })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -283,6 +366,43 @@ mod tests {
             PathBuf::from(r"C:\app\server.js")
         );
     }
+    #[test]
+    fn chooses_compat_only_for_projects_with_typescript_before_7() {
+        let dir = std::env::temp_dir().join(format!("pulso-lsp-mode-{}", std::process::id()));
+        let ts = dir.join("node_modules/typescript");
+        let nested = dir.join("packages/app");
+        std::fs::create_dir_all(ts.join("lib")).unwrap();
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(ts.join("lib/tsserver.js"), "").unwrap();
+
+        std::fs::write(ts.join("package.json"), r#"{"version":"5.9.3"}"#).unwrap();
+        let found = project_typescript(&nested);
+        assert_eq!(found.as_ref().map(|f| f.0), Some(5), "se busca en las carpetas superiores");
+        assert!(wants_compat(found.as_ref()));
+
+        std::fs::write(ts.join("package.json"), r#"{"version":"7.0.2"}"#).unwrap();
+        assert!(!wants_compat(project_typescript(&dir).as_ref()));
+
+        // Una versión antigua sin tsserver.js (instalación rota) no puede usarse.
+        std::fs::write(ts.join("package.json"), r#"{"version":"6.0.1"}"#).unwrap();
+        std::fs::remove_file(ts.join("lib/tsserver.js")).unwrap();
+        assert!(!wants_compat(project_typescript(&dir).as_ref()));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(!wants_compat(None));
+    }
+
+    #[test]
+    fn native_server_exists_for_this_platform_in_development() {
+        let platform = native_platform().expect("plataforma con TypeScript nativo");
+        let exe = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../node_modules/@typescript")
+            .join(format!("typescript-{platform}"))
+            .join("lib")
+            .join(NATIVE_EXE);
+        assert!(exe.is_file(), "falta {} (npm install)", exe.display());
+    }
+
     #[test]
     fn reads_utf8_and_multiple_frames() {
         let first = "{\"text\":\"ñ😀\"}";

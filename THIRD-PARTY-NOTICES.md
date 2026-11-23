@@ -10,8 +10,8 @@ Pulso se distribuye bajo la [licencia MIT](LICENSE). El instalador incluye los c
 | [xterm.js](https://github.com/xtermjs/xterm.js) (`@xterm/xterm`, `@xterm/addon-fit`) | 6.0 / 0.11 | MIT | Terminal integrada |
 | [Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme) | 5.40 | MIT | Iconos del explorador |
 | [Symbols Nerd Font Mono](https://github.com/ryanoasis/nerd-fonts) | — | MIT ([`src/assets/fonts/LICENSE-NerdFonts.txt`](src/assets/fonts/LICENSE-NerdFonts.txt)) | Símbolos de prompts en la terminal |
-| [TypeScript](https://github.com/microsoft/TypeScript) | 5.9 | Apache-2.0 | Servidor de lenguaje (incluido en `lsp/`) |
-| [typescript-language-server](https://github.com/typescript-language-server/typescript-language-server) | 6.1 | Apache-2.0 | Servidor de lenguaje (incluido en `lsp/`) |
+| [TypeScript](https://github.com/microsoft/typescript-go) (ejecutable nativo `@typescript/typescript-<plataforma>`) | 7.0 | Apache-2.0 (con `NOTICE.txt` propio) | Servidor de lenguaje (incluido en `lsp/typescript/`) |
+| [typescript-language-server](https://github.com/typescript-language-server/typescript-language-server) | 6.1 | Apache-2.0 | Modo compatible del servidor de lenguaje (incluido en `lsp/`) |
 | [Tauri](https://github.com/tauri-apps/tauri) (`@tauri-apps/api`, `tauri`, plugins) | 2 | MIT o Apache-2.0 | Aplicación de escritorio |
 
 ## Crates de Rust
