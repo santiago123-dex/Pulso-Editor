@@ -419,6 +419,7 @@ function renderChips() {
       thumb.className = "ai-chip-thumb";
       thumb.src = img.preview;
       thumb.alt = img.name;
+      thumb.onclick = (e) => { e.stopPropagation(); void openImageLightbox(img); };
       c.append(thumb);
     }
     c.append(h("span", "", img.name));
@@ -649,7 +650,8 @@ function turnNodes(t: Turn, _userNum = 0, isRunningTurn = false): HTMLElement[] 
       const strip = h("div", "ai-user-images");
       for (const img of imgs) {
         const card = h("div", "ai-user-img");
-        card.title = img.name;
+        card.title = `${img.name} — ${tr("Clic para ampliar")}`;
+        card.onclick = () => void openImageLightbox(img);
         if (img.preview) {
           const el = document.createElement("img");
           el.src = img.preview;
@@ -1300,6 +1302,66 @@ function makeThumbnail(dataUrl: string): Promise<string> {
   });
 }
 
+async function openImageLightbox(img: UserImage) {
+  document.querySelector(".ai-lightbox")?.remove();
+  const backdrop = h("div", "ai-lightbox");
+  backdrop.setAttribute("role", "dialog");
+  backdrop.setAttribute("aria-modal", "true");
+  backdrop.setAttribute("aria-label", img.name);
+  const frame = h("div", "ai-lightbox-frame");
+  const head = h("div", "ai-lightbox-head");
+  head.append(h("span", "ai-lightbox-name", img.name));
+  const closeBtn = h("button", "icon-btn ai-lightbox-close", "×");
+  closeBtn.type = "button";
+  closeBtn.title = tr("Cerrar (Esc)");
+  closeBtn.setAttribute("aria-label", tr("Cerrar"));
+  const close = () => {
+    window.removeEventListener("keydown", onEsc, true);
+    backdrop.remove();
+  };
+  const onEsc = (e: KeyboardEvent) => {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); }
+  };
+  closeBtn.onclick = close;
+  backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
+  window.addEventListener("keydown", onEsc, true);
+  head.append(closeBtn);
+  const pic = document.createElement("img");
+  pic.className = "ai-lightbox-img";
+  pic.alt = img.name;
+  pic.draggable = false;
+  if (img.preview) pic.src = img.preview;
+  frame.append(head, pic);
+  backdrop.append(frame);
+  document.body.append(backdrop);
+  if (img.path && "__TAURI_INTERNALS__" in window) {
+    try {
+      const full = await invoke<string>("ai_read_image_data_url", { path: img.path });
+      if (document.body.contains(pic)) pic.src = full;
+    } catch { /* se queda la miniatura */ }
+  }
+}
+
+function collectReferencedImagePaths(): string[] {
+  const paths = new Set<string>();
+  const scanTurns = (turns: readonly Turn[]) => {
+    for (const turn of turns) {
+      for (const b of turn.blocks) {
+        if (b.kind === "image" && b.path) paths.add(b.path);
+      }
+    }
+  };
+  for (const c of loadChats()) scanTurns(c.messages);
+  for (const l of lives.values()) scanTurns(l.convo.messages);
+  for (const img of attachedImages) if (img.path) paths.add(img.path);
+  return Array.from(paths);
+}
+
+function pruneUnusedImages() {
+  if (!("__TAURI_INTERNALS__" in window)) return;
+  void invoke("ai_prune_images", { keepPaths: collectReferencedImagePaths() }).catch(() => {});
+}
+
 async function addImageFiles(files: Iterable<File>) {
   if (!ws.root) { setStatus(tr("Abre una carpeta primero")); return; }
   for (const file of files) {
@@ -1893,7 +1955,7 @@ function renderHistory(body: HTMLElement) {
       historyOpen = false; renderBody();
     };
     const del = iconBtn('<svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/></svg>', tr("Eliminar esta conversación"), "ai-hist-del");
-    del.onclick = () => { deleteChat(r.id); if (lives.get(r.id)?.convo.running) { void invoke("ai_stop", { id: r.id }); } lives.delete(r.id); if (current?.id === r.id) current = null; renderBody(); };
+    del.onclick = () => { deleteChat(r.id); if (lives.get(r.id)?.convo.running) { void invoke("ai_stop", { id: r.id }); } lives.delete(r.id); if (current?.id === r.id) current = null; pruneUnusedImages(); renderBody(); };
     row.append(open, del);
     nodes.push(row);
   }
@@ -2230,6 +2292,7 @@ export function initAi() {
         }
       }
     } catch { /* nada que hacer */ }
+    pruneUnusedImages();
     if (shown) renderBody();
   });
   window.addEventListener("beforeunload", saveRunningBeforeExit);
@@ -2273,6 +2336,28 @@ export function initAi() {
       inp.focus();
     }
   });
+}
+
+/** ¿Hay alguna conversación de IA respondiendo actualmente en la carpeta indicada? */
+export function hasRunningAiForWorkspace(root: string | null): boolean {
+  if (!root) return false;
+  for (const l of lives.values()) {
+    if (l.convo.running && sameDir(l.cwd, root)) return true;
+  }
+  return false;
+}
+
+/** Detiene todas las conversaciones de IA en curso de la carpeta indicada. */
+export async function stopRunningAiForWorkspace(root: string | null): Promise<void> {
+  if (!root) return;
+  const targets: Live[] = [];
+  for (const l of lives.values()) {
+    if (l.convo.running && sameDir(l.cwd, root)) targets.push(l);
+  }
+  for (const l of targets) {
+    l.stopping = true;
+    await invoke("ai_stop", { id: l.id }).catch(() => {});
+  }
 }
 
 /** Al cambiar o cerrar carpeta se descarta la conversación activa del proyecto anterior y se actualiza la vista para el nuevo. */

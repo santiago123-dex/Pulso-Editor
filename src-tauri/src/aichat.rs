@@ -1132,6 +1132,69 @@ pub fn ai_save_image(app: AppHandle, name: Option<String>, mime: String, data_ba
     })
 }
 
+fn mime_for_image_ext(path: &Path) -> Option<&'static str> {
+    match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "webp" => Some("image/webp"),
+        "gif" => Some("image/gif"),
+        _ => None,
+    }
+}
+
+/// Lee una imagen guardada en `ai-images/` y devuelve un `data:` URL para mostrarla ampliada en el visor.
+#[tauri::command]
+pub fn ai_read_image_data_url(app: AppHandle, path: String) -> Result<String, String> {
+    use base64::Engine;
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("ai-images");
+    let dir_canon = std::fs::canonicalize(&dir).map_err(|_| tr("No se encontró la imagen adjunta.").to_string())?;
+    let target = std::fs::canonicalize(Path::new(&path)).map_err(|_| tr("No se encontró la imagen adjunta.").to_string())?;
+    if !target.starts_with(&dir_canon) || !target.is_file() {
+        return Err(tr("No se encontró la imagen adjunta.").into());
+    }
+    let mime = mime_for_image_ext(&target)
+        .ok_or_else(|| tr("Formato de imagen no soportado. Usa PNG, JPG, WEBP o GIF.").to_string())?;
+    let meta = std::fs::metadata(&target).map_err(|e| e.to_string())?;
+    if meta.len() as usize > MAX_IMAGE_BYTES {
+        return Err(tr("La imagen supera el límite de 10 MB.").into());
+    }
+    let bytes = std::fs::read(&target).map_err(|e| e.to_string())?;
+    Ok(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(&bytes)))
+}
+
+/// Elimina archivos antiguos de `ai-images/` que ya no estén referenciados por ninguna conversación guardada.
+#[tauri::command]
+pub fn ai_prune_images(app: AppHandle, keep_paths: Vec<String>) -> Result<usize, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("ai-images");
+    if !dir.is_dir() {
+        return Ok(0);
+    }
+    let keep: std::collections::HashSet<String> = keep_paths
+        .into_iter()
+        .filter_map(|p| std::fs::canonicalize(Path::new(&p)).ok())
+        .map(|p| p.to_string_lossy().to_ascii_lowercase())
+        .collect();
+    let grace = Duration::from_secs(300);
+    let now = std::time::SystemTime::now();
+    let mut removed = 0usize;
+    let Ok(entries) = std::fs::read_dir(&dir) else { return Ok(0); };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if !p.is_file() { continue; }
+        let Ok(canon) = std::fs::canonicalize(&p) else { continue; };
+        if keep.contains(&canon.to_string_lossy().to_ascii_lowercase()) { continue; }
+        if let Ok(meta) = entry.metadata() {
+            if let Ok(mtime) = meta.modified() {
+                if now.duration_since(mtime).unwrap_or_default() < grace { continue; }
+            }
+        }
+        if std::fs::remove_file(&p).is_ok() {
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
 fn validate_images(images: Option<Vec<String>>) -> Result<Vec<String>, String> {
     let mut out = Vec::new();
     for raw in images.unwrap_or_default().into_iter().take(5) {

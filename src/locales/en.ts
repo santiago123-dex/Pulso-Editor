@@ -1280,4 +1280,13 @@ export const en: Record<string, string> = {
   "No se pudo adjuntar la imagen: {error}": "Couldn't attach the image: {error}",
   "Analiza la imagen adjunta.": "Analyze the attached image.",
   "Analiza las imágenes adjuntas.": "Analyze the attached images.",
+  "Clic para ampliar": "Click to enlarge",
+  "El asistente de IA sigue respondiendo": "The AI assistant is still responding",
+  "Hay una conversación de IA en curso en «{folder}». ¿Qué quieres hacer antes de cambiar de proyecto?": "There is an active AI conversation in “{folder}”. What would you like to do before switching projects?",
+  "Hay una conversación de IA en curso en «{folder}». ¿Qué quieres hacer antes de cerrar la carpeta?": "There is an active AI conversation in “{folder}”. What would you like to do before closing the folder?",
+  "Detener y continuar": "Stop and continue",
+  "Dejar en segundo plano": "Keep in background",
+  "Archivo: Abrir carpeta en una nueva ventana…": "File: Open folder in a new window…",
+  "Abrir carpeta en nueva ventana…": "Open folder in new window…",
+  "No se pudo abrir la nueva ventana: {error}": "Couldn't open the new window: {error}",
 };

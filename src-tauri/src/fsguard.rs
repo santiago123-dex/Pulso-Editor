@@ -3,7 +3,7 @@
 //! y directorios de solo lectura estrictamente permitidos (como extensiones de temas de VS Code).
 use crate::i18n::{tr, trf};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     path::{Component, Path, PathBuf},
     sync::Mutex,
@@ -11,7 +11,7 @@ use std::{
 
 #[derive(Default)]
 struct GuardInner {
-    root: Option<PathBuf>,
+    roots: HashMap<String, PathBuf>,
     extra_files: HashSet<PathBuf>,
     readonly_roots: Vec<PathBuf>,
 }
@@ -33,7 +33,7 @@ impl Default for WorkspaceGuard {
         }
         Self {
             inner: Mutex::new(GuardInner {
-                root: None,
+                roots: HashMap::new(),
                 extra_files: HashSet::new(),
                 readonly_roots,
             }),
@@ -81,12 +81,17 @@ fn is_within(candidate: &Path, root: &Path) -> bool {
 }
 
 impl WorkspaceGuard {
-    /// Fija la carpeta de trabajo activa (o la limpia si `path` es `None`).
+    /// Fija la carpeta de trabajo activa de la ventana principal (o la limpia si `path` es `None`).
     pub fn set_root(&self, path: Option<&str>) -> Result<Option<PathBuf>, String> {
+        self.set_root_for("main", path)
+    }
+
+    /// Fija la carpeta de trabajo activa de una ventana concreta (permite varias ventanas en paralelo).
+    pub fn set_root_for(&self, label: &str, path: Option<&str>) -> Result<Option<PathBuf>, String> {
         let mut g = self.inner.lock().map_err(|e| e.to_string())?;
         match path {
             None => {
-                g.root = None;
+                g.roots.remove(label);
                 Ok(None)
             }
             Some(raw) => {
@@ -98,9 +103,16 @@ impl WorkspaceGuard {
                 if !canon.is_dir() {
                     return Err(tr("La ruta indicada no es una carpeta").into());
                 }
-                g.root = Some(canon.clone());
+                g.roots.insert(label.to_string(), canon.clone());
                 Ok(Some(canon))
             }
+        }
+    }
+
+    /// Libera la carpeta autorizada al cerrarse una ventana.
+    pub fn remove_window(&self, label: &str) {
+        if let Ok(mut g) = self.inner.lock() {
+            g.roots.remove(label);
         }
     }
 
@@ -117,7 +129,7 @@ impl WorkspaceGuard {
     }
 
     pub fn current_root(&self) -> Option<PathBuf> {
-        self.inner.lock().ok().and_then(|g| g.root.clone())
+        self.inner.lock().ok().and_then(|g| g.roots.get("main").cloned().or_else(|| g.roots.values().next().cloned()))
     }
 
     /// Verifica que `path` esté autorizado para lectura.
@@ -128,10 +140,8 @@ impl WorkspaceGuard {
         }
         let resolved = resolve_safe(p)?;
         let g = self.inner.lock().map_err(|e| e.to_string())?;
-        if let Some(root) = &g.root {
-            if is_within(&resolved, root) {
-                return Ok(resolved);
-            }
+        if g.roots.values().any(|root| is_within(&resolved, root)) {
+            return Ok(resolved);
         }
         if g.extra_files.contains(&resolved) {
             return Ok(resolved);
@@ -151,10 +161,8 @@ impl WorkspaceGuard {
         }
         let resolved = resolve_safe(p)?;
         let g = self.inner.lock().map_err(|e| e.to_string())?;
-        if let Some(root) = &g.root {
-            if is_within(&resolved, root) {
-                return Ok(resolved);
-            }
+        if g.roots.values().any(|root| is_within(&resolved, root)) {
+            return Ok(resolved);
         }
         if g.extra_files.contains(&resolved) {
             return Ok(resolved);

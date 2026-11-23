@@ -34,7 +34,7 @@ import { pickScript } from "./scripts";
 import { initHistory, openHistoryTab, resetHistory, showFileHistory } from "./history";
 import { initBlame, toggleBlame } from "./blame";
 import { initPrs, newPull, resetPrs, setPrsVisible } from "./prs";
-import { initAi, resetAi, setAiVisible, startNewConversation } from "./aiChat";
+import { hasRunningAiForWorkspace, initAi, resetAi, setAiVisible, startNewConversation, stopRunningAiForWorkspace } from "./aiChat";
 import { customizeActivityBar, initActivityBar, resetActivityBar } from "./activityBar";
 import { resetRepoChat, setChatVisible } from "./repoChat";
 import { initLsp, setLspWorkspace } from "./lsp";
@@ -50,7 +50,7 @@ import { importFromFile, importInstalled, removeImported } from "./themeImport";
 import { closeSettings, initSettingsPage, openSettings, syncSettingsUI, toggleSettings } from "./settingsPage";
 import { hooks, quickPick, setDefaultStatus, setStatus, showDialog, type PickItem } from "./ui";
 import { $, baseName, dirName, h, norm } from "./util";
-import { addRecent, clearLastRoot, clearSession, createSessionPersister, getLastRoot, getRecent, loadSession, rel, removeRecent, saveSession, setLastRoot, ws } from "./workspace";
+import { addRecent, clearLastRoot, clearSession, createSessionPersister, getLastRoot, getRecent, loadProjectLayout, loadSession, rel, removeRecent, saveProjectLayout, saveSession, setLastRoot, ws } from "./workspace";
 
 // Los textos fijos de index.html, en el idioma elegido, antes de que nada se pinte encima.
 translateStatic(document.body);
@@ -135,12 +135,40 @@ resizer.onmousedown = (e) => {
 };
 
 // ---------- Carpeta de trabajo y sesión ----------
-const persister = createSessionPersister(() => saveSession({ root: ws.root, layout: serialize() }));
+const isMainWindow = () => !inTauri || getCurrentWindow().label === "main";
+const persister = createSessionPersister(() => {
+  const layout = serialize();
+  if (ws.root) saveProjectLayout(ws.root, layout);
+  if (isMainWindow()) saveSession({ root: ws.root, layout });
+});
 const persist = () => persister.schedule();
+
+async function confirmLeaveRunningAi(closing: boolean): Promise<boolean> {
+  if (!ws.root || !hasRunningAiForWorkspace(ws.root)) return true;
+  const r = await showDialog({
+    title: t("El asistente de IA sigue respondiendo"),
+    message: closing
+      ? t("Hay una conversación de IA en curso en «{folder}». ¿Qué quieres hacer antes de cerrar la carpeta?", { folder: baseName(ws.root) })
+      : t("Hay una conversación de IA en curso en «{folder}». ¿Qué quieres hacer antes de cambiar de proyecto?", { folder: baseName(ws.root) }),
+    buttons: [
+      { label: t("Cancelar"), value: "cancel" },
+      { label: t("Detener y continuar"), value: "stop", danger: true },
+      { label: t("Dejar en segundo plano"), value: "bg", primary: true },
+    ],
+  });
+  if (r === "cancel") return false;
+  if (r === "stop") await stopRunningAiForWorkspace(ws.root);
+  return true;
+}
 
 async function openWorkspace(raw: string, layout?: Layout | null): Promise<boolean> {
   const path = norm(raw).replace(/\/+$/, "");
-  if (ws.root !== path && !(await closeAllTabs())) return false;
+  const changedWorkspace = ws.root !== path;
+  if (changedWorkspace) {
+    if (!(await confirmLeaveRunningAi(false))) return false;
+    if (ws.root) saveProjectLayout(ws.root, serialize());
+    if (!(await closeAllTabs())) return false;
+  }
   try {
     if (inTauri) await invoke("set_workspace_root", { path });
     await invoke("list_dir", { path });
@@ -150,10 +178,9 @@ async function openWorkspace(raw: string, layout?: Layout | null): Promise<boole
     removeRecent(path);
     return false;
   }
-  const changedWorkspace = ws.root !== path;
   ws.root = path;
   if (inTauri && changedWorkspace) setLspWorkspace(path);
-  setLastRoot(path);
+  if (isMainWindow()) setLastRoot(path);
   addRecent(path);
   resetExplorer();
   if (changedWorkspace) {
@@ -174,7 +201,8 @@ async function openWorkspace(raw: string, layout?: Layout | null): Promise<boole
   fn.classList.add("on");
   setDefaultStatus(path);
   await refreshTree();
-  if (layout) await restore(layout);
+  const nextLayout = layout !== undefined ? layout : (loadProjectLayout(path) as Layout | null);
+  if (nextLayout) await restore(nextLayout);
   void loadIssues();
   rerenderEmpty();
   updateStatus();
@@ -197,6 +225,8 @@ async function installCliCommand() {
 }
 
 async function closeWorkspace() {
+  if (!(await confirmLeaveRunningAi(true))) return;
+  if (ws.root) saveProjectLayout(ws.root, serialize());
   if (!(await closeAllTabs())) return;
   ws.root = null;
   if (inTauri) {
@@ -231,6 +261,16 @@ async function pickFolder() {
     if (typeof dir === "string") await openWorkspace(dir);
   } catch (e) {
     setStatus(t("No se pudo abrir la carpeta: {error}", { error: String(e) }));
+  }
+}
+
+async function pickFolderNewWindow() {
+  if (!inTauri) { setStatus(t("Abrir carpeta solo funciona en la ventana de Pulso Editor (npx tauri dev).")); return; }
+  try {
+    const dir = await open({ directory: true });
+    if (typeof dir === "string") await invoke("open_new_window", { path: dir });
+  } catch (e) {
+    setStatus(t("No se pudo abrir la nueva ventana: {error}", { error: String(e) }));
   }
 }
 
@@ -440,6 +480,7 @@ const selectionText = () => {
 
 register(
   { id: "file.openFolder", label: t("Archivo: Abrir carpeta…"), key: "Ctrl+O", run: pickFolder },
+  { id: "file.openFolderNewWindow", label: t("Archivo: Abrir carpeta en una nueva ventana…"), run: pickFolderNewWindow },
   { id: "cli.install", label: t("Instalar el comando «pulso» en la terminal"), run: installCliCommand },
   { id: "app.checkUpdates", label: t("Ayuda: Buscar actualizaciones"), keywords: "update actualizar versión nueva", run: () => checkForUpdates(true) },
   { id: "file.openRecent", label: t("Archivo: Abrir carpeta reciente…"), run: pickRecent },
@@ -561,6 +602,7 @@ const pasteEntry: MenuEntry = {
 const MENUS: MenuDef[] = [
   { label: t("Archivo"), items: [
     { cmd: "file.openFolder", label: t("Abrir carpeta…") },
+    { cmd: "file.openFolderNewWindow", label: t("Abrir carpeta en nueva ventana…") },
     { cmd: "file.openRecent", label: t("Abrir carpeta reciente…") },
     { cmd: "file.closeFolder", label: t("Cerrar carpeta") },
     "sep",
@@ -780,27 +822,40 @@ void (async () => {
     syncSettingsUI();
     rerenderGroups();
     if (!inTauri) return;
+    const windowFolder = new URLSearchParams(window.location.search).get("folder");
+    const mainWin = isMainWindow();
     // Sin sesión guardada se reabre la última carpeta usada, como hacen los editores habituales.
-    const cliTargets = await invoke<CliTarget[]>("cli_startup_targets").catch(() => [] as CliTarget[]);
-    const root = cliTargets.some((t) => t.kind === "dir") ? null : startupSession?.root ?? startupLastRoot;
+    const cliTargets = mainWin ? await invoke<CliTarget[]>("cli_startup_targets").catch(() => [] as CliTarget[]) : [];
+    const root = windowFolder
+      ? windowFolder
+      : cliTargets.some((t) => t.kind === "dir")
+        ? null
+        : mainWin
+          ? (startupSession?.root ?? startupLastRoot)
+          : null;
     if (root) {
-      const ok = await openWorkspace(root, startupSession?.root ? (startupSession.layout as Layout) : null);
-      if (!ok) { clearSession(); clearLastRoot(); }
+      const initialLayout = windowFolder
+        ? undefined
+        : (startupSession?.root ? (startupSession.layout as Layout) : undefined);
+      const ok = await openWorkspace(root, initialLayout);
+      if (!ok && mainWin && !windowFolder) { clearSession(); clearLastRoot(); }
     }
     // El aviso de recuperación espera una respuesta: la pantalla de carga debe retirarse antes,
     // o quedaría tapándolo hasta el límite de 12 s.
     persister.markReady();
     revealApp();
-    // Si se vuelve a lanzar `pulso ...`, la instancia única nos manda las rutas por aquí.
-    await listen<CliTarget[]>("cli-open", (e) => void applyCliTargets(e.payload));
-    await applyCliTargets(cliTargets);
-    await offerRecovery(openFile);
-    // Antes de instalar una versión nueva (Pulso se cierra): guardar lo pendiente o no instalar.
-    initUpdates(async () => {
-      for (const d of dirtyDocs()) if (!(await saveDoc(d))) return false;
-      persister.flush();
-      return true;
-    });
+    if (mainWin) {
+      // Si se vuelve a lanzar `pulso ...`, la instancia única nos manda las rutas por aquí.
+      await listen<CliTarget[]>("cli-open", (e) => void applyCliTargets(e.payload));
+      await applyCliTargets(cliTargets);
+      await offerRecovery(openFile);
+      // Antes de instalar una versión nueva (Pulso se cierra): guardar lo pendiente o no instalar.
+      initUpdates(async () => {
+        for (const d of dirtyDocs()) if (!(await saveDoc(d))) return false;
+        persister.flush();
+        return true;
+      });
+    }
   } finally {
     persister.markReady();
     revealApp();
