@@ -1,5 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { commands, keyOf } from "./commands";
+import { t } from "./i18n";
 import { $, h } from "./util";
 
 /** Entrada de un menú: un comando registrado, una acción propia o un separador. */
@@ -31,7 +32,7 @@ export function setTitleLabel(text: string) {
 export function setUnsaved(count: number) {
   const dot = $("tb-dirty");
   dot.hidden = count === 0;
-  dot.title = count === 1 ? "1 archivo sin guardar" : `${count} archivos sin guardar`;
+  dot.title = count === 1 ? t("1 archivo sin guardar") : t("{count} archivos sin guardar", { count });
   $("tb-title").classList.toggle("unsaved", count > 0);
 }
 
@@ -139,7 +140,7 @@ export function initTitlebar(opts: {
     try {
       const max = await win.isMaximized();
       $("win-max").classList.toggle("restored", max);
-      $("win-max").title = max ? "Restaurar" : "Maximizar";
+      $("win-max").title = max ? t("Restaurar") : t("Maximizar");
     } catch { /* sin permiso o sin ventana */ }
   };
   $("win-min").onclick = () => void win.minimize();

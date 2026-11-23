@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 export interface Change { path: string; status: string; orig: string | null }
 export interface Changes {
   top: string; branch: string; ahead: number; behind: number; has_head: boolean;
@@ -23,11 +24,11 @@ export function discardMessage(items: Change[]): string {
   const fresh = items.filter((c) => c.status === "U");
   const tracked = items.filter((c) => c.status !== "U");
   const shown = items.slice(0, 8).map((c) => `  ${c.path}`);
-  if (items.length > 8) shown.push(`  … y ${items.length - 8} más`);
+  if (items.length > 8) shown.push("  " + t("… y {count} más", { count: items.length - 8 }));
   const parts: string[] = [];
-  if (tracked.length) parts.push(`${tracked.length} archivo(s) volverán a su última versión preparada o confirmada: los cambios actuales se pierden.`);
-  if (fresh.length) parts.push(`${fresh.length} archivo(s) nuevos sin seguimiento irán a la papelera de reciclaje.`);
-  return `${parts.join("\n")}\n\n${shown.join("\n")}\n\nPulso no puede deshacer esto.`;
+  if (tracked.length) parts.push(t("{count} archivo(s) volverán a su última versión preparada o confirmada: los cambios actuales se pierden.", { count: tracked.length }));
+  if (fresh.length) parts.push(t("{count} archivo(s) nuevos sin seguimiento irán a la papelera de reciclaje.", { count: fresh.length }));
+  return `${parts.join("\n")}\n\n${shown.join("\n")}\n\n${t("Pulso no puede deshacer esto.")}`;
 }
 
 /** Contadores y ayuda de los botones de sincronización. */
@@ -37,7 +38,7 @@ export function syncInfo(c: Changes | null): { pull: string; push: string; pullT
   return {
     pull: behind ? String(behind) : "",
     push: ahead ? String(ahead) : "",
-    pullTip: behind ? `Traer ${behind} commit(s) del remoto (pull)` : "Traer cambios del remoto (pull)",
-    pushTip: ahead ? `Subir ${ahead} commit(s) al remoto (push)` : "Subir commits al remoto (push)",
+    pullTip: behind ? t("Traer {count} commit(s) del remoto (pull)", { count: behind }) : t("Traer cambios del remoto (pull)"),
+    pushTip: ahead ? t("Subir {count} commit(s) al remoto (push)", { count: ahead }) : t("Subir commits al remoto (push)"),
   };
 }

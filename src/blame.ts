@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
 import { bus } from "./core/events";
@@ -82,7 +83,7 @@ export function toggleBlame() {
   writeStorage(KEY, enabled ? "1" : "0");
   if (!enabled) for (const ed of monaco.editor.getEditors()) clear(ed);
   else refreshAll();
-  setStatus(`Culpa en línea: ${enabled ? "activada. Se muestra en la línea del cursor de los archivos guardados" : "desactivada"}`);
+  setStatus(enabled ? t("Culpa en línea: activada. Se muestra en la línea del cursor de los archivos guardados") : t("Culpa en línea: desactivada"));
 }
 
 export function initBlame() {

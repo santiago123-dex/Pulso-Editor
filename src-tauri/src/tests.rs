@@ -451,3 +451,23 @@ fn secret_key_allowlist_blocks_arbitrary_keys() {
     assert!(ensure_allowed_secret_key("aws-secret").is_err());
     assert!(ensure_allowed_secret_key("").is_err());
 }
+
+#[test]
+fn norm_strips_windows_verbatim_prefixes() {
+    assert_eq!(norm(Path::new(r"\\?\C:\Pulso Editor\a.ts")), "C:/Pulso Editor/a.ts");
+    assert_eq!(norm(Path::new(r"\\?\UNC\server\share\a.ts")), "//server/share/a.ts");
+    assert_eq!(norm(Path::new(r"C:\x\a.ts")), "C:/x/a.ts");
+    assert_eq!(norm(Path::new("/home/x/a.ts")), "/home/x/a.ts");
+}
+
+#[cfg(windows)]
+#[test]
+fn listing_a_canonical_folder_returns_plain_paths() {
+    let t = Tmp::new();
+    fs::write(t.0.join("a.ts"), "").unwrap();
+    // `fsguard` entrega rutas canonicalizadas (`\?\C:\...`); lo listado no debe arrastrar ese prefijo.
+    let canonical = fs::canonicalize(&t.0).unwrap();
+    assert!(canonical.to_string_lossy().starts_with(r"\\?\"));
+    let entries = list_dir_sync(canonical.to_string_lossy().into_owned()).unwrap();
+    assert!(entries.iter().all(|e| !e.path.starts_with("//?/")), "{:?}", entries.iter().map(|e| &e.path).collect::<Vec<_>>());
+}

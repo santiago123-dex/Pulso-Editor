@@ -1,4 +1,6 @@
+import { t } from "./i18n";
 import { invoke } from "@tauri-apps/api/core";
+import { readStorage, removeStorage } from "./core/storage";
 
 export interface Issue {
   number: number;
@@ -41,7 +43,7 @@ export async function initToken(): Promise<void> {
   } catch {
     connected = false;
   }
-  const legacy = localStorage.getItem(LEGACY_KEY);
+  const legacy = readStorage(LEGACY_KEY);
   if (legacy) {
     try {
       if (!connected) {
@@ -49,7 +51,7 @@ export async function initToken(): Promise<void> {
         connected = true;
         if (!saved) return;
       }
-      localStorage.removeItem(LEGACY_KEY);
+      removeStorage(LEGACY_KEY);
     } catch { /* se deja donde estaba para no perderlo */ }
   }
 }
@@ -81,10 +83,10 @@ export function parseRemote(url: string): { owner: string; repo: string } | null
  * Dirección de la API. Solo cambia con `pulso.githubApi` en localStorage, que usan las pruebas contra un servidor
  * local falso; en producción Rust ignora cualquier origen distinto de `https://api.github.com`.
  */
-export const apiBase = () => (localStorage.getItem("pulso.githubApi") || "https://api.github.com").replace(/\/+$/, "");
+export const apiBase = () => (readStorage("pulso.githubApi") || "https://api.github.com").replace(/\/+$/, "");
 
 function customApiBase(): string | null {
-  const raw = localStorage.getItem("pulso.githubApi")?.trim();
+  const raw = readStorage("pulso.githubApi")?.trim();
   return raw ? raw.replace(/\/+$/, "") : null;
 }
 
@@ -162,23 +164,23 @@ export async function githubFetch(
 
 /** Mensaje en español para un fallo de la API: dice qué hacer, no solo el código. */
 export function explainStatus(status: number, writing: boolean): string {
-  if (status === 401) return "GitHub rechazó el token (no es válido o caducó). Vuelve a conectar tu cuenta en Configuración → GitHub.";
+  if (status === 401) return t("GitHub rechazó el token (no es válido o caducó). Vuelve a conectar tu cuenta en Configuración → GitHub.");
   if (status === 403 || status === 429) {
     return writing
-      ? "GitHub no permitió el cambio: el token necesita permiso de escritura en las issues del repositorio, o se alcanzó el límite de uso de la API."
-      : "GitHub no permitió la consulta: puede faltar un token o se alcanzó el límite de uso de la API.";
+      ? t("GitHub no permitió el cambio: el token necesita permiso de escritura en las issues del repositorio, o se alcanzó el límite de uso de la API.")
+      : t("GitHub no permitió la consulta: puede faltar un token o se alcanzó el límite de uso de la API.");
   }
-  if (status === 404) return "GitHub no encontró el repositorio o la issue. Si el repositorio es privado, conecta tu cuenta de GitHub (debe tener acceso a él).";
-  if (status === 422) return "GitHub no pudo aplicar el cambio (datos no válidos).";
-  return `GitHub respondió ${status}`;
+  if (status === 404) return t("GitHub no encontró el repositorio o la issue. Si el repositorio es privado, conecta tu cuenta de GitHub (debe tener acceso a él).");
+  if (status === 422) return t("GitHub no pudo aplicar el cambio (datos no válidos).");
+  return t("GitHub respondió {status}", { status });
 }
 
 /** Explica un error de GraphQL al eliminar una issue. GitHub solo lo permite a quien administra el repositorio. */
 export function explainDeleteError(message: string): string {
   if (/admin|permission|access|forbidden|not authorized|insufficient|resource not accessible/i.test(message)) {
-    return "GitHub solo permite eliminar issues a quienes administran el repositorio. Puedes cerrarla en su lugar.";
+    return t("GitHub solo permite eliminar issues a quienes administran el repositorio. Puedes cerrarla en su lugar.");
   }
-  return `GitHub no pudo eliminar la issue: ${message}`;
+  return t("GitHub no pudo eliminar la issue: {reason}", { reason: message });
 }
 
 /** Elimina una issue para siempre (mutación GraphQL; la API REST no lo permite). */
@@ -223,10 +225,40 @@ export async function connectGithub(interactive: boolean): Promise<string> {
   return login;
 }
 
+/** Código que da GitHub para iniciar sesión desde Pulso (OAuth device flow). */
+export interface DeviceCode { device_code: string; user_code: string; verification_uri: string; expires_in: number; interval: number }
+
+/** Dirección web de GitHub; en desarrollo las pruebas la apuntan a un servidor simulado. */
+function customWebBase(): string | null {
+  const raw = readStorage("pulso.githubWeb")?.trim();
+  return raw ? raw.replace(/\/+$/, "") : null;
+}
+
+/** El inicio de sesión por código solo está disponible si la compilación tiene el identificador de la aplicación OAuth. */
+export async function deviceLoginAvailable(): Promise<boolean> {
+  return inTauri() && invoke<boolean>("github_device_available").catch(() => false);
+}
+
+export const deviceLoginStart = () => invoke<DeviceCode>("github_device_start", { webBase: customWebBase() });
+
+/** Espera a que se autorice el código en GitHub; deja el token guardado en Rust y devuelve el usuario. */
+export async function deviceLoginFinish(code: DeviceCode): Promise<string> {
+  const login = await invoke<string>("github_device_poll", {
+    deviceCode: code.device_code, interval: code.interval, expiresIn: code.expires_in,
+    webBase: customWebBase(), apiBase: customApiBase(),
+  });
+  etagCache.clear();
+  connected = true;
+  account = login;
+  return login;
+}
+
+export const deviceLoginCancel = () => invoke("github_device_cancel").catch(() => {});
+
 /** Al iniciar, si no hay token, adopta en silencio la sesión de GitHub que Git ya tiene. Devuelve el usuario o null. */
 export async function autoConnect(): Promise<string | null> {
   // `pulso.noAutoConnect` lo fijan las pruebas para que no adopten la sesión real de quien las ejecuta.
-  if (!inTauri() || hasToken() || localStorage.getItem("pulso.noAutoConnect")) return null;
+  if (!inTauri() || hasToken() || readStorage("pulso.noAutoConnect")) return null;
   try { return await connectGithub(false); } catch { return null; }
 }
 

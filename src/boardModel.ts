@@ -1,12 +1,13 @@
+import { t } from "./i18n";
 import type { Issue } from "./github";
 
 export type Column = "todo" | "doing" | "review" | "done";
 
 export const COLUMNS: { id: Column; title: string }[] = [
-  { id: "todo", title: "Por hacer" },
-  { id: "doing", title: "En curso" },
-  { id: "review", title: "En revisión" },
-  { id: "done", title: "Hecho" },
+  { id: "todo", title: t("Por hacer") },
+  { id: "doing", title: t("En curso") },
+  { id: "review", title: t("En revisión") },
+  { id: "done", title: t("Hecho") },
 ];
 
 export const DEFAULT_PROGRESS_LABEL = "in progress";

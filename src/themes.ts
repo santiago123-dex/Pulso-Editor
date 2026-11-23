@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import * as monaco from "monaco-editor";
 
 export interface SyntaxColors {
@@ -28,10 +29,10 @@ function T(label: string, base: Theme["base"], u: Ui, syntax: SyntaxColors): The
 }
 
 export const THEMES: Record<string, Theme> = {
-  "pulso-dark": T("Pulso Oscuro", "vs-dark",
+  "pulso-dark": T(t("Pulso Oscuro"), "vs-dark",
     ["#0e0e0f", "#151515", "#191919", "#111111", "#2a2a2a", "#232323", "#2d2d2d", "#e8e8e8", "#8a8a8a", "#5b9cf5"],
     S("6b7280", "b794f6", "9ad77b", "f2b36b", "5ec4ff", "e6c07b", "d9d8e4", "ff8a8a", "e6c07b", "f2b36b", "9aa0b4", "4ec9b0")),
-  dracula: T("Drácula", "vs-dark",
+  dracula: T(t("Drácula"), "vs-dark",
     ["#191a21", "#282a36", "#21222c", "#191a21", "#343746", "#2f3140", "#44475a", "#f8f8f2", "#8c93b8", "#bd93f9"],
     S("6272a4", "ff79c6", "f1fa8c", "bd93f9", "8be9fd", "50fa7b", "f8f8f2", "ff79c6", "50fa7b", "bd93f9", "ff79c6", "ffb86c")),
   "one-dark": T("One Dark Pro", "vs-dark",
@@ -52,23 +53,23 @@ export const THEMES: Record<string, Theme> = {
   "night-owl": T("Night Owl", "vs-dark",
     ["#010b14", "#011627", "#010e1a", "#010b14", "#122d42", "#0b2942", "#1d3b53", "#d6deeb", "#5f7e97", "#82aaff"],
     S("637777", "c792ea", "ecc48d", "f78c6c", "ffcb8b", "82aaff", "d6deeb", "7fdbca", "addb67", "82aaff", "c792ea", "5ca7e4")),
-  gruvbox: T("Gruvbox Oscuro", "vs-dark",
+  gruvbox: T(t("Gruvbox Oscuro"), "vs-dark",
     ["#181a1b", "#282828", "#1d2021", "#181a1b", "#3c3836", "#32302f", "#504945", "#ebdbb2", "#928374", "#fe8019"],
     S("928374", "fb4934", "b8bb26", "d3869b", "fabd2f", "b8bb26", "ebdbb2", "8ec07c", "fabd2f", "d3869b", "fe8019", "8ec07c")),
-  "github-dark": T("GitHub Oscuro", "vs-dark",
+  "github-dark": T(t("GitHub Oscuro"), "vs-dark",
     ["#010409", "#0d1117", "#010409", "#010409", "#30363d", "#161b22", "#21262d", "#c9d1d9", "#8b949e", "#388bfd"],
     S("8b949e", "ff7b72", "a5d6ff", "79c0ff", "ffa657", "d2a8ff", "ffa657", "7ee787", "79c0ff", "79c0ff", "ff7b72", "7ee787")),
-  "solarized-dark": T("Solarized Oscuro", "vs-dark",
+  "solarized-dark": T(t("Solarized Oscuro"), "vs-dark",
     ["#001e26", "#002b36", "#00212b", "#001e26", "#073642", "#073642", "#0a4452", "#93a1a1", "#657b83", "#268bd2"],
     S("586e75", "859900", "2aa198", "d33682", "b58900", "268bd2", "93a1a1", "268bd2", "b58900", "cb4b16", "93a1a1", "dc322f")),
 
-  "pulso-light": T("Pulso Claro", "vs",
+  "pulso-light": T(t("Pulso Claro"), "vs",
     ["#efeef5", "#ffffff", "#f4f3fa", "#e6e4f0", "#dcdae8", "#e9e7f3", "#d9d5ec", "#26253a", "#6d6c85", "#6d28d9"],
     S("8a8a9c", "7c3aed", "2a8a3e", "b45f06", "0b72b5", "8a5a00", "26253a", "c2410c", "8a5a00", "b45f06", "6b6b7b", "0f7c6b")),
-  "github-light": T("GitHub Claro", "vs",
+  "github-light": T(t("GitHub Claro"), "vs",
     ["#f0f3f6", "#ffffff", "#f6f8fa", "#f0f3f6", "#d0d7de", "#eaeef2", "#d8dee4", "#24292f", "#57606a", "#0969da"],
     S("6e7781", "cf222e", "0a3069", "0550ae", "953800", "8250df", "953800", "116329", "0550ae", "0550ae", "cf222e", "116329")),
-  "solarized-light": T("Solarized Claro", "vs",
+  "solarized-light": T(t("Solarized Claro"), "vs",
     ["#e6dfc8", "#fdf6e3", "#eee8d5", "#e6dfc8", "#ddd6c1", "#e8e1cb", "#d9d2bc", "#657b83", "#93a1a1", "#268bd2"],
     S("93a1a1", "859900", "2aa198", "d33682", "b58900", "268bd2", "657b83", "268bd2", "b58900", "cb4b16", "657b83", "dc322f")),
   "one-light": T("One Light", "vs",

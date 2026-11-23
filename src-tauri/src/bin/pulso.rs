@@ -1,6 +1,7 @@
 //! `pulso`: el comando de la terminal. Sin argumentos abre el asistente de IA en esta terminal;
 //! con una ruta (`pulso .`, `pulso archivo`, `pulso -g archivo:línea`) abre la ventana de Pulso Editor.
 use pulso_editor_lib::aichat::{build_agy_args, build_claude_args, build_codex_args, claude_program, resolve_cli, spawn_stream, ChatOptions};
+use pulso_editor_lib::i18n::{tr, trf};
 use pulso_editor_lib::termchat::{normalize_provider, route, Action, Ev, Parser, Settings, HELP};
 use pulso_editor_lib::termui::{
     add_trusted, broad_dir_reason, git_branch, header_banner, is_trusted, paint, provider_color,
@@ -24,10 +25,12 @@ fn use_color() -> bool {
 
 fn main() {
     enable_ansi();
+    // La terminal no puede leer el idioma elegido en la ventana: se usa el del sistema (o PULSO_LANG).
+    pulso_editor_lib::i18n::set_lang(pulso_editor_lib::i18n::system_lang());
     let args: Vec<String> = std::env::args().skip(1).collect();
     match route(&args) {
         Action::Gui => open_window(&args),
-        Action::Help => print!("{HELP}"),
+        Action::Help => print!("{}", tr(HELP)),
         Action::Version => println!("Pulso Editor {}", env!("CARGO_PKG_VERSION")),
         Action::Error(e) => {
             eprintln!("{} {e}", paint(use_color(), ROSE, "✗"));
@@ -56,7 +59,7 @@ fn open_window(args: &[String]) {
     let name = if cfg!(windows) { "pulso-editor.exe" } else { "pulso-editor" };
     let exe = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join(name)));
     let Some(exe) = exe.filter(|p| p.exists()) else {
-        eprintln!("No se encontró {name} junto a este comando.");
+        eprintln!("{}", trf("No se encontró {name} junto a este comando.", &[("name", &name)]));
         std::process::exit(1);
     };
     let mut cmd = std::process::Command::new(exe);
@@ -67,7 +70,7 @@ fn open_window(args: &[String]) {
         cmd.creation_flags(0x0000_0008 | 0x0000_0200); // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
     }
     if let Err(e) = cmd.spawn() {
-        eprintln!("No se pudo abrir Pulso Editor: {e}");
+        eprintln!("{}", trf("No se pudo abrir Pulso Editor: {e}", &[("e", &e)]));
         std::process::exit(1);
     }
 }
@@ -85,13 +88,16 @@ fn trust_file() -> Option<PathBuf> {
 
 /// El asistente solo trabaja en carpetas de proyecto, y solo en las que la persona aceptó una vez.
 fn guard_folder(s: &Settings) -> Result<(), String> {
-    let dir = std::env::current_dir().map_err(|e| format!("No se pudo leer la carpeta actual: {e}"))?;
+    let dir = std::env::current_dir().map_err(|e| trf("No se pudo leer la carpeta actual: {e}", &[("e", &e)]))?;
     let color = std::io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none();
     if let Some(why) = broad_dir_reason(&dir, home_dir().as_deref()) {
-        return Err(format!(
-            "{} Esta carpeta {why}:\n  {}\n\nEntra en la carpeta de un proyecto (cd) y vuelve a ejecutar `pulso`.",
-            paint(color, ROSE, "✗ No abro el asistente aquí."),
-            paint(color, SLATE, &dir.display().to_string())
+        return Err(trf(
+            "{icon} Esta carpeta {why}:\n  {dir}\n\nEntra en la carpeta de un proyecto (cd) y vuelve a ejecutar `pulso`.",
+            &[
+                ("icon", &paint(color, ROSE, tr("✗ No abro el asistente aquí."))),
+                ("why", &why),
+                ("dir", &paint(color, SLATE, &dir.display().to_string())),
+            ],
         ));
     }
     let file = trust_file();
@@ -101,20 +107,20 @@ fn guard_folder(s: &Settings) -> Result<(), String> {
     }
     if !s.trust {
         if !std::io::stdin().is_terminal() {
-            return Err("Carpeta sin confianza. Ejecuta `pulso` una vez en ella desde una terminal, o añade --trust.".into());
+            return Err(tr("Carpeta sin confianza. Ejecuta `pulso` una vez en ella desde una terminal, o añade --trust.").into());
         }
         println!("\n{}", trust_card(&dir, home_dir().as_deref(), color));
         print!(
             "\n{} {} ",
-            paint(color, BRIGHT, "¿Confiar y continuar?"),
-            paint(color, DIM, "[s/N · Ctrl+C cancelar]")
+            paint(color, BRIGHT, tr("¿Confiar y continuar?")),
+            paint(color, DIM, tr("[s/N · Ctrl+C cancelar]"))
         );
         let _ = std::io::stdout().flush();
         let accepted = if let Some(raw) = RawConsole::enter() {
             let ok = loop {
                 match raw.read_key() {
                     Key::Char('s') | Key::Char('S') | Key::Char('y') | Key::Char('Y') => {
-                        println!("{}", paint(color, MINT, "sí"));
+                        println!("{}", paint(color, MINT, tr("sí")));
                         break true;
                     }
                     Key::Char('n') | Key::Char('N') | Key::Enter | Key::Esc | Key::CtrlC | Key::CtrlD => {
@@ -132,7 +138,7 @@ fn guard_folder(s: &Settings) -> Result<(), String> {
             matches!(ans.trim().to_lowercase().as_str(), "s" | "si" | "sí" | "y" | "yes")
         };
         if !accepted {
-            return Err(format!("{} Sin confianza, no continúo.", paint(color, DIM, "⊘")));
+            return Err(trf("{icon} Sin confianza, no continúo.", &[("icon", &paint(color, DIM, "⊘"))]));
         }
     }
     if let Some(f) = file {
@@ -285,7 +291,7 @@ impl Chat {
         view.finish();
 
         if cancelled {
-            println!("  {} {}", paint(self.color, AMBER, "⊘"), paint(self.color, SLATE, "Cancelado por el usuario (Ctrl+C)"));
+            println!("  {} {}", paint(self.color, AMBER, "⊘"), paint(self.color, SLATE, tr("Cancelado por el usuario (Ctrl+C)")));
             return false;
         }
 
@@ -300,7 +306,7 @@ impl Chat {
             None => {
                 let detail = stderr_tail.trim();
                 self.fail(&if detail.is_empty() {
-                    format!("La herramienta terminó con el código {code:?} sin responder.")
+                    trf("La herramienta terminó con el código {code} sin responder.", &[("code", &format!("{code:?}"))])
                 } else {
                     detail.to_string()
                 });
@@ -309,7 +315,7 @@ impl Chat {
         };
         if ok && self.color {
             let tools_note = if view.tools_used > 0 {
-                format!(" · {} {}", view.tools_used, if view.tools_used == 1 { "herramienta" } else { "herramientas" })
+                format!(" · {} {}", view.tools_used, if view.tools_used == 1 { tr("herramienta") } else { tr("herramientas") })
             } else {
                 String::new()
             };
@@ -398,7 +404,7 @@ impl View {
             "\r\x1b[2K  {} {}  {}",
             paint(true, tone, frame),
             paint(true, SLATE, &format!("{label}… {secs:.1} s")),
-            paint(true, DIM, "· Ctrl+C cancelar"),
+            paint(true, DIM, tr("· Ctrl+C cancelar")),
         );
         let _ = self.out.flush();
         self.spinner_on = true;
@@ -493,7 +499,7 @@ fn draw_composer(
     let max_vis = width.saturating_sub(4).max(16);
     let chars: Vec<char> = buf.chars().collect();
     let (visible_text, cursor_col) = if chars.is_empty() {
-        let ph = "Escribe una instrucción o \"/\" para comandos…";
+        let ph = tr("Escribe una instrucción o \"/\" para comandos…");
         let clipped: String = ph.chars().take(max_vis).collect();
         (paint(color, DIM, &clipped), 2usize)
     } else {
@@ -511,8 +517,8 @@ fn draw_composer(
     // Fila 4: barra de modo y atajos.
     let (mode_plain, mode_styled) = if chat.settings.edit {
         (
-            "  ▸▸ edición activa (Shift+Tab solo lectura)",
-            format!("  {} {}", paint(color, AMBER, "▸▸ edición activa"), paint(color, DIM, "(Shift+Tab solo lectura)")),
+            tr("  ▸▸ edición activa (Shift+Tab solo lectura)"),
+            format!("  {} {}", paint(color, AMBER, tr("▸▸ edición activa")), paint(color, DIM, tr("(Shift+Tab solo lectura)"))),
         )
     } else {
         (
@@ -521,9 +527,9 @@ fn draw_composer(
         )
     };
     let (right_plain, right_styled) = if ctrl_c_armed {
-        ("Pulsa Ctrl+C de nuevo para salir", paint(color, AMBER, "Pulsa Ctrl+C de nuevo para salir"))
+        (tr("Pulsa Ctrl+C de nuevo para salir"), paint(color, AMBER, tr("Pulsa Ctrl+C de nuevo para salir")))
     } else {
-        ("/help · /model · Ctrl+C salir", paint(color, DIM, "/help · /model · Ctrl+C salir"))
+        (tr("/help · /model · Ctrl+C salir"), paint(color, DIM, tr("/help · /model · Ctrl+C salir")))
     };
     let gap = width.saturating_sub(mode_plain.chars().count() + right_plain.chars().count());
     let _ = write!(out, "{mode_styled}{}{right_styled}", if gap > 1 { " ".repeat(gap) } else { "  ".into() });
@@ -534,7 +540,7 @@ fn draw_composer(
     for (idx, cmd) in matches.iter().take(shown_menu).enumerate() {
         let selected = idx == menu_sel.min(shown_menu.saturating_sub(1));
         let _ = write!(out, "\n");
-        let text = format!("  {:<11} {}", cmd.name, cmd.desc);
+        let text = format!("  {:<11} {}", cmd.name, tr(cmd.desc));
         let clipped: String = text.chars().take(width.saturating_sub(2)).collect();
         if selected {
             let pad = width.saturating_sub(clipped.chars().count() + 2);
@@ -548,7 +554,7 @@ fn draw_composer(
                 out,
                 "  {} {}",
                 paint(color, SLATE, &format!("{:<11}", cmd.name)),
-                paint(color, DIM, cmd.desc)
+                paint(color, DIM, tr(cmd.desc))
             );
         }
     }
@@ -781,7 +787,7 @@ fn repl(settings: Settings) {
     loop {
         let line = match read_composer(&mut chat, &history) {
             PromptEvent::Exit => {
-                println!("\n  {} {}\n", paint(color, CYAN, "◈"), paint(color, DIM, "Sesión de Pulso CLI cerrada."));
+                println!("\n  {} {}\n", paint(color, CYAN, "◈"), paint(color, DIM, tr("Sesión de Pulso CLI cerrada.")));
                 break;
             }
             PromptEvent::ClearScreen => {
@@ -808,7 +814,7 @@ fn repl(settings: Settings) {
             };
             match name {
                 "exit" | "quit" | "salir" => {
-                    println!("  {} {}\n", paint(color, CYAN, "◈"), paint(color, DIM, "Sesión de Pulso CLI cerrada."));
+                    println!("  {} {}\n", paint(color, CYAN, "◈"), paint(color, DIM, tr("Sesión de Pulso CLI cerrada.")));
                     break;
                 }
                 "clear" | "limpiar" => {
@@ -819,17 +825,17 @@ fn repl(settings: Settings) {
                 }
                 "help" | "ayuda" => {
                     println!();
-                    for l in HELP.lines() {
+                    for l in tr(HELP).lines() {
                         println!("  {}", paint(color, SLATE, l));
                     }
                 }
                 "new" | "nuevo" => {
                     chat.session = None;
-                    note("✦", CYAN, "Conversación nueva iniciada.");
+                    note("✦", CYAN, tr("Conversación nueva iniciada."));
                 }
                 "edit" => {
                     chat.settings.edit = true;
-                    note("⚡", AMBER, "Modo edición activado para esta carpeta.");
+                    note("⚡", AMBER, tr("Modo edición activado para esta carpeta."));
                 }
                 "read" => {
                     chat.settings.edit = false;
@@ -848,7 +854,7 @@ fn repl(settings: Settings) {
                         chat.settings.provider = p.into();
                         chat.settings.model = None;
                         chat.session = None;
-                        note("✦", provider_color(p), &format!("Proveedor cambiado a {} (conversación nueva).", provider_label(p)));
+                        note("✦", provider_color(p), &trf("Proveedor cambiado a {provider} (conversación nueva).", &[("provider", &provider_label(p))]));
                     }
                     None => note("▸", AMBER, "Usa: /provider claude | codex | antigravity"),
                 },

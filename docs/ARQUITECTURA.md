@@ -34,11 +34,13 @@ Los ajustes, carpetas recientes y disposición se almacenan en `localStorage` de
 
 ## LSP de TypeScript y JavaScript
 
-`lsp.rs` inicia `typescript-language-server` sobre stdio y transporta JSON-RPC con cabeceras `Content-Length`, identificando cada sesión. El cliente `lsp.ts` inicializa el servidor por carpeta, sincroniza los modelos abiertos mediante `didOpen`, `didChange`, `didSave` y `didClose`, y adapta diagnósticos, hover, completado, definiciones y referencias a Monaco. Las peticiones incluyen límites de espera y soporte de cancelación; las operaciones de envío se ordenan. Cambiar de carpeta cierra la sesión anterior. Si falla, se reactivan los proveedores integrados de Monaco.
+`lsp.rs` inicia el servidor sobre stdio y transporta JSON-RPC con cabeceras `Content-Length`, identificando cada sesión. El cliente `lsp.ts` inicializa el servidor por carpeta, sincroniza los modelos abiertos mediante `didOpen`, `didChange`, `didSave` y `didClose`, y adapta diagnósticos, hover, completado, definiciones y referencias a Monaco. Las peticiones incluyen límites de espera y soporte de cancelación; las operaciones de envío se ordenan. Cambiar de carpeta cierra la sesión anterior. Si falla, se reactivan los proveedores integrados de Monaco.
 
-Cuando el servidor anuncia sincronización incremental, se envían los rangos y textos modificados en lugar del documento completo en cada tecla. Ante un reemplazo completo del modelo o un servidor que no la admita se envía el texto completo. En Windows, el proceso LSP y sus procesos TypeScript se inician sin ventanas de consola mediante un script de preparación incluido en los recursos.
+Cuando el servidor anuncia sincronización incremental, se envían los rangos y textos modificados en lugar del documento completo en cada tecla. Ante un reemplazo completo del modelo o un servidor que no la admita se envía el texto completo. **Dos servidores posibles:**
+- **Nativo (por defecto):** `tsc --lsp --stdio` de TypeScript 7, un ejecutable sin Node. El instalador lo incluye en `lsp/typescript/` junto a sus `lib.*.d.ts` (`tauri.windows.conf.json` y `tauri.linux.conf.json` añaden el de cada plataforma). En desarrollo se usa el de `node_modules/@typescript/typescript-<plataforma>`. No envía los diagnósticos: los anuncia con `diagnosticProvider` y el cliente los pide con `textDocument/diagnostic` 300 ms después del último cambio. Si el servidor declara dependencias entre archivos, los pide para todos los documentos abiertos. También atiende `workspace/diagnostic/refresh`. Lee su configuración con `workspace/configuration` (secciones `js/ts`, `typescript` y `javascript`, formato de VS Code); `src/lspConfig.ts` activa ahí los inlay hints.
+- **Compatible:** si el proyecto tiene TypeScript 5 o 6 en `node_modules` (buscado hacia arriba desde la carpeta abierta), `node --require lsp/no-console.cjs cli.mjs --stdio` con `typescript-language-server`, al que el cliente pasa la ruta del `tsserver.js` del proyecto. Así se respetan las opciones de `tsconfig` que TypeScript 7 retiró. El script de preparación evita ventanas de consola en Windows, y se retira el prefijo verbatim de las rutas antes de pasarlas a Node. Sin Node, `lsp_start` arranca el nativo y devuelve un aviso.
 
-El servidor y los archivos de TypeScript se incluyen como recursos Tauri bajo `lsp/node_modules`. En desarrollo también se busca el servidor en el `node_modules` del proyecto de Pulso. En Windows se retira el prefijo verbatim de las rutas de recursos antes de pasarlas a Node, y las rutas del mismo archivo se comparan sin distinguir mayúsculas. El proceso requiere `node` en `PATH`; el servidor puede seleccionar el TypeScript del proyecto abierto. En esta fase hay un servidor para una carpeta de trabajo; no hay gestor de múltiples servidores o lenguajes ni interfaz de instalación de servidores.
+`lsp_start` devuelve el modo elegido. Las rutas del mismo archivo se comparan sin distinguir mayúsculas. En esta fase hay un servidor para una carpeta de trabajo; no hay gestor de múltiples servidores o lenguajes ni interfaz de instalación de servidores.
 
 ## Búsqueda y Git
 
@@ -47,6 +49,25 @@ El backend recorre el árbol y aplica un conjunto fijo de carpetas excluidas. La
 Git se consulta mediante el comando del sistema `git` y se interpreta `status --porcelain`; las decoraciones se calculan en `src/git.ts`. `github.ts` consulta la API de issues del remoto `origin`; no hay cliente de gestión completa de Git o pull requests.
 
 Las consultas Git y del registro de Windows se ejecutan sin ventanas de consola. La lectura de directorios y archivos, las búsquedas, el guardado y las copias se ejecutan en trabajo en segundo plano. El explorador no espera a Git para mostrar los archivos, agrupa consultas Git simultáneas y descarta resultados obsoletos. Al guardar solo actualiza las marcas Git después de una breve pausa, sin reconstruir todo el árbol. Las solicitudes de apertura también se invalidan al cambiar de archivo o carpeta, para que una lectura tardía no sustituya la selección más reciente.
+
+## Idiomas de la interfaz
+
+Los textos se escriben en español dentro de `t("…")` (`src/i18n.ts`). El texto en español es la clave, y la traducción inglesa está en `src/locales/en.ts`. Lo que no se ha marcado o no tiene traducción se muestra en español, así que se puede traducir por partes.
+- **Valores variables:** van como `{nombre}`: `t("Conectado como {login}", { login })`.
+- **Cuándo se decide el idioma:** al cargar `i18n.ts`, a partir del ajuste `language` y del idioma del sistema, antes de que se construyan menús y comandos. Por eso cambiarlo recarga la ventana.
+- **HTML estático:** `translateStatic` traduce los textos y los atributos `title`, `placeholder` y `aria-label` de `index.html` al arrancar.
+- **Pruebas:** `src/i18n.test.ts`, con `scripts/i18n-keys.mjs`, comprueba que cada `t("…")` del código y cada texto fijo del HTML tengan traducción con los mismos `{valores}`, y que no sobren entradas.
+- **Para traducir una pantalla nueva:** envolver sus textos en `t()`, ejecutar `node scripts/i18n-keys.mjs --missing` y añadir lo que liste a `en.ts`.
+- **En archivos que ya tienen una variable `t`,** la función se importa como `tr`, y la herramienta de claves reconoce los dos nombres.
+- **Pruebas en español fijo:** `src/test/i18n-setup.ts` fija el español para que no dependan del idioma del sistema donde corren (la CI está en inglés).
+- **Mensajes de Rust (`src-tauri/src/i18n.rs`):** mismo enfoque.
+  - Se usa `tr("…")` y `trf("… {e}", &[("e", &e)])`, con la tabla `EN` en el mismo archivo.
+  - Al arrancar, la ventana llama a `i18n_set_lang` con el idioma elegido.
+  - La herramienta `pulso` usa `PULSO_LANG`, `LC_ALL`, `LC_MESSAGES` o `LANG` y, en Windows, el idioma del usuario.
+  - Sus pruebas leen los fuentes con `include_str!` y fallan si algún `tr`/`trf` no tiene traducción o si no coinciden los `{valores}`.
+  - Las constantes (como `SLASH_COMMANDS` o `HELP`) se traducen al mostrarlas.
+  - Lo que el frontend compara con mensajes de Rust (por ejemplo, el inicio «No se pudo iniciar») tiene que coincidir también en inglés.
+- **Qué no se traduce:** lo que se envía a la IA, lo que se publica en GitHub para todo el equipo (título de la sala del chat, cuerpo de las pull requests del flujo de issues) y los textos de Git que se comparan con su salida.
 
 ## Compilación y pruebas
 

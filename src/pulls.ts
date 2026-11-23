@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import { getJson, githubFetch, GithubError } from "./github";
 import { explainCreateError, type PullFile, type PullSummary } from "./prModel";
 import type { Sources } from "./diffView";
@@ -47,7 +48,7 @@ export async function fileAt(owner: string, repo: string, ref: string, path: str
   if (res.status === 404) return "";
   if (!res.ok) throw new GithubError(res.status);
   const text = await res.text();
-  if (text.length > MAX_TEXT) throw new Error("El archivo es demasiado grande para mostrar diferencias aquí. Ábrelo en GitHub.");
+  if (text.length > MAX_TEXT) throw new Error(t("El archivo es demasiado grande para mostrar diferencias aquí. Ábrelo en GitHub."));
   return text;
 }
 

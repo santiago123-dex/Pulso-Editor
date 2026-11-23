@@ -8,11 +8,18 @@ import assert from "node:assert/strict";
 const root = await mkdtemp(join(resolve("."), ".pulso-lsp-test-"));
 const file = join(root, "main.ts");
 const other = join(root, "other.ts");
-await writeFile(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { strict: true, moduleResolution: "node", baseUrl: ".", paths: { "@/*": ["./*"] } } }));
+// TypeScript 7 retiró baseUrl y moduleResolution "node": los alias van con paths relativos al tsconfig.
+await writeFile(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { strict: true, module: "esnext", moduleResolution: "bundler", paths: { "@/*": ["./*"] } } }));
 await writeFile(other, "export const saludo: string = 'hola';\n");
 await writeFile(file, "import { saludo } from '@/other';\nconst resultado = saludo;\n");
+// El servidor nativo de TypeScript 7, el mismo que usa Pulso: el del paquete de la plataforma o, con
+// PULSO_LSP_PACKAGED=1, la copia que la compilación deja en target/debug/lsp/typescript.
 const packaged = process.env.PULSO_LSP_PACKAGED === "1";
-const server = spawn(process.execPath, ["--require", resolve(packaged ? "src-tauri/target/debug/lsp/no-console.cjs" : "scripts/lsp-no-console.cjs"), resolve(packaged ? "src-tauri/target/debug/lsp/node_modules/typescript-language-server/lib/cli.mjs" : "node_modules/typescript-language-server/lib/cli.mjs"), "--stdio"], { cwd: root, stdio: ["pipe", "pipe", "pipe"] });
+const exeName = process.platform === "win32" ? "tsc.exe" : "tsc";
+const exe = packaged
+  ? resolve("src-tauri/target/debug/lsp/typescript", exeName)
+  : resolve("node_modules/@typescript", `typescript-${process.platform}-${process.arch}`, "lib", exeName);
+const server = spawn(exe, ["--lsp", "--stdio"], { cwd: root, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
 let buffer = Buffer.alloc(0), next = 0;
 const pending = new Map();
 const diagnostics = [];
@@ -41,16 +48,24 @@ const waitFor = async (predicate) => { const until = Date.now() + 15000; while (
 const timeout = setTimeout(() => { console.error("Tiempo agotado esperando al servidor LSP", stderr); server.kill(); process.exitCode = 1; }, 30000);
 try {
   const rootUri = pathToFileURL(root).href, fileUri = pathToFileURL(file).href, otherUri = pathToFileURL(other).href;
-  const initialized = await request("initialize", { processId: null, rootUri, workspaceFolders: [{ uri: rootUri, name: "test" }], capabilities: { workspace: { configuration: true }, textDocument: { publishDiagnostics: { versionSupport: true }, completion: { completionItem: { snippetSupport: true } }, hover: { contentFormat: ["markdown", "plaintext"] }, definition: { linkSupport: true } } }, initializationOptions: { disableAutomaticTypingAcquisition: true } });
+  const initialized = await request("initialize", { processId: null, rootUri, workspaceFolders: [{ uri: rootUri, name: "test" }], capabilities: { workspace: { configuration: true }, textDocument: { publishDiagnostics: { versionSupport: true }, diagnostic: { dynamicRegistration: false }, completion: { completionItem: { snippetSupport: true } }, hover: { contentFormat: ["markdown", "plaintext"] }, definition: { linkSupport: true } } }, initializationOptions: { disableAutomaticTypingAcquisition: true } });
   const sync = initialized.capabilities.textDocumentSync;
   assert.equal(typeof sync === "number" ? sync : sync.change, 2, "el servidor debe admitir cambios incrementales");
+  assert.ok(initialized.capabilities.diagnosticProvider, "el servidor nativo ofrece diagnósticos a petición");
   notify("initialized", {});
   notify("textDocument/didOpen", { textDocument: { uri: fileUri, languageId: "typescript", version: 1, text: "import { saludo } from '@/other';\nconst resultado = saludo;\n" } });
   notify("textDocument/didChange", { textDocument: { uri: fileUri, version: 2 }, contentChanges: [
     { range: { start: { line: 1, character: 25 }, end: { line: 2, character: 0 } }, text: "\nsalu" },
     { range: { start: { line: 1, character: 15 }, end: { line: 1, character: 15 } }, text: ": number" },
   ] });
-  await waitFor(() => diagnostics.some((d) => decodeURIComponent(d.uri).toLowerCase() === decodeURIComponent(fileUri).toLowerCase() && d.diagnostics.some((item) => item.code === 2322)));
+  // Como Pulso: pedir los diagnósticos hasta que reflejen los cambios sin guardar (error 2322 de tipos).
+  const until = Date.now() + 15000;
+  for (;;) {
+    const pulled = await request("textDocument/diagnostic", { textDocument: { uri: fileUri } });
+    if (pulled?.items?.some((item) => item.code === 2322)) break;
+    if (Date.now() > until) throw new Error(`Sin el diagnóstico 2322: ${JSON.stringify(pulled)} ${stderr}`);
+    await new Promise((r) => setTimeout(r, 200));
+  }
   const definition = await request("textDocument/definition", { textDocument: { uri: fileUri }, position: { line: 1, character: 27 } });
   assert.ok(definition.some((x) => decodeURIComponent(x.uri ?? x.targetUri).toLowerCase() === decodeURIComponent(otherUri).toLowerCase()), `debe encontrar la definición en otro archivo: ${JSON.stringify(definition)}`);
   const completions = await request("textDocument/completion", { textDocument: { uri: fileUri }, position: { line: 2, character: 4 } });

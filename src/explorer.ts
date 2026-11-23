@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import { invoke } from "@tauri-apps/api/core";
 import "./explorer-a11y.css";
 import { dirtyDocs, findOpenDoc, isDirty, onDocsChange } from "./docs";
@@ -17,14 +18,14 @@ let treeGeneration = 0;
 let nextNodeId = 0;
 const dirGeneration = new WeakMap<HTMLElement, number>();
 
-const gitLabels: Record<string, string> = { "git-M": "modificado en Git", "git-R": "renombrado en Git", "git-U": "sin seguimiento en Git", "git-A": "añadido en Git", "git-D": "eliminado en Git", "git-C": "conflicto de Git", "git-I": "ignorado por Git" };
+const gitLabels: Record<string, string> = { "git-M": t("modificado en Git"), "git-R": t("renombrado en Git"), "git-U": t("sin seguimiento en Git"), "git-A": t("añadido en Git"), "git-D": t("eliminado en Git"), "git-C": t("conflicto de Git"), "git-I": t("ignorado por Git") };
 
 function updateNodeLabel(node: HTMLElement, dirtyKeys?: Set<string>) {
   const path = node.dataset.path!;
   const doc = dirtyKeys ? undefined : findOpenDoc(path);
-  const label = [node.classList.contains("dir") ? "Carpeta" : "Archivo", baseName(path)].join(" ");
+  const label = [node.classList.contains("dir") ? t("Carpeta") : t("Archivo"), baseName(path)].join(" ");
   const dirty = dirtyKeys ? dirtyKeys.has(fileKey(path)) : !!doc && isDirty(doc);
-  const suffix = [dirty ? "cambios sin guardar" : "", gitLabels[decorate(path, node.classList.contains("dir"))?.cls ?? ""] ?? ""].filter(Boolean);
+  const suffix = [dirty ? t("cambios sin guardar") : "", gitLabels[decorate(path, node.classList.contains("dir"))?.cls ?? ""] ?? ""].filter(Boolean);
   const text = suffix.length ? `${label}, ${suffix.join(", ")}` : label;
   if (node.getAttribute("aria-label") !== text) node.setAttribute("aria-label", text);
 }
@@ -135,11 +136,11 @@ export async function refreshTree() {
   try {
     await renderDir(root, next);
   } catch (e) {
-    if (id === treeGeneration) setStatus(`No se pudo leer la carpeta: ${e}`);
+    if (id === treeGeneration) setStatus(t("No se pudo leer la carpeta: {error}", { error: String(e) }));
     return;
   }
   if (id !== treeGeneration || ws.root !== root) return;
-  if (!next.childNodes.length) next.append(h("div", "tree-note", "La carpeta está vacía"));
+  if (!next.childNodes.length) next.append(h("div", "tree-note", t("La carpeta está vacía")));
   const top = tree.scrollTop;
   tree.replaceChildren(...Array.from(next.childNodes));
   repaintGit(tree);
@@ -182,11 +183,11 @@ function remapExpanded(from: string, to: string) {
 const BAD = /[<>:"|?*\u0000-\u001f]/;
 
 function validate(v: string, allowSlash: boolean): string | null {
-  if (!v) return "Escribe un nombre";
-  if (BAD.test(v)) return "El nombre contiene caracteres no permitidos";
-  if (!allowSlash && /[\\/]/.test(v)) return "El nombre no puede contener barras";
-  if (v.split(/[\\/]/).some((s) => s === ".." || s === ".")) return "Nombre no válido";
-  if (/^[\\/]|[\\/]$/.test(v)) return "El nombre no puede empezar ni terminar con barra";
+  if (!v) return t("Escribe un nombre");
+  if (BAD.test(v)) return t("El nombre contiene caracteres no permitidos");
+  if (!allowSlash && /[\\/]/.test(v)) return t("El nombre no puede contener barras");
+  if (v.split(/[\\/]/).some((s) => s === ".." || s === ".")) return t("Nombre no válido");
+  if (/^[\\/]|[\\/]$/.test(v)) return t("El nombre no puede empezar ni terminar con barra");
   return null;
 }
 
@@ -198,11 +199,11 @@ function currentDir(): string {
 }
 
 export async function newEntry(kind: "file" | "folder", dir?: string) {
-  if (!ws.root) { setStatus("Abre una carpeta primero"); return; }
+  if (!ws.root) { setStatus(t("Abre una carpeta primero")); return; }
   const base = dir ?? currentDir();
   const name = await promptText({
-    title: kind === "file" ? "Nuevo archivo" : "Nueva carpeta",
-    placeholder: kind === "file" ? "nombre.ext (o carpeta/nombre.ext)" : "nombre de la carpeta",
+    title: kind === "file" ? t("Nuevo archivo") : t("Nueva carpeta"),
+    placeholder: kind === "file" ? t("nombre.ext (o carpeta/nombre.ext)") : t("nombre de la carpeta"),
     validate: (v) => validate(v, true),
   });
   if (!name) return;
@@ -210,7 +211,7 @@ export async function newEntry(kind: "file" | "folder", dir?: string) {
   try {
     await invoke(kind === "file" ? "create_file" : "create_dir", { path });
   } catch (e) {
-    setStatus(`No se pudo crear: ${e}`);
+    setStatus(t("No se pudo crear: {error}", { error: String(e) }));
     return;
   }
   if (kind === "folder") expanded.add(path);
@@ -222,13 +223,13 @@ export async function newEntry(kind: "file" | "folder", dir?: string) {
 
 export async function renameEntry(path: string) {
   const old = baseName(path);
-  const name = await promptText({ title: "Renombrar", value: old, validate: (v) => validate(v, false) });
+  const name = await promptText({ title: t("Renombrar"), value: old, validate: (v) => validate(v, false) });
   if (!name || name === old) return;
   const to = `${dirName(path)}/${name}`;
   try {
     await invoke("rename_path", { from: path, to });
   } catch (e) {
-    setStatus(`No se pudo renombrar: ${e}`);
+    setStatus(t("No se pudo renombrar: {error}", { error: String(e) }));
     return;
   }
   renamePaths(path, to);
@@ -240,19 +241,19 @@ export async function renameEntry(path: string) {
 export async function deleteEntry(path: string) {
   const unsaved = dirtyDocs().filter((d) => d.path === path || d.path.startsWith(path + "/"));
   const r = await showDialog({
-    title: "Eliminar",
-    message: `¿Mover «${baseName(path)}» a la papelera de reciclaje?` +
-      (unsaved.length ? `\n\nSe perderán los cambios sin guardar de ${unsaved.length} archivo(s) abierto(s).` : ""),
+    title: t("Eliminar"),
+    message: t("¿Mover «{name}» a la papelera de reciclaje?", { name: baseName(path) }) +
+      (unsaved.length ? "\n\n" + t("Se perderán los cambios sin guardar de {count} archivo(s) abierto(s).", { count: unsaved.length }) : ""),
     buttons: [
-      { label: "Cancelar", value: "cancel" },
-      { label: "Mover a la papelera", value: "ok", danger: true },
+      { label: t("Cancelar"), value: "cancel" },
+      { label: t("Mover a la papelera"), value: "ok", danger: true },
     ],
   });
   if (r !== "ok") return;
   try {
     await invoke("delete_path", { path });
   } catch (e) {
-    setStatus(`No se pudo eliminar: ${e}`);
+    setStatus(t("No se pudo eliminar: {error}", { error: String(e) }));
     return;
   }
   await removePaths(path);
@@ -263,12 +264,12 @@ export async function deleteEntry(path: string) {
 
 async function moveEntry(src: string, destDir: string) {
   if (dirName(src) === destDir) return;
-  if (destDir === src || destDir.startsWith(src + "/")) { setStatus("No se puede mover una carpeta dentro de sí misma"); return; }
+  if (destDir === src || destDir.startsWith(src + "/")) { setStatus(t("No se puede mover una carpeta dentro de sí misma")); return; }
   const to = `${destDir}/${baseName(src)}`;
   try {
     await invoke("rename_path", { from: src, to });
   } catch (e) {
-    setStatus(`No se pudo mover: ${e}`);
+    setStatus(t("No se pudo mover: {error}", { error: String(e) }));
     return;
   }
   renamePaths(src, to);
@@ -283,21 +284,21 @@ function entryMenu(path: string, isDir: boolean): MenuItem[] {
   const dir = isDir ? path : dirName(path);
   return [
     ...(isDir ? [] : [
-      { label: "Abrir", run: () => void openFile(path) },
-      { label: "Abrir en un grupo nuevo", run: () => { const g = splitGroup(null); if (g) void openFile(path, { group: g }); } },
+      { label: t("Abrir"), run: () => void openFile(path) },
+      { label: t("Abrir en un grupo nuevo"), run: () => { const g = splitGroup(null); if (g) void openFile(path, { group: g }); } },
       "sep" as const,
     ]),
-    { label: "Nuevo archivo…", run: () => void newEntry("file", dir) },
-    { label: "Nueva carpeta…", run: () => void newEntry("folder", dir) },
-    ...(isDir ? [{ label: "Buscar en la carpeta…", run: () => onSearchIn(path) }] : []),
-    { label: "Abrir en la terminal integrada", run: () => onOpenTerminal(dir) },
+    { label: t("Nuevo archivo…"), run: () => void newEntry("file", dir) },
+    { label: t("Nueva carpeta…"), run: () => void newEntry("folder", dir) },
+    ...(isDir ? [{ label: t("Buscar en la carpeta…"), run: () => onSearchIn(path) }] : []),
+    { label: t("Abrir en la terminal integrada"), run: () => onOpenTerminal(dir) },
     "sep",
-    { label: "Renombrar…", hint: "F2", run: () => void renameEntry(path) },
-    { label: "Eliminar", hint: "Supr", danger: true, run: () => void deleteEntry(path) },
+    { label: t("Renombrar…"), hint: "F2", run: () => void renameEntry(path) },
+    { label: t("Eliminar"), hint: t("Supr"), danger: true, run: () => void deleteEntry(path) },
     "sep",
-    { label: "Copiar ruta", run: () => void navigator.clipboard.writeText(path) },
-    { label: "Copiar ruta relativa", run: () => void navigator.clipboard.writeText(rel(path)) },
-    { label: "Mostrar en el explorador de archivos", run: () => void invoke("reveal_in_explorer", { path }) },
+    { label: t("Copiar ruta"), run: () => void navigator.clipboard.writeText(path) },
+    { label: t("Copiar ruta relativa"), run: () => void navigator.clipboard.writeText(rel(path)) },
+    { label: t("Mostrar en el explorador de archivos"), run: () => void invoke("reveal_in_explorer", { path }) },
   ];
 }
 
@@ -319,7 +320,7 @@ async function toggleDir(node: HTMLElement) {
       const next = h("div");
       await renderDir(path, next);
       if (dirGeneration.get(node) === id && expanded.has(path)) kids.replaceChildren(...Array.from(next.childNodes));
-    } catch (e) { if (dirGeneration.get(node) === id) setStatus(`No se pudo leer la carpeta: ${e}`); }
+    } catch (e) { if (dirGeneration.get(node) === id) setStatus(t("No se pudo leer la carpeta: {error}", { error: String(e) })); }
     finally { if (dirGeneration.get(node) === id) node.removeAttribute("aria-busy"); }
   } else {
     node.removeAttribute("aria-busy");
@@ -335,11 +336,11 @@ export function initExplorer(hooks: { onOpenFolder: () => void; onSearchIn: (pat
   const tree = $("tree");
   tree.tabIndex = 0;
   tree.setAttribute("role", "tree");
-  tree.setAttribute("aria-label", "Explorador de archivos");
+  tree.setAttribute("aria-label", t("Explorador de archivos"));
   for (const [id, label] of [
-    ["ex-new-file", "Nuevo archivo"], ["ex-new-folder", "Nueva carpeta"],
-    ["ex-refresh", "Actualizar explorador"], ["ex-collapse", "Contraer todas las carpetas"],
-    ["open-folder", "Abrir carpeta"],
+    ["ex-new-file", t("Nuevo archivo")], ["ex-new-folder", t("Nueva carpeta")],
+    ["ex-refresh", t("Actualizar explorador")], ["ex-collapse", t("Contraer todas las carpetas")],
+    ["open-folder", t("Abrir carpeta")],
   ]) $(id).setAttribute("aria-label", label);
   tree.addEventListener("focus", () => syncSelection(tree, true));
   onDocsChange(() => { const node = findNode(tree, selected); if (node) updateNodeLabel(node); });
@@ -362,9 +363,9 @@ export function initExplorer(hooks: { onOpenFolder: () => void; onSearchIn: (pat
       showMenu(e.clientX, e.clientY, entryMenu(node.dataset.path!, node.classList.contains("dir")));
     } else {
       showMenu(e.clientX, e.clientY, [
-        { label: "Nuevo archivo…", run: () => void newEntry("file", ws.root!) },
-        { label: "Nueva carpeta…", run: () => void newEntry("folder", ws.root!) },
-        { label: "Actualizar", run: () => void refreshTree() },
+        { label: t("Nuevo archivo…"), run: () => void newEntry("file", ws.root!) },
+        { label: t("Nueva carpeta…"), run: () => void newEntry("folder", ws.root!) },
+        { label: t("Actualizar"), run: () => void refreshTree() },
       ]);
     }
   };

@@ -1,6 +1,7 @@
 //! Chat de IA con herramientas oficiales de línea de comandos (por ahora Claude Code).
 //! La herramienta inicia sesión con la cuenta de la persona (por ejemplo su suscripción); Pulso nunca ve credenciales:
 //! solo lanza el proceso en la carpeta del proyecto, le pasa el mensaje y reenvía su salida JSON línea a línea.
+use crate::i18n::{tr, trf};
 use super::background_command;
 use serde::Serialize;
 use std::{
@@ -17,6 +18,8 @@ use tauri::{AppHandle, Emitter, Manager, State};
 enum AiSlot {
     Starting,
     Running(u32),
+    /// Agente local (Ollama) dentro de Pulso: se detiene con esta bandera, no matando un proceso.
+    Local(Arc<std::sync::atomic::AtomicBool>),
 }
 
 #[derive(Default)]
@@ -34,6 +37,10 @@ impl AiState {
                 m.drain()
                     .filter_map(|(_, slot)| match slot {
                         AiSlot::Running(p) => Some(p),
+                        AiSlot::Local(flag) => {
+                            flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                            None
+                        }
                         AiSlot::Starting => None,
                     })
                     .collect()
@@ -114,6 +121,7 @@ pub struct AllAiTools {
     pub claude: AiTool,
     pub codex: AiTool,
     pub antigravity: AiTool,
+    pub local: AiTool,
 }
 
 /// Lee la salida JSON de `claude auth status`. No se devuelve el correo ni la organización: Pulso no los necesita.
@@ -197,15 +205,15 @@ fn capture_status(program: &str, args: &[String], secs: u64) -> Result<(bool, St
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| e.to_string())?;
-    let mut out = child.stdout.take().ok_or("sin salida")?;
-    let mut err = child.stderr.take().ok_or("sin salida de error")?;
+    let mut out = child.stdout.take().ok_or(tr("sin salida"))?;
+    let mut err = child.stderr.take().ok_or(tr("sin salida de error"))?;
     let r_out = thread::spawn(move || { let mut s = String::new(); let _ = out.read_to_string(&mut s); s });
     let r_err = thread::spawn(move || { let mut s = String::new(); let _ = err.read_to_string(&mut s); s });
     let deadline = Instant::now() + Duration::from_secs(secs);
     let status = loop {
         match child.try_wait().map_err(|e| e.to_string())? {
             Some(st) => break st,
-            None if Instant::now() >= deadline => { let _ = child.kill(); let _ = child.wait(); return Err("tardó demasiado".into()); }
+            None if Instant::now() >= deadline => { let _ = child.kill(); let _ = child.wait(); return Err(tr("tardó demasiado").into()); }
             None => thread::sleep(Duration::from_millis(30)),
         }
     };
@@ -228,13 +236,13 @@ fn capture_vec(program: &str, args: &[String], secs: u64) -> Result<String, Stri
         .stderr(Stdio::null())
         .spawn()
         .map_err(|e| e.to_string())?;
-    let mut out = child.stdout.take().ok_or("sin salida")?;
+    let mut out = child.stdout.take().ok_or(tr("sin salida"))?;
     let reader = thread::spawn(move || { let mut s = String::new(); let _ = out.read_to_string(&mut s); s });
     let deadline = Instant::now() + Duration::from_secs(secs);
     loop {
         match child.try_wait().map_err(|e| e.to_string())? {
             Some(_) => break,
-            None if Instant::now() >= deadline => { let _ = child.kill(); let _ = child.wait(); return Err("tardó demasiado".into()); }
+            None if Instant::now() >= deadline => { let _ = child.kill(); let _ = child.wait(); return Err(tr("tardó demasiado").into()); }
             None => thread::sleep(Duration::from_millis(30)),
         }
     }
@@ -245,12 +253,12 @@ fn detect_claude() -> AiTool {
     let program = claude_program();
     let version = match capture(&program, &["--version"], 15) {
         Ok(v) if !v.trim().is_empty() => v.trim().to_string(),
-        _ => return AiTool { error: "No se encontró Claude Code en este equipo.".into(), ..Default::default() },
+        _ => return AiTool { error: tr("No se encontró Claude Code en este equipo.").into(), ..Default::default() },
     };
     let mut tool = AiTool { installed: true, version, ..Default::default() };
     match capture(&program, &["auth", "status"], 20).ok().and_then(|t| parse_auth_status(&t)) {
         Some((logged, method, plan)) => { tool.logged_in = logged; tool.auth_method = method; tool.plan = plan; }
-        None => tool.error = "No se pudo comprobar si hay una sesión iniciada.".into(),
+        None => tool.error = tr("No se pudo comprobar si hay una sesión iniciada.").into(),
     }
     tool
 }
@@ -638,7 +646,7 @@ fn detect_codex() -> AiTool {
     let (program, prefix) = resolve_cli("codex", "PULSO_CODEX_BIN", Some("@openai/codex"));
     let version = match capture_vec(&program, &with_prefix(&prefix, &["--version"]), 15) {
         Ok(v) if !v.trim().is_empty() => v.trim().to_string(),
-        _ => return AiTool { error: "No se encontró Codex CLI (ChatGPT) en este equipo.".into(), ..Default::default() },
+        _ => return AiTool { error: tr("No se encontró Codex CLI (ChatGPT) en este equipo.").into(), ..Default::default() },
     };
     if let Some(snap) = codex_app_server_snapshot(&program, &prefix, true, false) {
         let mut models = snap.models;
@@ -663,7 +671,7 @@ fn detect_codex() -> AiTool {
             tool.auth_method = method;
             tool.plan = plan;
         }
-        Err(_) => tool.error = "No se pudo comprobar la sesión de Codex.".into(),
+        Err(_) => tool.error = tr("No se pudo comprobar la sesión de Codex.").into(),
     }
     if tool.logged_in {
         let home = user_home();
@@ -681,7 +689,7 @@ fn detect_antigravity() -> AiTool {
     let (program, prefix) = resolve_cli("agy", "PULSO_AGY_BIN", None);
     let version = match capture_vec(&program, &with_prefix(&prefix, &["--version"]), 12) {
         Ok(v) if !v.trim().is_empty() => v.trim().to_string(),
-        _ => return AiTool { error: "No se encontró Antigravity CLI (`agy`) en este equipo.".into(), ..Default::default() },
+        _ => return AiTool { error: tr("No se encontró Antigravity CLI (`agy`) en este equipo.").into(), ..Default::default() },
     };
     let mut tool = AiTool { installed: true, version, ..Default::default() };
     match capture_status(&program, &with_prefix(&prefix, &["models"]), 20) {
@@ -727,7 +735,7 @@ pub async fn ai_detect_provider(provider: String) -> Result<AiTool, String> {
         "claude" => Ok(detect_claude()),
         "codex" => Ok(detect_codex()),
         "antigravity" | "gemini" => Ok(detect_antigravity()),
-        _ => Err("Proveedor de IA no soportado".to_string()),
+        _ => Err(tr("Proveedor de IA no soportado").to_string()),
     }).await.map_err(|e| e.to_string())?
 }
 
@@ -737,10 +745,12 @@ pub async fn ai_detect_all() -> Result<AllAiTools, String> {
         let t_claude = thread::spawn(detect_claude);
         let t_codex = thread::spawn(detect_codex);
         let t_agy = thread::spawn(detect_antigravity);
+        let t_local = thread::spawn(crate::localai::detect);
         AllAiTools {
             claude: t_claude.join().unwrap_or_default(),
             codex: t_codex.join().unwrap_or_default(),
             antigravity: t_agy.join().unwrap_or_default(),
+            local: t_local.join().unwrap_or_default(),
         }
     }).await.map_err(|e| e.to_string())
 }
@@ -757,7 +767,7 @@ pub fn parse_usage_result(text: &str) -> Option<String> {
 pub async fn ai_usage() -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(|| {
         let out = capture(&claude_program(), &["-p", "/usage", "--output-format", "json"], 30)?;
-        parse_usage_result(&out).ok_or_else(|| "La herramienta no informó el uso del plan.".to_string())
+        parse_usage_result(&out).ok_or_else(|| tr("La herramienta no informó el uso del plan.").to_string())
     }).await.map_err(|e| e.to_string())?
 }
 
@@ -806,13 +816,13 @@ pub fn claude_program() -> String {
 pub fn build_claude_args(o: &ChatOptions) -> Result<Vec<String>, String> {
     let mut a: Vec<String> = ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages"].iter().map(|s| s.to_string()).collect();
     if let Some(s) = &o.session {
-        if !safe_token(s) { return Err("Identificador de sesión no válido".into()); }
+        if !safe_token(s) { return Err(tr("Identificador de sesión no válido").into()); }
         a.push("--resume".into());
         a.push(s.clone());
     }
     if let Some(m) = &o.model {
         if !m.is_empty() {
-            if !safe_token(m) { return Err("Modelo no válido".into()); }
+            if !safe_token(m) { return Err(tr("Modelo no válido").into()); }
             a.push("--model".into());
             a.push(m.clone());
         }
@@ -820,7 +830,7 @@ pub fn build_claude_args(o: &ChatOptions) -> Result<Vec<String>, String> {
     if let Some(e) = &o.effort {
         if !e.is_empty() {
             if !matches!(e.as_str(), "low" | "medium" | "high" | "xhigh" | "max") {
-                return Err("Nivel de esfuerzo no válido".into());
+                return Err(tr("Nivel de esfuerzo no válido").into());
             }
             a.push("--effort".into());
             a.push(e.clone());
@@ -831,7 +841,7 @@ pub fn build_claude_args(o: &ChatOptions) -> Result<Vec<String>, String> {
         "read" => { a.extend(["--permission-mode", "default", "--allowedTools", read_tools].iter().map(|s| s.to_string())); }
         "edit" => { a.extend(["--permission-mode", "acceptEdits", "--allowedTools", "Read,Glob,Grep,Edit,Write,MultiEdit"].iter().map(|s| s.to_string())); }
         "full" => { a.extend(["--permission-mode", "acceptEdits", "--allowedTools", "Read,Glob,Grep,Edit,Write,MultiEdit,Bash"].iter().map(|s| s.to_string())); }
-        _ => return Err("Modo de permisos no válido".into()),
+        _ => return Err(tr("Modo de permisos no válido").into()),
     }
     Ok(a)
 }
@@ -842,10 +852,10 @@ pub fn build_codex_args(o: &ChatOptions) -> Result<Vec<String>, String> {
         "read" => "read-only",
         "edit" => "workspace-write",
         "full" => "danger-full-access",
-        _ => return Err("Modo de permisos no válido".into()),
+        _ => return Err(tr("Modo de permisos no válido").into()),
     };
     if let Some(s) = &o.session {
-        if !safe_token(s) { return Err("Identificador de sesión no válido".into()); }
+        if !safe_token(s) { return Err(tr("Identificador de sesión no válido").into()); }
     }
     // `exec resume` no tiene `--sandbox`: el modo se fuerza por configuración para que «Solo leer» valga también al continuar
     // una conversación (si no, mandaría el `config.toml` de la persona, que puede permitirlo todo).
@@ -857,7 +867,7 @@ pub fn build_codex_args(o: &ChatOptions) -> Result<Vec<String>, String> {
     a.push("--skip-git-repo-check".into());
     if let Some(m) = &o.model {
         if !m.is_empty() {
-            if !safe_token(m) { return Err("Modelo no válido".into()); }
+            if !safe_token(m) { return Err(tr("Modelo no válido").into()); }
             a.push("--model".into());
             a.push(m.clone());
         }
@@ -867,7 +877,7 @@ pub fn build_codex_args(o: &ChatOptions) -> Result<Vec<String>, String> {
             let mapped = match e.as_str() {
                 "low" | "medium" | "high" | "xhigh" => e.as_str(),
                 "max" => "xhigh",
-                _ => return Err("Nivel de esfuerzo no válido".into()),
+                _ => return Err(tr("Nivel de esfuerzo no válido").into()),
             };
             a.push("-c".into());
             a.push(format!("model_reasoning_effort=\"{mapped}\""));
@@ -896,19 +906,19 @@ pub fn build_agy_args(o: &ChatOptions, prompt: &str) -> Result<Vec<String>, Stri
             "[Instrucción de entorno: estás en modo Agente completo en Pulso Editor. Tienes permiso aprobado por el usuario para leer, buscar, editar archivos y ejecutar comandos de terminal (run_command) dentro del proyecto para completar y verificar la tarea.]\n\n",
             Some("[Permisos actuales en Pulso: modo Agente completo aprobado; puedes editar archivos y ejecutar comandos de terminal (run_command) para completar la tarea.]\n\n"),
         ),
-        _ => return Err("Modo de permisos no válido".into()),
+        _ => return Err(tr("Modo de permisos no válido").into()),
     };
     let mut a: Vec<String> = vec!["--output-format".into(), "stream-json".into()];
     a.extend(mode_flags.into_iter().map(|s| s.to_string()));
     if let Some(s) = &o.session {
-        if !safe_token(s) { return Err("Identificador de sesión no válido".into()); }
+        if !safe_token(s) { return Err(tr("Identificador de sesión no válido").into()); }
         a.push("--conversation".into());
         a.push(s.clone());
     }
     let has_explicit_model = o.model.as_deref().is_some_and(|m| !m.trim().is_empty());
     if let Some(m) = &o.model {
         if !m.is_empty() {
-            if !safe_token(m) { return Err("Modelo no válido".into()); }
+            if !safe_token(m) { return Err(tr("Modelo no válido").into()); }
             a.push("--model".into());
             a.push(m.clone());
         }
@@ -918,7 +928,7 @@ pub fn build_agy_args(o: &ChatOptions, prompt: &str) -> Result<Vec<String>, Stri
         if let Some(e) = &o.effort {
             if !e.is_empty() {
                 if !matches!(e.as_str(), "low" | "medium" | "high" | "xhigh" | "max") {
-                    return Err("Nivel de esfuerzo no válido".into());
+                    return Err(tr("Nivel de esfuerzo no válido").into());
                 }
                 a.push("--effort".into());
                 a.push(e.clone());
@@ -1004,12 +1014,12 @@ pub fn spawn_stream(
     crate::procguard::configure_child(&mut cmd);
     let mut child = cmd
         .spawn()
-        .map_err(|e| format!("No se pudo iniciar {program}: {e}"))?;
+        .map_err(|e| trf("No se pudo iniciar {program}: {e}", &[("program", &program), ("e", &e)]))?;
     crate::procguard::attach_job(&child);
     let pid = child.id();
 
-    let out = child.stdout.take().ok_or("sin salida")?;
-    let mut err = child.stderr.take().ok_or("sin salida de error")?;
+    let out = child.stdout.take().ok_or(tr("sin salida"))?;
+    let mut err = child.stderr.take().ok_or(tr("sin salida de error"))?;
     let stdin_opt = child.stdin.take();
     let prompt_bytes = prompt.as_bytes().to_vec();
 
@@ -1068,6 +1078,136 @@ struct AiLine { id: String, line: String }
 #[derive(Serialize, Clone)]
 struct AiExit { id: String, code: Option<i32>, stderr: String }
 
+#[derive(Serialize, Debug, Clone)]
+pub struct SavedImage {
+    pub path: String,
+    pub name: String,
+}
+
+const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
+static IMG_SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+
+fn ext_for_image_mime(mime: &str) -> Option<&'static str> {
+    match mime.trim().to_ascii_lowercase().as_str() {
+        "image/png" => Some("png"),
+        "image/jpeg" | "image/jpg" => Some("jpg"),
+        "image/webp" => Some("webp"),
+        "image/gif" => Some("gif"),
+        _ => None,
+    }
+}
+
+/// Guarda una imagen adjunta al chat de IA dentro de los datos de la aplicación y devuelve su ruta en disco.
+#[tauri::command]
+pub fn ai_save_image(app: AppHandle, name: Option<String>, mime: String, data_base64: String) -> Result<SavedImage, String> {
+    use base64::Engine;
+    let ext = ext_for_image_mime(&mime)
+        .ok_or_else(|| tr("Formato de imagen no soportado. Usa PNG, JPG, WEBP o GIF.").to_string())?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data_base64.trim())
+        .map_err(|_| tr("No se pudo leer la imagen adjunta.").to_string())?;
+    if bytes.is_empty() {
+        return Err(tr("La imagen está vacía.").into());
+    }
+    if bytes.len() > MAX_IMAGE_BYTES {
+        return Err(tr("La imagen supera el límite de 10 MB.").into());
+    }
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("ai-images");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let seq = IMG_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let file_name = format!("img_{ms}_{seq}.{ext}");
+    let full = dir.join(&file_name);
+    std::fs::write(&full, &bytes).map_err(|e| e.to_string())?;
+    let display = name
+        .map(|n| n.trim().to_string())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| file_name.clone());
+    Ok(SavedImage {
+        path: full.to_string_lossy().replace('\\', "/"),
+        name: display,
+    })
+}
+
+fn mime_for_image_ext(path: &Path) -> Option<&'static str> {
+    match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "webp" => Some("image/webp"),
+        "gif" => Some("image/gif"),
+        _ => None,
+    }
+}
+
+/// Lee una imagen guardada en `ai-images/` y devuelve un `data:` URL para mostrarla ampliada en el visor.
+#[tauri::command]
+pub fn ai_read_image_data_url(app: AppHandle, path: String) -> Result<String, String> {
+    use base64::Engine;
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("ai-images");
+    let dir_canon = std::fs::canonicalize(&dir).map_err(|_| tr("No se encontró la imagen adjunta.").to_string())?;
+    let target = std::fs::canonicalize(Path::new(&path)).map_err(|_| tr("No se encontró la imagen adjunta.").to_string())?;
+    if !target.starts_with(&dir_canon) || !target.is_file() {
+        return Err(tr("No se encontró la imagen adjunta.").into());
+    }
+    let mime = mime_for_image_ext(&target)
+        .ok_or_else(|| tr("Formato de imagen no soportado. Usa PNG, JPG, WEBP o GIF.").to_string())?;
+    let meta = std::fs::metadata(&target).map_err(|e| e.to_string())?;
+    if meta.len() as usize > MAX_IMAGE_BYTES {
+        return Err(tr("La imagen supera el límite de 10 MB.").into());
+    }
+    let bytes = std::fs::read(&target).map_err(|e| e.to_string())?;
+    Ok(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(&bytes)))
+}
+
+/// Elimina archivos antiguos de `ai-images/` que ya no estén referenciados por ninguna conversación guardada.
+#[tauri::command]
+pub fn ai_prune_images(app: AppHandle, keep_paths: Vec<String>) -> Result<usize, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("ai-images");
+    if !dir.is_dir() {
+        return Ok(0);
+    }
+    let keep: std::collections::HashSet<String> = keep_paths
+        .into_iter()
+        .filter_map(|p| std::fs::canonicalize(Path::new(&p)).ok())
+        .map(|p| p.to_string_lossy().to_ascii_lowercase())
+        .collect();
+    let grace = Duration::from_secs(300);
+    let now = std::time::SystemTime::now();
+    let mut removed = 0usize;
+    let Ok(entries) = std::fs::read_dir(&dir) else { return Ok(0); };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if !p.is_file() { continue; }
+        let Ok(canon) = std::fs::canonicalize(&p) else { continue; };
+        if keep.contains(&canon.to_string_lossy().to_ascii_lowercase()) { continue; }
+        if let Ok(meta) = entry.metadata() {
+            if let Ok(mtime) = meta.modified() {
+                if now.duration_since(mtime).unwrap_or_default() < grace { continue; }
+            }
+        }
+        if std::fs::remove_file(&p).is_ok() {
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
+fn validate_images(images: Option<Vec<String>>) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    for raw in images.unwrap_or_default().into_iter().take(5) {
+        let p = raw.trim();
+        if p.is_empty() { continue; }
+        let meta = std::fs::metadata(p).map_err(|_| tr("No se encontró la imagen adjunta.").to_string())?;
+        if !meta.is_file() { return Err(tr("No se encontró la imagen adjunta.").into()); }
+        if meta.len() as usize > MAX_IMAGE_BYTES { return Err(tr("La imagen supera el límite de 10 MB.").into()); }
+        out.push(p.to_string());
+    }
+    Ok(out)
+}
+
 #[tauri::command]
 pub async fn ai_send(
     app: AppHandle,
@@ -1080,21 +1220,28 @@ pub async fn ai_send(
     effort: Option<String>,
     mode: String,
     provider: Option<String>,
+    history: Option<Vec<crate::localai::HistoryMsg>>,
+    images: Option<Vec<String>>,
 ) -> Result<(), String> {
-    if !safe_token(&id) { return Err("Identificador de conversación no válido".into()); }
-    if !std::path::Path::new(&cwd).is_dir() { return Err("Abre una carpeta de proyecto para hablar con la IA.".into()); }
+    if !safe_token(&id) { return Err(tr("Identificador de conversación no válido").into()); }
+    if !std::path::Path::new(&cwd).is_dir() { return Err(tr("Abre una carpeta de proyecto para hablar con la IA.").into()); }
     if let Some(reason) = crate::termui::broad_dir_reason(Path::new(&cwd), user_home().as_deref()) {
-        return Err(format!("No se permite lanzar la IA en esa carpeta ({reason}). Abre una carpeta de proyecto concreta."));
+        return Err(trf("No se permite lanzar la IA en esa carpeta ({reason}). Abre una carpeta de proyecto concreta.", &[("reason", &reason)]));
     }
-    if prompt.trim().is_empty() { return Err("El mensaje está vacío.".into()); }
+    if prompt.trim().is_empty() { return Err(tr("El mensaje está vacío.").into()); }
+    let image_paths = validate_images(images)?;
 
     // Reservar el slot ANTES de spawnear elimina carreras de doble envío y PIDs obsoletos.
     {
         let mut map = state.running.lock().map_err(|e| e.to_string())?;
         if map.contains_key(&id) {
-            return Err("Esta conversación ya está respondiendo.".into());
+            return Err(tr("Esta conversación ya está respondiendo.").into());
         }
         map.insert(id.clone(), AiSlot::Starting);
+    }
+
+    if provider.as_deref() == Some("local") {
+        return start_local(app, &state, id, cwd, prompt, model, history.unwrap_or_default(), image_paths, mode);
     }
 
     let opts = ChatOptions { session, model, effort, mode };
@@ -1106,24 +1253,45 @@ pub async fn ai_send(
             "claude" => {
                 let (prog, mut prefix) = resolve_cli("claude", "PULSO_CLAUDE_BIN", Some("@anthropic-ai/claude-code"));
                 prefix.extend(build_claude_args(&opts)?);
+                let mut seen_dirs = std::collections::HashSet::new();
+                for img in &image_paths {
+                    if let Some(parent) = Path::new(img).parent() {
+                        let dir = parent.to_string_lossy().into_owned();
+                        if !dir.is_empty() && seen_dirs.insert(dir.clone()) {
+                            prefix.push("--add-dir".into());
+                            prefix.push(dir);
+                        }
+                    }
+                }
                 (prog, prefix)
             }
             "codex" => {
                 let (prog, mut prefix) = resolve_cli("codex", "PULSO_CODEX_BIN", Some("@openai/codex"));
-                prefix.extend(build_codex_args(&opts)?);
+                let mut codex_args = build_codex_args(&opts)?;
+                if opts.session.is_none() && !image_paths.is_empty() {
+                    // Insertar `--image <ruta>` justo antes del `-` final de stdin.
+                    let insert_at = codex_args.len().saturating_sub(1);
+                    let mut extra = Vec::with_capacity(image_paths.len() * 2);
+                    for img in &image_paths {
+                        extra.push("--image".into());
+                        extra.push(img.clone());
+                    }
+                    codex_args.splice(insert_at..insert_at, extra);
+                }
+                prefix.extend(codex_args);
                 (prog, prefix)
             }
             "antigravity" | "gemini" => {
                 let (prog, mut prefix) = resolve_cli("agy", "PULSO_AGY_BIN", None);
                 let low = prog.to_ascii_lowercase();
                 if (low.ends_with(".cmd") || low.ends_with(".bat")) && prompt.len() > 6000 {
-                    return Err("El mensaje es demasiado largo para pasarlo a través de un script .cmd en Windows. Instala el ejecutable nativo de agy o acorta el contexto.".into());
+                    return Err(tr("El mensaje es demasiado largo para pasarlo a través de un script .cmd en Windows. Instala el ejecutable nativo de agy o acorta el contexto.").into());
                 }
                 prefix.extend(build_agy_args(&opts, &prompt)?);
                 stdin_payload = "";
                 (prog, prefix)
             }
-            _ => return Err("Proveedor de IA no soportado".into()),
+            _ => return Err(tr("Proveedor de IA no soportado").into()),
         };
         let (a1, a2, id1, id2) = (app_clone.clone(), app_clone.clone(), id_for_spawn.clone(), id_for_spawn.clone());
         spawn_stream(
@@ -1161,12 +1329,53 @@ pub async fn ai_send(
     }
 }
 
+/// Agente local (Ollama): corre dentro de Pulso y emite los mismos eventos que las herramientas externas.
+fn start_local(
+    app: AppHandle,
+    state: &AiState,
+    id: String,
+    cwd: String,
+    prompt: String,
+    model: Option<String>,
+    history: Vec<crate::localai::HistoryMsg>,
+    images: Vec<String>,
+    mode: String,
+) -> Result<(), String> {
+    let model = model.map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).ok_or_else(|| tr("Elige un modelo de Ollama para conversar.").to_string())?;
+    let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    state.running.lock().map_err(|e| e.to_string())?.insert(id.clone(), AiSlot::Local(cancel.clone()));
+    let (emitter, id_line) = (app.clone(), id.clone());
+    let emit: Arc<dyn Fn(String) + Send + Sync> = Arc::new(move |line| {
+        let _ = emitter.emit("ai-line", AiLine { id: id_line.clone(), line });
+    });
+    tauri::async_runtime::spawn(async move {
+        let outcome = crate::localai::run(crate::localai::base_url(), model, PathBuf::from(&cwd), id.clone(), history, prompt, images, mode, cancel.clone(), emit).await;
+        if let Some(st) = app.try_state::<AiState>() {
+            if let Ok(mut m) = st.running.lock() {
+                m.remove(&id);
+            }
+        }
+        let stopped = cancel.load(std::sync::atomic::Ordering::Relaxed);
+        let (code, stderr) = match outcome {
+            Ok(()) => (Some(0), String::new()),
+            Err(_) if stopped => (None, String::new()),
+            Err(e) => (Some(1), e),
+        };
+        let _ = app.emit("ai-exit", AiExit { id, code, stderr });
+    });
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn ai_stop(state: State<'_, AiState>, id: String) -> Result<(), String> {
     let pid = {
         let mut map = state.running.lock().map_err(|e| e.to_string())?;
         match map.remove(&id) {
             Some(AiSlot::Running(p)) => Some(p),
+            Some(AiSlot::Local(flag)) => {
+                flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                None
+            }
             _ => None,
         }
     };

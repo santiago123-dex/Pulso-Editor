@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { readJsonStorage, writeJsonStorage } from "../core/storage";
 import { applyTheme, state } from "../settings";
 import { h } from "../util";
@@ -11,12 +12,12 @@ export interface AiAppearance {
 }
 
 export const BG_PRESETS: { name: string; color: string; swatch: string }[] = [
-  { name: "Tema actual", color: "", swatch: "var(--bg)" },
-  { name: "Negro puro", color: "#050507", swatch: "#050507" },
-  { name: "Azul noche", color: "#071022", swatch: "#071022" },
-  { name: "Pizarra", color: "#0d141c", swatch: "#0d141c" },
-  { name: "Índigo", color: "#0e0b1a", swatch: "#0e0b1a" },
-  { name: "Bosque", color: "#071410", swatch: "#071410" },
+  { name: t("Tema actual"), color: "", swatch: "var(--bg)" },
+  { name: t("Negro puro"), color: "#050507", swatch: "#050507" },
+  { name: t("Azul noche"), color: "#071022", swatch: "#071022" },
+  { name: t("Pizarra"), color: "#0d141c", swatch: "#0d141c" },
+  { name: t("Índigo"), color: "#0e0b1a", swatch: "#0e0b1a" },
+  { name: t("Bosque"), color: "#071410", swatch: "#071410" },
 ];
 
 export const THEME_VARS = [
@@ -94,9 +95,9 @@ export function buildAppearancePopover(
     const cfg = loadAppearance();
     pop.replaceChildren();
     const head = h("div", "ai-usage-pop-head");
-    head.append(h("span", "ai-usage-group", "Fondo y estilo"));
+    head.append(h("span", "ai-usage-group", t("Fondo y estilo")));
     if (cfg.bg || cfg.pattern !== "dots" || cfg.scope !== "assistant") {
-      const rst = h("button", "ai-usage-sync", "Restablecer");
+      const rst = h("button", "ai-usage-sync", t("Restablecer"));
       rst.type = "button";
       rst.onclick = () => { saveAppearance(view, { bg: "", pattern: "dots", scope: "assistant" }); render(); };
       head.append(rst);
@@ -121,13 +122,13 @@ export function buildAppearancePopover(
     const picker = h("input");
     picker.type = "color";
     picker.value = cfg.bg || "#0e0e0f";
-    const hexLbl = h("span", "ai-color-hex", cfg.bg ? cfg.bg.toUpperCase() : "Tema");
+    const hexLbl = h("span", "ai-color-hex", cfg.bg ? cfg.bg.toUpperCase() : t("Tema"));
     picker.oninput = () => {
       hexLbl.textContent = picker.value.toUpperCase();
       saveAppearance(view, { ...cfg, bg: picker.value });
       grid.querySelectorAll(".ai-swatch").forEach((s) => s.classList.remove("active"));
     };
-    customRow.append(h("span", "ai-pop-effort-lbl", "Color personalizado"), picker, hexLbl);
+    customRow.append(h("span", "ai-pop-effort-lbl", t("Color personalizado")), picker, hexLbl);
     pop.append(h("div", "ai-pop-sep"), customRow);
 
     const optRow = h("div", "ai-theme-opts");
@@ -145,13 +146,13 @@ export function buildAppearancePopover(
       return row;
     };
     optRow.append(
-      makeToggle("Textura", [
-        ["dots", "Puntos", cfg.pattern === "dots", () => saveAppearance(view, { ...cfg, pattern: "dots" })],
-        ["solid", "Liso", cfg.pattern === "solid", () => saveAppearance(view, { ...cfg, pattern: "solid" })],
+      makeToggle(t("Textura"), [
+        ["dots", t("Puntos"), cfg.pattern === "dots", () => saveAppearance(view, { ...cfg, pattern: "dots" })],
+        ["solid", t("Liso"), cfg.pattern === "solid", () => saveAppearance(view, { ...cfg, pattern: "solid" })],
       ]),
-      makeToggle("Aplicar en", [
-        ["assistant", "Asistente", cfg.scope === "assistant", () => saveAppearance(view, { ...cfg, scope: "assistant" })],
-        ["global", "Todo Pulso", cfg.scope === "global", () => saveAppearance(view, { ...cfg, scope: "global" })],
+      makeToggle(t("Aplicar en"), [
+        ["assistant", t("Asistente"), cfg.scope === "assistant", () => saveAppearance(view, { ...cfg, scope: "assistant" })],
+        ["global", t("Todo Pulso"), cfg.scope === "global", () => saveAppearance(view, { ...cfg, scope: "global" })],
       ]),
     );
     pop.append(h("div", "ai-pop-sep"), optRow);

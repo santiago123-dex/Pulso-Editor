@@ -1,5 +1,6 @@
 //! Operaciones de Git de la interfaz: cambios preparados y sin preparar, stage, unstage, commit y las dos
 //! versiones de un archivo para mostrar diferencias. Todo se hace con el ejecutable `git` del sistema.
+use crate::i18n::{tr, trf};
 use super::background_command;
 use serde::Serialize;
 use std::{
@@ -47,7 +48,7 @@ fn text(o: &Output) -> String {
 
 /// Ejecuta git y devuelve la salida estándar, o el mensaje de error de git tal cual.
 fn run(dir: &str, args: &[&str]) -> Result<String, String> {
-    let o = git_command(dir).args(args).output().map_err(|e| format!("No se pudo ejecutar git: {e}"))?;
+    let o = git_command(dir).args(args).output().map_err(|e| trf("No se pudo ejecutar git: {e}", &[("e", &e)]))?;
     if o.status.success() { Ok(String::from_utf8_lossy(&o.stdout).into_owned()) } else { Err(text(&o)) }
 }
 
@@ -57,10 +58,10 @@ fn succeeds(dir: &str, args: &[&str]) -> bool {
 
 /// Distingue «git no está instalado» de «esta carpeta no es un repositorio»: piden cosas distintas a la persona.
 fn explain_top_error(err: &str) -> String {
-    if err.starts_with("No se pudo ejecutar git") {
-        "No se encontró Git. Instálalo (git-scm.com) y reinicia Pulso para usar el control de código fuente".to_string()
+    if err.starts_with(tr("No se pudo ejecutar git")) {
+        tr("No se encontró Git. Instálalo (git-scm.com) y reinicia Pulso para usar el control de código fuente").to_string()
     } else {
-        "Esta carpeta no es un repositorio de Git".to_string()
+        tr("Esta carpeta no es un repositorio de Git").to_string()
     }
 }
 
@@ -168,15 +169,15 @@ pub struct CommitResult {
 
 fn commit_sync(root: &str, message: &str) -> Result<CommitResult, String> {
     let message = message.trim();
-    if message.is_empty() { return Err("Escribe un mensaje para el commit".into()); }
+    if message.is_empty() { return Err(tr("Escribe un mensaje para el commit").into()); }
     let top = top_of(root)?;
     let staged = run(&top, &["diff", "--cached", "--name-only"])?;
-    if staged.trim().is_empty() { return Err("No hay cambios preparados para confirmar".into()); }
+    if staged.trim().is_empty() { return Err(tr("No hay cambios preparados para confirmar").into()); }
     let mut child = git_command(&top)
         .args(["commit", "-q", "-F", "-"])
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
-        .spawn().map_err(|e| format!("No se pudo ejecutar git: {e}"))?;
-    let mut stdin = child.stdin.take().ok_or("No se pudo enviar el mensaje a git")?;
+        .spawn().map_err(|e| trf("No se pudo ejecutar git: {e}", &[("e", &e)]))?;
+    let mut stdin = child.stdin.take().ok_or(tr("No se pudo enviar el mensaje a git"))?;
     let msg_bytes = message.as_bytes().to_vec();
     let writer = std::thread::spawn(move || stdin.write_all(&msg_bytes));
     let o = child.wait_with_output().map_err(|e| e.to_string())?;
@@ -188,6 +189,57 @@ fn commit_sync(root: &str, message: &str) -> Result<CommitResult, String> {
     if !o.status.success() { return Err(text(&o)); }
     let hash = run(&top, &["rev-parse", "--short", "HEAD"])?.trim().to_string();
     Ok(CommitResult { hash, summary: message.lines().next().unwrap_or("").to_string() })
+}
+
+fn last_commit_message_sync(root: &str) -> Result<String, String> {
+    let top = top_of(root)?;
+    if !succeeds(&top, &["rev-parse", "--verify", "HEAD"]) {
+        return Err(tr("Todavía no hay ningún commit en este repositorio").into());
+    }
+    Ok(run(&top, &["log", "-1", "--pretty=%B"])?.trim().to_string())
+}
+
+fn amend_sync(root: &str, message: Option<&str>) -> Result<CommitResult, String> {
+    let top = top_of(root)?;
+    if !succeeds(&top, &["rev-parse", "--verify", "HEAD"]) {
+        return Err(tr("Todavía no hay ningún commit que corregir").into());
+    }
+    let clean = message.map(str::trim).filter(|m| !m.is_empty());
+    if let Some(msg) = clean {
+        let mut child = git_command(&top)
+            .args(["commit", "--amend", "-q", "-F", "-"])
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
+            .spawn().map_err(|e| trf("No se pudo ejecutar git: {e}", &[("e", &e)]))?;
+        let mut stdin = child.stdin.take().ok_or(tr("No se pudo enviar el mensaje a git"))?;
+        let msg_bytes = msg.as_bytes().to_vec();
+        let writer = std::thread::spawn(move || stdin.write_all(&msg_bytes));
+        let o = child.wait_with_output().map_err(|e| e.to_string())?;
+        if let Ok(Err(e)) = writer.join() {
+            if o.status.success() { return Err(e.to_string()); }
+        }
+        if !o.status.success() { return Err(text(&o)); }
+    } else {
+        run(&top, &["commit", "--amend", "--no-edit", "-q"])?;
+    }
+    let hash = run(&top, &["rev-parse", "--short", "HEAD"])?.trim().to_string();
+    let summary = run(&top, &["log", "-1", "--pretty=%s"])?.trim().to_string();
+    Ok(CommitResult { hash, summary })
+}
+
+fn delete_branch_sync(root: &str, name: &str, force: bool) -> Result<(), String> {
+    valid_branch_name(name)?;
+    let top = top_of(root)?;
+    run(&top, &["branch", if force { "-D" } else { "-d" }, name]).map(|_| ())
+}
+
+fn rename_branch_sync(root: &str, old_name: &str, new_name: &str) -> Result<(), String> {
+    valid_branch_name(old_name)?;
+    valid_branch_name(new_name)?;
+    let top = top_of(root)?;
+    if !succeeds(&top, &["check-ref-format", "--branch", new_name]) {
+        return Err(trf("«{name}» no es un nombre de rama válido", &[("name", &new_name)]));
+    }
+    run(&top, &["branch", "-m", old_name, new_name]).map(|_| ())
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -205,16 +257,16 @@ fn blob(top: &str, spec: &str) -> Result<Vec<u8>, String> {
     let size_out = git_command(top)
         .args(["cat-file", "-s", spec])
         .output()
-        .map_err(|e| format!("No se pudo ejecutar git: {e}"))?;
+        .map_err(|e| trf("No se pudo ejecutar git: {e}", &[("e", &e)]))?;
     if !size_out.status.success() {
         return Ok(Vec::new());
     }
     if let Ok(sz) = String::from_utf8_lossy(&size_out.stdout).trim().parse::<usize>() {
         if sz > MAX_DIFF_BYTES {
-            return Err("El archivo es demasiado grande para mostrar diferencias".into());
+            return Err(tr("El archivo es demasiado grande para mostrar diferencias").into());
         }
     }
-    let o = git_command(top).args(["show", spec]).output().map_err(|e| format!("No se pudo ejecutar git: {e}"))?;
+    let o = git_command(top).args(["show", spec]).output().map_err(|e| trf("No se pudo ejecutar git: {e}", &[("e", &e)]))?;
     if !o.status.success() { return Err(text(&o)); }
     Ok(o.stdout)
 }
@@ -223,7 +275,7 @@ fn read_disk_for_diff(path: &std::path::Path) -> Result<Vec<u8>, String> {
     match fs::metadata(path) {
         Ok(m) => {
             if m.len() > MAX_DIFF_BYTES as u64 {
-                return Err("El archivo es demasiado grande para mostrar diferencias".into());
+                return Err(tr("El archivo es demasiado grande para mostrar diferencias").into());
             }
             fs::read(path).map_err(|e| e.to_string())
         }
@@ -234,9 +286,9 @@ fn read_disk_for_diff(path: &std::path::Path) -> Result<Vec<u8>, String> {
 
 /// Las dos versiones que se comparan: preparado = HEAD contra el índice; sin preparar = índice contra el disco.
 fn diff_sources_sync(root: &str, path: &str, orig: Option<&str>, staged: bool) -> Result<DiffSources, String> {
-    if !safe_relative(path) { return Err("Ruta no válida".into()); }
+    if !safe_relative(path) { return Err(tr("Ruta no válida").into()); }
     if let Some(o) = orig {
-        if !safe_relative(o) { return Err("Ruta de origen no válida".into()); }
+        if !safe_relative(o) { return Err(tr("Ruta de origen no válida").into()); }
     }
     let top = top_of(root)?;
     let (a, b) = if staged {
@@ -245,7 +297,7 @@ fn diff_sources_sync(root: &str, path: &str, orig: Option<&str>, staged: bool) -
         (blob(&top, &format!(":{}", path))?, read_disk_for_diff(&std::path::Path::new(&top).join(path))?)
     };
     if a.len() > MAX_DIFF_BYTES || b.len() > MAX_DIFF_BYTES {
-        return Err("El archivo es demasiado grande para mostrar diferencias".into());
+        return Err(tr("El archivo es demasiado grande para mostrar diferencias").into());
     }
     let binary = a.iter().take(8000).any(|&x| x == 0) || b.iter().take(8000).any(|&x| x == 0);
     if binary { return Ok(DiffSources { original: String::new(), modified: String::new(), binary: true }); }
@@ -291,8 +343,8 @@ fn branches_sync(root: &str) -> Result<Vec<Branch>, String> {
 }
 
 fn valid_branch_name(name: &str) -> Result<(), String> {
-    if name.trim().is_empty() { return Err("Escribe un nombre para la rama".into()); }
-    if name.starts_with('-') { return Err("El nombre de la rama no puede empezar por «-»".into()); }
+    if name.trim().is_empty() { return Err(tr("Escribe un nombre para la rama").into()); }
+    if name.starts_with('-') { return Err(tr("El nombre de la rama no puede empezar por «-»").into()); }
     Ok(())
 }
 
@@ -302,7 +354,7 @@ fn switch_sync(root: &str, name: &str, create: bool) -> Result<(), String> {
     let top = top_of(root)?;
     if create {
         if !succeeds(&top, &["check-ref-format", "--branch", name]) {
-            return Err(format!("«{name}» no es un nombre de rama válido"));
+            return Err(trf("«{name}» no es un nombre de rama válido", &[("name", &name)]));
         }
         return run(&top, &["switch", "-c", name]).map(|_| ());
     }
@@ -311,7 +363,7 @@ fn switch_sync(root: &str, name: &str, create: bool) -> Result<(), String> {
         let short = name.split_once('/').map(|(_, s)| s).unwrap_or(name);
         valid_branch_name(short)?;
         if !succeeds(&top, &["check-ref-format", "--branch", short]) {
-            return Err(format!("«{short}» no es un nombre de rama válido"));
+            return Err(trf("«{short}» no es un nombre de rama válido", &[("short", &short)]));
         }
         return run(&top, &["switch", "-c", short, "--track", name]).map(|_| ());
     }
@@ -342,7 +394,7 @@ fn safe_relative(path: &str) -> bool {
 fn discard_sync(root: &str, items: Vec<DiscardItem>, remove_untracked: &dyn Fn(&std::path::Path) -> Result<(), String>) -> Result<usize, String> {
     let top = top_of(root)?;
     if let Some(bad) = items.iter().find(|i| !safe_relative(&i.path)) {
-        return Err(format!("Ruta no válida: {}", bad.path));
+        return Err(trf("Ruta no válida: {path}", &[("path", &bad.path)]));
     }
     let tracked: Vec<String> = items.iter().filter(|i| i.status != "U" && i.status != "!").map(|i| i.path.clone()).collect();
     let untracked: Vec<&DiscardItem> = items.iter().filter(|i| i.status == "U").collect();
@@ -361,11 +413,11 @@ fn run_timeout(mut cmd: Command, secs: u64) -> Result<Output, String> {
     use std::{io::Read, thread, time::{Duration, Instant}};
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     crate::procguard::configure_child(&mut cmd);
-    let mut child = cmd.spawn().map_err(|e| format!("No se pudo ejecutar git: {e}"))?;
+    let mut child = cmd.spawn().map_err(|e| trf("No se pudo ejecutar git: {e}", &[("e", &e)]))?;
     crate::procguard::attach_job(&child);
     let pid = child.id();
-    let mut out = child.stdout.take().ok_or("sin salida")?;
-    let mut err = child.stderr.take().ok_or("sin salida de error")?;
+    let mut out = child.stdout.take().ok_or(tr("sin salida"))?;
+    let mut err = child.stderr.take().ok_or(tr("sin salida de error"))?;
     let t_out = thread::spawn(move || { let mut b = Vec::new(); let _ = out.read_to_end(&mut b); b });
     let t_err = thread::spawn(move || { let mut b = Vec::new(); let _ = err.read_to_end(&mut b); b });
     let deadline = Instant::now() + Duration::from_secs(secs);
@@ -378,7 +430,7 @@ fn run_timeout(mut cmd: Command, secs: u64) -> Result<Output, String> {
                 let _ = child.wait();
                 let _ = t_out.join();
                 let _ = t_err.join();
-                return Err(format!("La operación tardó más de {secs} s y se canceló. Si Git esperaba un inicio de sesión, inicia sesión desde una terminal y reinténtalo"));
+                return Err(trf("La operación tardó más de {secs} s y se canceló. Si Git esperaba un inicio de sesión, inicia sesión desde una terminal y reinténtalo", &[("secs", &secs)]));
             }
             None => thread::sleep(Duration::from_millis(50)),
         }
@@ -395,7 +447,7 @@ fn run_net(top: &str, args: &[&str], secs: u64) -> Result<String, String> {
 
 fn current_branch(top: &str) -> Result<String, String> {
     let b = run(top, &["rev-parse", "--abbrev-ref", "HEAD"])?.trim().to_string();
-    if b == "HEAD" { return Err("Estás en HEAD desacoplado: cambia a una rama antes de sincronizar".into()); }
+    if b == "HEAD" { return Err(tr("Estás en HEAD desacoplado: cambia a una rama antes de sincronizar").into()); }
     Ok(b)
 }
 
@@ -408,7 +460,7 @@ fn push_sync(root: &str, secs: u64) -> Result<String, String> {
     if succeeds(&top, &["remote", "get-url", "origin"]) {
         return run_net(&top, &["push", "--set-upstream", "origin", &branch], secs);
     }
-    Err("Esta rama no tiene remoto. Añade uno con «git remote add origin <url>» en la terminal".into())
+    Err(tr("Esta rama no tiene remoto. Añade uno con «git remote add origin <url>» en la terminal").into())
 }
 
 fn pull_sync(root: &str, secs: u64) -> Result<String, String> {
@@ -416,11 +468,12 @@ fn pull_sync(root: &str, secs: u64) -> Result<String, String> {
     current_branch(&top)?;
     match run_net(&top, &["pull", "--ff-only"], secs) {
         Ok(t) => Ok(t),
-        Err(e) if e.contains("Not possible to fast-forward") || e.contains("divergent") => Err(format!(
-            "{e}\n\nTu rama y la remota tienen cambios distintos. Pulso solo trae cambios que se pueden aplicar sin mezclar; resuélvelo en la terminal (git pull --rebase o git merge)."
+        Err(e) if e.contains("Not possible to fast-forward") || e.contains("divergent") => Err(trf(
+            "{e}\n\nTu rama y la remota tienen cambios distintos. Pulso solo trae cambios que se pueden aplicar sin mezclar; resuélvelo en la terminal (git pull --rebase o git merge).",
+            &[("e", &e)],
         )),
         Err(e) if e.contains("no tracking information") => {
-            Err("Esta rama no sigue a ninguna rama remota. Haz push primero para crearla en el remoto".into())
+            Err(tr("Esta rama no sigue a ninguna rama remota. Haz push primero para crearla en el remoto").into())
         }
         Err(e) => Err(e),
     }
@@ -440,7 +493,7 @@ pub async fn git_switch(root: String, name: String, create: bool) -> Result<(), 
 #[tauri::command]
 pub async fn git_discard(root: String, items: Vec<DiscardItem>) -> Result<usize, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        discard_sync(&root, items, &|p| trash::delete(p).map_err(|e| format!("No se pudo enviar a la papelera {}: {e}", p.display())))
+        discard_sync(&root, items, &|p| trash::delete(p).map_err(|e| trf("No se pudo enviar a la papelera {path}: {e}", &[("path", &p.display()), ("e", &e)])))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -474,6 +527,26 @@ pub async fn git_unstage(root: String, paths: Vec<String>) -> Result<(), String>
 #[tauri::command]
 pub async fn git_commit(root: String, message: String) -> Result<CommitResult, String> {
     tauri::async_runtime::spawn_blocking(move || commit_sync(&root, &message)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_last_commit_message(root: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || last_commit_message_sync(&root)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_commit_amend(root: String, message: Option<String>) -> Result<CommitResult, String> {
+    tauri::async_runtime::spawn_blocking(move || amend_sync(&root, message.as_deref())).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_delete_branch(root: String, name: String, force: bool) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || delete_branch_sync(&root, &name, force)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_rename_branch(root: String, old_name: String, new_name: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || rename_branch_sync(&root, &old_name, &new_name)).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -521,7 +594,7 @@ const MAX_LOG: u32 = 200;
 fn log_sync(root: &str, path: Option<&str>, skip: u32, limit: u32) -> Result<Vec<Commit>, String> {
     let top = top_of(root)?;
     if !has_head(&top) { return Ok(Vec::new()); }
-    if let Some(p) = path { if !safe_relative(p) { return Err("Ruta no válida".into()); } }
+    if let Some(p) = path { if !safe_relative(p) { return Err(tr("Ruta no válida").into()); } }
     let limit = limit.clamp(1, MAX_LOG).to_string();
     let skip = skip.to_string();
     let mut args: Vec<&str> = vec!["log", "--format=%x1e%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%D", "-n", &limit, "--skip", &skip];
@@ -559,23 +632,23 @@ pub fn parse_name_status(out: &str) -> Vec<CommitFile> {
 }
 
 fn commit_files_sync(root: &str, hash: &str) -> Result<Vec<CommitFile>, String> {
-    if !valid_hash(hash) { return Err("Identificador de commit no válido".into()); }
+    if !valid_hash(hash) { return Err(tr("Identificador de commit no válido").into()); }
     let top = top_of(root)?;
     Ok(parse_name_status(&run(&top, &["show", "--name-status", "-M", "-z", "--format=", hash])?))
 }
 
 /// Las dos versiones de un archivo en un commit: la del padre y la del propio commit.
 fn commit_sources_sync(root: &str, hash: &str, path: &str, orig: Option<&str>) -> Result<DiffSources, String> {
-    if !valid_hash(hash) { return Err("Identificador de commit no válido".into()); }
-    if !safe_relative(path) { return Err("Ruta no válida".into()); }
+    if !valid_hash(hash) { return Err(tr("Identificador de commit no válido").into()); }
+    if !safe_relative(path) { return Err(tr("Ruta no válida").into()); }
     if let Some(o) = orig {
-        if !safe_relative(o) { return Err("Ruta de origen no válida".into()); }
+        if !safe_relative(o) { return Err(tr("Ruta de origen no válida").into()); }
     }
     let top = top_of(root)?;
     let a = blob(&top, &format!("{hash}^:{}", orig.unwrap_or(path)))?;
     let b = blob(&top, &format!("{hash}:{path}"))?;
     if a.len() > MAX_DIFF_BYTES || b.len() > MAX_DIFF_BYTES {
-        return Err("El archivo es demasiado grande para mostrar diferencias".into());
+        return Err(tr("El archivo es demasiado grande para mostrar diferencias").into());
     }
     let binary = a.iter().take(8000).any(|&x| x == 0) || b.iter().take(8000).any(|&x| x == 0);
     if binary { return Ok(DiffSources { original: String::new(), modified: String::new(), binary: true }); }
@@ -619,7 +692,7 @@ pub fn parse_blame(out: &str) -> Vec<BlameLine> {
 }
 
 fn blame_sync(root: &str, path: &str) -> Result<Vec<BlameLine>, String> {
-    if !safe_relative(path) { return Err("Ruta no válida".into()); }
+    if !safe_relative(path) { return Err(tr("Ruta no válida").into()); }
     let top = top_of(root)?;
     if !has_head(&top) { return Ok(Vec::new()); }
     Ok(parse_blame(&run(&top, &["blame", "--line-porcelain", "--", path])?))
@@ -1120,5 +1193,30 @@ mod tests {
         assert!(parse_log("\u{1e}solo-un-campo").is_empty());
         assert!(parse_name_status("").is_empty());
         assert!(parse_blame("basura\nsin formato").is_empty());
+    }
+
+    #[test]
+    fn amend_rename_and_delete_branch_work() {
+        let r = Repo::new();
+        r.write("a.txt", "uno\n");
+        stage_sync(&r.s(), vec!["a.txt".into()]).unwrap();
+        commit_sync(&r.s(), "mensaje inicial").unwrap();
+        assert_eq!(last_commit_message_sync(&r.s()).unwrap(), "mensaje inicial");
+
+        let amended = amend_sync(&r.s(), Some("mensaje corregido")).unwrap();
+        assert_eq!(amended.summary, "mensaje corregido");
+        assert_eq!(last_commit_message_sync(&r.s()).unwrap(), "mensaje corregido");
+
+        switch_sync(&r.s(), "rama-temp", true).unwrap();
+        rename_branch_sync(&r.s(), "rama-temp", "rama-renombrada").unwrap();
+        let names: Vec<String> = branches_sync(&r.s()).unwrap().into_iter().map(|b| b.name).collect();
+        assert!(names.contains(&"rama-renombrada".to_string()));
+        assert!(!names.contains(&"rama-temp".to_string()));
+
+        let main_branch = names.iter().find(|n| n.as_str() != "rama-renombrada").cloned().unwrap();
+        switch_sync(&r.s(), &main_branch, false).unwrap();
+        delete_branch_sync(&r.s(), "rama-renombrada", false).unwrap();
+        let after: Vec<String> = branches_sync(&r.s()).unwrap().into_iter().map(|b| b.name).collect();
+        assert!(!after.contains(&"rama-renombrada".to_string()));
     }
 }

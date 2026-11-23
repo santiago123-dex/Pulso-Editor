@@ -1,5 +1,6 @@
 //! Conexión con GitHub y proxy HTTP desde Rust: el token vive únicamente en Rust y en el
 //! almacén seguro del sistema operativo, y nunca entra en la memoria JavaScript del WebView.
+use crate::i18n::{tr, trf};
 use super::background_command;
 use serde::Serialize;
 use std::{
@@ -32,8 +33,8 @@ impl fmt::Debug for Credential {
 }
 
 pub struct GithubState {
-    token: Mutex<Option<String>>,
-    client: reqwest::Client,
+    pub(crate) token: Mutex<Option<String>>,
+    pub(crate) client: reqwest::Client,
 }
 
 impl Default for GithubState {
@@ -55,7 +56,7 @@ impl GithubState {
         self.token.lock().ok().and_then(|g| g.clone()).filter(|t| !t.is_empty())
     }
 
-    fn set_memory_token(&self, value: Option<String>) {
+    pub(crate) fn set_memory_token(&self, value: Option<String>) {
         if let Ok(mut g) = self.token.lock() {
             *g = value.filter(|t| !t.is_empty());
         }
@@ -71,7 +72,7 @@ fn keyring_get_github() -> Result<Option<String>, String> {
     }
 }
 
-fn keyring_set_github(value: &str) -> Result<(), String> {
+pub(crate) fn keyring_set_github(value: &str) -> Result<(), String> {
     if value.is_empty() {
         return match keyring::Entry::new(SECRET_SERVICE, GITHUB_SECRET_KEY)
             .and_then(|e| e.delete_credential())
@@ -115,11 +116,11 @@ fn fill_sync(interactive: bool) -> Result<Credential, String> {
     crate::procguard::configure_child(&mut cmd);
     let mut child = cmd
         .spawn()
-        .map_err(|_| "No se encontró Git. Instálalo para conectar con GitHub desde Pulso".to_string())?;
+        .map_err(|_| tr("No se encontró Git. Instálalo para conectar con GitHub desde Pulso").to_string())?;
     crate::procguard::attach_job(&child);
     let pid = child.id();
-    let mut out = child.stdout.take().ok_or("sin salida")?;
-    let mut err = child.stderr.take().ok_or("sin salida de error")?;
+    let mut out = child.stdout.take().ok_or(tr("sin salida"))?;
+    let mut err = child.stderr.take().ok_or(tr("sin salida de error"))?;
     let t_out = thread::spawn(move || {
         let mut s = String::new();
         let _ = out.read_to_string(&mut s);
@@ -146,9 +147,9 @@ fn fill_sync(interactive: bool) -> Result<Credential, String> {
                 let _ = t_out.join();
                 let _ = t_err.join();
                 return Err(if interactive {
-                    "La autorización en GitHub tardó demasiado y se canceló. Vuelve a intentarlo".to_string()
+                    tr("La autorización en GitHub tardó demasiado y se canceló. Vuelve a intentarlo").to_string()
                 } else {
-                    "Git no respondió a tiempo".to_string()
+                    tr("Git no respondió a tiempo").to_string()
                 });
             }
             None => thread::sleep(Duration::from_millis(50)),
@@ -163,16 +164,16 @@ fn fill_sync(interactive: bool) -> Result<Credential, String> {
     }
     let _ = stderr; // Puede contener datos del inicio de sesión: no se devuelve.
     Err(if interactive {
-        "No se pudo autorizar con GitHub. Comprueba que Git Credential Manager esté instalado (viene con Git para Windows) y vuelve a intentarlo".to_string()
+        tr("No se pudo autorizar con GitHub. Comprueba que Git Credential Manager esté instalado (viene con Git para Windows) y vuelve a intentarlo").to_string()
     } else {
-        "Git no tiene una sesión de GitHub guardada".to_string()
+        tr("Git no tiene una sesión de GitHub guardada").to_string()
     })
 }
 
 /// Valida que la ruta enviada al proxy sea relativa a la API (evita SSRF).
 pub fn validate_api_path(path: &str) -> Result<(), String> {
     if !path.starts_with('/') || path.starts_with("//") || path.contains('\r') || path.contains('\n') {
-        return Err("Ruta de API de GitHub no válida".into());
+        return Err(tr("Ruta de API de GitHub no válida").into());
     }
     Ok(())
 }
@@ -193,7 +194,7 @@ pub fn resolve_api_base(override_base: Option<&str>) -> Result<String, String> {
     {
         return Ok(trimmed.to_string());
     }
-    Err("Dirección de API de GitHub no permitida".into())
+    Err(tr("Dirección de API de GitHub no permitida").into())
 }
 
 fn allowed_accept(accept: Option<&str>) -> &'static str {
@@ -211,7 +212,7 @@ pub struct GithubApiResponse {
     pub link: Option<String>,
 }
 
-async fn send_github_request(
+pub(crate) async fn send_github_request(
     client: &reqwest::Client,
     token: Option<&str>,
     method: &str,
@@ -228,7 +229,7 @@ async fn send_github_request(
         "PATCH" => reqwest::Method::PATCH,
         "PUT" => reqwest::Method::PUT,
         "DELETE" => reqwest::Method::DELETE,
-        _ => return Err("Método HTTP no permitido".into()),
+        _ => return Err(tr("Método HTTP no permitido").into()),
     };
     let url = format!("{base}{path}");
     let mut req = client
@@ -244,11 +245,11 @@ async fn send_github_request(
     if let Some(payload) = body {
         req = req.header("Content-Type", "application/json").body(payload);
     }
-    let res = req.send().await.map_err(|e| format!("No se pudo contactar con GitHub: {e}"))?;
+    let res = req.send().await.map_err(|e| trf("No se pudo contactar con GitHub: {e}", &[("e", &e)]))?;
     let status = res.status().as_u16();
     let etag = res.headers().get("etag").and_then(|v| v.to_str().ok()).map(|s| s.to_string());
     let link = res.headers().get("link").and_then(|v| v.to_str().ok()).map(|s| s.to_string());
-    let text = res.text().await.map_err(|e| format!("Error leyendo respuesta de GitHub: {e}"))?;
+    let text = res.text().await.map_err(|e| trf("Error leyendo respuesta de GitHub: {e}", &[("e", &e)]))?;
     Ok(GithubApiResponse { status, body: text, etag, link })
 }
 
@@ -311,10 +312,10 @@ pub async fn github_connect(
     )
     .await?;
     if res.status == 401 {
-        return Err("GitHub rechazó la sesión guardada en Git (caducó o se revocó). Vuelve a iniciar sesión desde una terminal con «git credential-manager github login» y reintenta.".into());
+        return Err(tr("GitHub rechazó la sesión guardada en Git (caducó o se revocó). Vuelve a iniciar sesión desde una terminal con «git credential-manager github login» y reintenta.").into());
     }
     if !(200..300).contains(&res.status) {
-        return Err(format!("GitHub respondió {}", res.status));
+        return Err(trf("GitHub respondió {status}", &[("status", &res.status)]));
     }
     let login = serde_json::from_str::<serde_json::Value>(&res.body)
         .ok()
@@ -364,7 +365,7 @@ pub fn is_safe_url(url: &str) -> bool {
 #[tauri::command]
 pub async fn open_external(url: String) -> Result<(), String> {
     if !is_safe_url(&url) {
-        return Err("Solo se pueden abrir enlaces http o https".to_string());
+        return Err(tr("Solo se pueden abrir enlaces http o https").to_string());
     }
     tauri::async_runtime::spawn_blocking(move || {
         #[cfg(windows)]
@@ -385,7 +386,7 @@ pub async fn open_external(url: String) -> Result<(), String> {
             c.arg(&url);
             c
         };
-        let child = cmd.spawn().map_err(|e| format!("No se pudo abrir el navegador: {e}"))?;
+        let child = cmd.spawn().map_err(|e| trf("No se pudo abrir el navegador: {e}", &[("e", &e)]))?;
         crate::procguard::reap_detached(child);
         Ok(())
     })

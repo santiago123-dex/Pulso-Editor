@@ -15,7 +15,7 @@ Este documento reúne en un solo lugar la arquitectura completa de **Pulso Edito
 | Frontend UI | **Vite + TypeScript + DOM directo** | Sin framework pesado de componentes; manipulación directa del DOM y modelos puros testables. |
 | Editor de código | **Monaco Editor** (`0.52.0`) | Resaltado, edición multi-cursor, grupos divididos y proveedor de diferencias (`DiffEditor`). |
 | Terminal integrada | **xterm.js** (`6.0.0`) + `FitAddon` + `portable-pty` | Pseudoterminal nativo (ConPTY en Windows) multi-pestaña con fuente *Symbols Nerd Font Mono* incluida. |
-| Inteligencia TS/JS | **typescript-language-server** (`6.1.0`) + **TypeScript** (`5.6.0`) | Servidor LSP ejecutado por `stdio` mediante Node.js (`>= 22.22.2`). |
+| Inteligencia TS/JS | **TypeScript 7** nativo (`7.0.2`, `tsc --lsp --stdio`); **typescript-language-server** (`6.1.0`) solo en el modo compatible | El nativo no necesita Node. El modo compatible (proyectos con TypeScript 5 o 6 instalado) usa Node y el `tsserver` del proyecto. |
 | Pruebas | **Vitest** (`5.1.0`) + `cargo test` + scripts Node/CDP | Pruebas unitarias TS/Rust, humo LSP real, UI WebView2 (`test:lsp:ui`), E2E y `perf`. |
 
 ### Identidad visual ([DESIGN.md](../DESIGN.md))
@@ -32,7 +32,7 @@ Este documento reúne en un solo lugar la arquitectura completa de **Pulso Edito
 | --- | --- |
 | `main.rs` | Punto de entrada que invoca `pulso_editor_lib::run()`. |
 | `lib.rs` | Registro de comandos Tauri (`invoke_handler`), manejo de salida (`RunEvent::Exit`), lectura/escritura atómica (`write_atomic`), copias de recuperación (`backup_*`), credenciales del sistema (`secret_*` con `keyring`), recorrido de archivos (`walk` con `SKIP_DIRS`), búsqueda (`search_files`) y reemplazo (`replace_in_file`), escaneo de temas de VS Code (`scan_vscode_themes`) y estado Git básico (`git_status`, `git_remote`). En Windows oculta ventanas de consola mediante `background_command` (`creation_flags(0x08000000)`). |
-| `lsp.rs` | Inicia `typescript-language-server` sobre `stdio` con `node --require lsp/no-console.cjs cli.mjs --stdio`, enmarca/desenmarca mensajes JSON-RPC con `Content-Length` (límite de 32 MB por mensaje), elimina prefijos verbatim `\\?\` en Windows (`node_path`), emite eventos `lsp-message` y `lsp-exit` y captura hasta 16 KB de `stderr`. |
+| `lsp.rs` | Elige el servidor: TypeScript 7 nativo (`lsp/typescript/tsc --lsp --stdio`) o, si el proyecto instala TypeScript 5 o 6, `typescript-language-server` con `node --require lsp/no-console.cjs cli.mjs --stdio`. Enmarca/desenmarca mensajes JSON-RPC con `Content-Length` (límite de 32 MB por mensaje), elimina prefijos verbatim `\\?\` en Windows (`node_path`), emite eventos `lsp-message` y `lsp-exit` y captura hasta 16 KB de `stderr`. |
 | `term.rs` | Gestiona sesiones PTY (`TermState`), detecta shells en Windows (PowerShell, CMD, Git Bash, WSL), envía salida en `base64` por eventos `term-data` (sin romper caracteres UTF-8 divididos) y cierra todas las terminales al salir. |
 | `userconf.rs` | Lee configuraciones existentes de VS Code y Windows Terminal y enumera fuentes instaladas para adaptar la terminal. |
 | `gitops.rs` | Operaciones completas de Git con el binario `git`: cambios staged/unstaged/conflictos (`git_changes`), `git_stage`, `git_unstage`, `git_commit`, `git_diff_sources`, ramas (`git_branches`, `git_switch`), descartar cambios (`git_discard`, enviando archivos sin seguimiento a la papelera), `git_push`, `git_pull` (`--ff-only`, timeout 120 s), historial (`git_log`, `git_commit_files`, `git_commit_sources`) y `git_blame`. |
@@ -58,7 +58,7 @@ Este documento reúne en un solo lugar la arquitectura completa de **Pulso Edito
 
 ## 3. Inteligencia de proyecto: cómo funciona el LSP en Pulso
 
-El sistema LSP conecta **Monaco Editor** en el WebView con un proceso real de **`typescript-language-server`** ejecutado por el backend Rust.
+El sistema LSP conecta **Monaco Editor** en el WebView con un proceso real ejecutado por el backend Rust. Por defecto es el servidor nativo de **TypeScript 7** (`tsc --lsp --stdio`, sin Node). En proyectos que instalan TypeScript 5 o 6 es **`typescript-language-server`** con el `tsserver` del proyecto (modo compatible). El diagrama siguiente describe el modo compatible; el nativo es un único proceso, sin Node ni `tsserver`, y sus diagnósticos se piden con `textDocument/diagnostic`.
 
 ### 3.1 Ciclo de vida y transporte
 
@@ -103,7 +103,7 @@ El sistema LSP conecta **Monaco Editor** en el WebView con un proceso real de **
 Se amplió el cliente LSP en [src/lsp.ts](../src/lsp.ts) manteniendo total compatibilidad hacia atrás y respetando las capacidades que anuncia cada servidor (`s.caps`):
 
 1. **Límite de memoria para `tsserver` (`maxTsServerMemory: 1536`)**:
-   - Se envía en `initializationOptions` durante `initialize`, acotando el heap de Node del subproceso `tsserver` (`--max-old-space-size=1536`) para evitar que crezca sin límite en proyectos grandes.
+   - Solo en el modo compatible. Se envía en `initializationOptions` durante `initialize`, acotando el heap de Node del subproceso `tsserver` (`--max-old-space-size=1536`) para evitar que crezca sin límite en proyectos grandes.
 2. **Acciones de código y Quick Fixes (`Ctrl+.`)**:
    - Registrado `registerCodeActionProvider` (`textDocument/codeAction` y `codeAction/resolve`) con categorías `quickfix`, `refactor`, `source` y `source.organizeImports`.
    - Convierte los marcadores activos de Monaco dentro del rango seleccionado a diagnósticos LSP para que el servidor ofrezca arreglos contextuales (por ejemplo, añadir imports faltantes o quitar variables sin uso).
