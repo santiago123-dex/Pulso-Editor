@@ -23,7 +23,8 @@ struct Server {
 #[derive(Default)]
 pub struct LspState {
     next: AtomicU64,
-    servers: Mutex<HashMap<String, Server>>,
+    /// Clave: `(window_label, server_key)` donde `server_key` es `"typescript"`, `"python"`, `"rust"`, `"go"` o `"cpp"`.
+    servers: Mutex<HashMap<(String, String), Server>>,
 }
 
 fn shutdown_server(mut server: Server) {
@@ -35,12 +36,25 @@ fn shutdown_server(mut server: Server) {
 }
 
 impl LspState {
-    pub fn stop_window(&self, label: &str) {
+    pub fn stop_server(&self, label: &str, server_key: &str) {
         let taken = match self.servers.lock() {
-            Ok(mut guard) => guard.remove(label),
+            Ok(mut guard) => guard.remove(&(label.to_string(), server_key.to_string())),
             Err(_) => None,
         };
         if let Some(server) = taken {
+            shutdown_server(server);
+        }
+    }
+
+    pub fn stop_window(&self, label: &str) {
+        let taken: Vec<Server> = match self.servers.lock() {
+            Ok(mut guard) => {
+                let keys: Vec<(String, String)> = guard.keys().filter(|(l, _)| l == label).cloned().collect();
+                keys.into_iter().filter_map(|k| guard.remove(&k)).collect()
+            }
+            Err(_) => Vec::new(),
+        };
+        for server in taken {
             shutdown_server(server);
         }
     }
@@ -257,34 +271,124 @@ fn spawn_piped(mut command: std::process::Command, root: &str) -> std::io::Resul
     command.spawn()
 }
 
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from)
+}
+
+fn extra_bin_candidates(name: &str, subdirs: &[&str]) -> Vec<String> {
+    let mut out = vec![name.to_string()];
+    #[cfg(windows)]
+    let exe_name = format!("{name}.exe");
+    #[cfg(not(windows))]
+    let exe_name = name.to_string();
+    if let Some(home) = home_dir() {
+        for sub in subdirs {
+            let p = home.join(sub).join(&exe_name);
+            if p.is_file() {
+                out.push(p.to_string_lossy().into_owned());
+            }
+        }
+    }
+    out
+}
+
+fn spawn_first_available(candidates: &[(String, &[&str])], root: &str) -> Result<Child, String> {
+    let mut last_err = String::new();
+    for (prog, args) in candidates {
+        let mut cmd = crate::background_command(prog);
+        cmd.args(*args);
+        match spawn_piped(cmd, root) {
+            Ok(child) => return Ok(child),
+            Err(e) => { last_err = e.to_string(); }
+        }
+    }
+    Err(last_err)
+}
+
+fn spawn_language_server(app: &AppHandle, root: &str, server_key: &str) -> Result<(Child, &'static str, Option<String>, Option<String>), String> {
+    match server_key {
+        "typescript" => {
+            let project = project_typescript(Path::new(root));
+            if wants_compat(project.as_ref()) {
+                let (major, tsserver) = project.expect("comprobado en wants_compat");
+                match spawn_compat(app, root) {
+                    Ok(child) => Ok((child, "compat", Some(tsserver.to_string_lossy().into_owned()), None)),
+                    Err(e) => Ok((
+                        spawn_native(app, root)?,
+                        "native",
+                        None,
+                        Some(trf(
+                            "El proyecto usa TypeScript {major}, pero no se pudo iniciar Node.js ({e}). Se usa TypeScript 7, que puede marcar opciones de tsconfig que ya no existen.",
+                            &[("major", &major), ("e", &e)],
+                        )),
+                    )),
+                }
+            } else {
+                Ok((spawn_native(app, root)?, "native", None, None))
+            }
+        }
+        "python" => {
+            let mut candidates: Vec<(String, &[&str])> = Vec::new();
+            for bin in ["basedpyright-langserver", "pyright-langserver"] {
+                for p in extra_bin_candidates(bin, &[".local/bin"]) {
+                    candidates.push((p, &["--stdio"]));
+                }
+            }
+            for p in extra_bin_candidates("pylsp", &[".local/bin"]) {
+                candidates.push((p, &[]));
+            }
+            let child = spawn_first_available(&candidates, root).map_err(|_| {
+                tr("No se encontró un servidor LSP de Python. Instala pyright (`npm i -g pyright` o `pip install pyright`).").to_string()
+            })?;
+            Ok((child, "external", None, None))
+        }
+        "rust" => {
+            let candidates: Vec<(String, &[&str])> = extra_bin_candidates("rust-analyzer", &[".cargo/bin"])
+                .into_iter()
+                .map(|p| (p, &[][..]))
+                .collect();
+            let child = spawn_first_available(&candidates, root).map_err(|_| {
+                tr("No se encontró rust-analyzer. Instálalo con `rustup component add rust-analyzer`.").to_string()
+            })?;
+            Ok((child, "external", None, None))
+        }
+        "go" => {
+            let candidates: Vec<(String, &[&str])> = extra_bin_candidates("gopls", &["go/bin"])
+                .into_iter()
+                .map(|p| (p, &[][..]))
+                .collect();
+            let child = spawn_first_available(&candidates, root).map_err(|_| {
+                tr("No se encontró gopls. Instálalo con `go install golang.org/x/tools/gopls@latest`.").to_string()
+            })?;
+            Ok((child, "external", None, None))
+        }
+        "cpp" => {
+            let candidates: Vec<(String, &[&str])> = vec![("clangd".to_string(), &[][..])];
+            let child = spawn_first_available(&candidates, root).map_err(|_| {
+                tr("No se encontró clangd. Instala LLVM/clangd para activar la inteligencia de C y C++.").to_string()
+            })?;
+            Ok((child, "external", None, None))
+        }
+        _ => Err(tr("Servidor de lenguaje no soportado").into()),
+    }
+}
+
 #[tauri::command]
-pub async fn lsp_start(window: tauri::WebviewWindow, app: AppHandle, root: String) -> Result<Started, String> {
+pub async fn lsp_start(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+    root: String,
+    server: Option<String>,
+) -> Result<Started, String> {
     let label = window.label().to_string();
+    let server_key = server.unwrap_or_else(|| "typescript".to_string());
     tauri::async_runtime::spawn_blocking(move || {
         if !Path::new(&root).is_dir() {
             return Err(tr("La carpeta de trabajo ya no existe").into());
         }
         let state = app.state::<LspState>();
-        state.stop_window(&label);
-        let project = project_typescript(Path::new(&root));
-        let (mut child, mode, tsserver, notice) = if wants_compat(project.as_ref()) {
-            let (major, tsserver) = project.expect("comprobado en wants_compat");
-            match spawn_compat(&app, &root) {
-                Ok(child) => (child, "compat", Some(tsserver.to_string_lossy().into_owned()), None),
-                // Sin Node no hay modo compatible: mejor el nativo, que puede avisar de opciones retiradas.
-                Err(e) => (
-                    spawn_native(&app, &root)?,
-                    "native",
-                    None,
-                    Some(trf(
-                        "El proyecto usa TypeScript {major}, pero no se pudo iniciar Node.js ({e}). Se usa TypeScript 7, que puede marcar opciones de tsconfig que ya no existen.",
-                        &[("major", &major), ("e", &e)],
-                    )),
-                ),
-            }
-        } else {
-            (spawn_native(&app, &root)?, "native", None, None)
-        };
+        state.stop_server(&label, &server_key);
+        let (mut child, mode, tsserver, notice) = spawn_language_server(&app, &root, &server_key)?;
         crate::procguard::attach_job(&child);
         let pid = child.id();
         let stdin = Arc::new(Mutex::new(
@@ -293,7 +397,11 @@ pub async fn lsp_start(window: tauri::WebviewWindow, app: AppHandle, root: Strin
         let stdout = child.stdout.take().ok_or(tr("No se pudo abrir la salida del servidor"))?;
         let stderr = child.stderr.take().ok_or(tr("No se pudo leer el error del servidor"))?;
         let id = state.next.fetch_add(1, Ordering::SeqCst) + 1;
-        state.servers.lock().map_err(|e| e.to_string())?.insert(label.clone(), Server { id, pid, child, stdin });
+        state
+            .servers
+            .lock()
+            .map_err(|e| e.to_string())?
+            .insert((label.clone(), server_key), Server { id, pid, child, stdin });
 
         let app_ev = app.clone();
         let label_ev = label.clone();
@@ -343,8 +451,9 @@ pub async fn lsp_send(
     let stdin = {
         let guard = state.servers.lock().map_err(|e| e.to_string())?;
         let server = guard
-            .get(&label)
-            .filter(|s| s.id == id)
+            .iter()
+            .find(|((l, _), s)| l == &label && s.id == id)
+            .map(|(_, s)| s)
             .ok_or(tr("El servidor LSP ya no está activo"))?;
         Arc::clone(&server.stdin)
     };
@@ -360,10 +469,15 @@ pub async fn lsp_send(
 }
 
 #[tauri::command]
-pub async fn lsp_stop(window: tauri::WebviewWindow, app: AppHandle) -> Result<(), String> {
+pub async fn lsp_stop(window: tauri::WebviewWindow, app: AppHandle, server: Option<String>) -> Result<(), String> {
     let label = window.label().to_string();
     tauri::async_runtime::spawn_blocking(move || {
-        app.state::<LspState>().stop_window(&label);
+        let st = app.state::<LspState>();
+        if let Some(key) = server {
+            st.stop_server(&label, &key);
+        } else {
+            st.stop_window(&label);
+        }
     })
     .await
     .map_err(|e| e.to_string())

@@ -3,7 +3,7 @@ import { t } from "./i18n";
 export type LspState =
   | { kind: "off" }
   | { kind: "starting" }
-  | { kind: "ready" }
+  | { kind: "ready"; servers?: string[] }
   | { kind: "stopped"; reason: string };
 
 let state: LspState = { kind: "off" };
@@ -13,7 +13,9 @@ export const getLspState = (): LspState => state;
 export const onLspState = (f: (s: LspState) => void) => { subs.add(f); return () => { subs.delete(f); }; };
 
 export function setLspState(next: LspState) {
-  const same = next.kind === state.kind && (next.kind !== "stopped" || (state.kind === "stopped" && state.reason === next.reason));
+  const same = next.kind === state.kind
+    && (next.kind !== "stopped" || (state.kind === "stopped" && state.reason === next.reason))
+    && (next.kind !== "ready" || (state.kind === "ready" && (state.servers ?? []).join(",") === (next.servers ?? []).join(",")));
   state = next;
   if (!same) subs.forEach((f) => f(state));
 }
@@ -23,7 +25,7 @@ export function lspLabel(s: LspState): string {
   switch (s.kind) {
     case "off": return "";
     case "starting": return t("LSP: iniciando…");
-    case "ready": return t("LSP: activo");
+    case "ready": return s.servers && s.servers.length > 1 ? `LSP: ${s.servers.join(", ")}` : t("LSP: activo");
     case "stopped": return t("LSP: detenido");
   }
 }
@@ -33,7 +35,9 @@ export function lspDetail(s: LspState): string {
   switch (s.kind) {
     case "off": return t("No hay una carpeta abierta, así que el servidor de lenguaje no se inicia.");
     case "starting": return t("El servidor de TypeScript y JavaScript se está iniciando. Mientras tanto se usan los servicios integrados.");
-    case "ready": return t("El servidor de TypeScript y JavaScript está activo: diagnósticos, hover, definiciones y referencias vienen de él.");
+    case "ready": return s.servers && s.servers.length > 1
+      ? t("Servidores de lenguaje activos: {servers}. Diagnósticos, hover, definiciones y referencias vienen de ellos.", { servers: s.servers.join(", ") })
+      : t("El servidor de TypeScript y JavaScript está activo: diagnósticos, hover, definiciones y referencias vienen de él.");
     case "stopped": return t("El servidor se detuvo y se usan los servicios integrados, con menos precisión.") + "\n\n" + t("Motivo: {reason}", { reason: s.reason });
   }
 }

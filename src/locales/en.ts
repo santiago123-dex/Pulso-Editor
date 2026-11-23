@@ -1354,4 +1354,6 @@ export const en: Record<string, string> = {
   "No hay issues abiertas": "No open issues",
   "Adjuntar pull request de GitHub al contexto…": "Attach GitHub pull request to context…",
   "No hay pull requests abiertas": "No open pull requests",
+  "Servidores de lenguaje activos: {servers}. Diagnósticos, hover, definiciones y referencias vienen de ellos.": "Active language servers: {servers}. Diagnostics, hover, definitions and references come from them.",
+  "Inteligencia de {lang} activada": "{lang} language intelligence enabled",
 };
