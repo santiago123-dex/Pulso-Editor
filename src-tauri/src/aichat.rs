@@ -122,6 +122,8 @@ pub struct AllAiTools {
     pub codex: AiTool,
     pub antigravity: AiTool,
     pub local: AiTool,
+    /// Modelos de la nube con la clave de cada proveedor (catálogo de models.dev).
+    pub cloud: AiTool,
 }
 
 /// Lee la salida JSON de `claude auth status`. No se devuelve el correo ni la organización: Pulso no los necesita.
@@ -724,14 +726,40 @@ fn read_antigravity_usage() -> Option<AntigravityUsage> {
     parse_agy_usage_json(&out)
 }
 
+/// Modelos de la nube: «conectado» si algún proveedor del catálogo tiene clave. Solo lee la copia local del catálogo, sin red.
+fn detect_cloud(app: &AppHandle) -> AiTool {
+    let providers = crate::catalog::configured_providers(app);
+    let mut tool = AiTool { installed: true, version: "models.dev".into(), ..Default::default() };
+    if providers.is_empty() {
+        return tool;
+    }
+    tool.logged_in = true;
+    tool.auth_method = "api_key".into();
+    tool.models = providers
+        .iter()
+        .flat_map(|p| {
+            p.models.iter().take(40).map(move |m| {
+                let ctx = if m.context >= 1000 { format!("{}k", m.context / 1000) } else { m.context.to_string() };
+                let price = match (m.input_cost, m.output_cost) {
+                    (Some(i), Some(o)) => format!(" · ${i}/${o}"),
+                    _ => String::new(),
+                };
+                AiModelInfo { id: format!("{}/{}", p.id, m.id), label: format!("{} · {}", p.name, m.name), note: format!("{ctx}{price}") }
+            })
+        })
+        .collect();
+    tool
+}
+
 #[tauri::command]
 pub async fn ai_detect() -> Result<AiTool, String> {
     tauri::async_runtime::spawn_blocking(detect_claude).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn ai_detect_provider(provider: String) -> Result<AiTool, String> {
+pub async fn ai_detect_provider(app: AppHandle, provider: String) -> Result<AiTool, String> {
     tauri::async_runtime::spawn_blocking(move || match provider.as_str() {
+        "cloud" => Ok(detect_cloud(&app)),
         "claude" => Ok(detect_claude()),
         "codex" => Ok(detect_codex()),
         "antigravity" | "gemini" => Ok(detect_antigravity()),
@@ -740,8 +768,8 @@ pub async fn ai_detect_provider(provider: String) -> Result<AiTool, String> {
 }
 
 #[tauri::command]
-pub async fn ai_detect_all() -> Result<AllAiTools, String> {
-    tauri::async_runtime::spawn_blocking(|| {
+pub async fn ai_detect_all(app: AppHandle) -> Result<AllAiTools, String> {
+    tauri::async_runtime::spawn_blocking(move || {
         let t_claude = thread::spawn(detect_claude);
         let t_codex = thread::spawn(detect_codex);
         let t_agy = thread::spawn(detect_antigravity);
@@ -751,6 +779,7 @@ pub async fn ai_detect_all() -> Result<AllAiTools, String> {
             codex: t_codex.join().unwrap_or_default(),
             antigravity: t_agy.join().unwrap_or_default(),
             local: t_local.join().unwrap_or_default(),
+            cloud: detect_cloud(&app),
         }
     }).await.map_err(|e| e.to_string())
 }
@@ -1240,6 +1269,9 @@ pub async fn ai_send(
         map.insert(id.clone(), AiSlot::Starting);
     }
 
+    if provider.as_deref() == Some("cloud") {
+        return start_cloud(app, &state, id, cwd, prompt, model, history.unwrap_or_default(), image_paths, mode).await;
+    }
     if provider.as_deref() == Some("local") {
         return start_local(app, &state, id, cwd, prompt, model, history.unwrap_or_default(), image_paths, mode);
     }
@@ -1355,6 +1387,107 @@ fn start_local(
                 m.remove(&id);
             }
         }
+        let stopped = cancel.load(std::sync::atomic::Ordering::Relaxed);
+        let (code, stderr) = match outcome {
+            Ok(()) => (Some(0), String::new()),
+            Err(_) if stopped => (None, String::new()),
+            Err(e) => (Some(1), e),
+        };
+        let _ = app.emit("ai-exit", AiExit { id, code, stderr });
+    });
+    Ok(())
+}
+
+#[derive(Serialize)]
+pub struct ConfigEntry {
+    /// `instruction`, `skill`, `agent` o `command`.
+    pub kind: String,
+    pub name: String,
+    pub description: String,
+    /// Archivo que lo define (vacío en los subagentes integrados).
+    pub path: String,
+    /// De la carpeta personal, no del proyecto.
+    pub user: bool,
+}
+
+/// Lo que el agente propio carga para una carpeta: instrucciones, skills, subagentes y comandos con `/`.
+#[tauri::command]
+pub async fn agent_config(guard: State<'_, crate::fsguard::WorkspaceGuard>, cwd: String) -> Result<Vec<ConfigEntry>, String> {
+    guard.ensure_dir(&cwd)?;
+    let cfg = tauri::async_runtime::spawn_blocking(move || crate::agentconfig::Config::load(Path::new(&cwd))).await.map_err(|e| e.to_string())?;
+    let p = |path: &Path| path.to_string_lossy().replace('\\', "/");
+    let mut out = Vec::new();
+    for i in &cfg.instructions {
+        out.push(ConfigEntry { kind: "instruction".into(), name: i.source.clone(), description: format!("{} bytes", i.text.len()), path: p(&i.path), user: i.user });
+    }
+    for s in &cfg.skills {
+        out.push(ConfigEntry { kind: "skill".into(), name: s.name.clone(), description: s.description.clone(), path: p(&s.dir.join("SKILL.md")), user: s.user });
+    }
+    for a in &cfg.agents {
+        out.push(ConfigEntry { kind: "agent".into(), name: a.name.clone(), description: a.description.clone(), path: a.path.as_deref().map(p).unwrap_or_default(), user: a.user });
+    }
+    for c in &cfg.commands {
+        out.push(ConfigEntry { kind: "command".into(), name: format!("/{}", c.name), description: c.description.clone(), path: p(&c.path), user: c.user });
+    }
+    Ok(out)
+}
+
+fn release_slot(state: &AiState, id: &str) {
+    if let Ok(mut m) = state.running.lock() {
+        m.remove(id);
+    }
+}
+
+/// Agente con un modelo de la nube (`proveedor/modelo`): corre dentro de Pulso y emite los mismos eventos que las herramientas externas.
+async fn start_cloud(
+    app: AppHandle,
+    state: &AiState,
+    id: String,
+    cwd: String,
+    prompt: String,
+    model: Option<String>,
+    history: Vec<crate::localai::HistoryMsg>,
+    images: Vec<String>,
+    mode: String,
+) -> Result<(), String> {
+    let prepared = async {
+        let cwd_for_config = cwd.clone();
+        let wanted = model.map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).ok_or_else(|| tr("Elige un modelo para conversar.").to_string())?;
+        let (prov_id, model_id) = wanted.split_once('/').ok_or_else(|| tr("Elige un modelo para conversar.").to_string())?;
+        let (list, _) = crate::catalog::ensure(&app, false).await?;
+        let provider = list.iter().find(|p| p.id == prov_id).ok_or_else(|| tr("El modelo elegido ya no está en el catálogo.").to_string())?;
+        let entry = provider.models.iter().find(|m| m.id == model_id).ok_or_else(|| tr("El modelo elegido ya no está en el catálogo.").to_string())?;
+        let key = crate::catalog::get_key(provider).ok_or_else(|| trf("Falta la clave de {provider}.", &[("provider", &provider.name)]))?;
+        let cloud = crate::agent::CloudModel::from_catalog(provider, entry, key);
+        // Instrucciones del proyecto, skills, subagentes y comandos (se leen de archivos).
+        let config = tauri::async_runtime::spawn_blocking(move || crate::agentconfig::Config::load(Path::new(&cwd_for_config))).await.map_err(|e| e.to_string())?;
+        Ok::<_, String>((cloud, Arc::new(config), crate::agent::catalog_resolver(list.clone())))
+    }
+    .await;
+    let (cloud, config, resolver) = match prepared {
+        Ok(c) => c,
+        Err(e) => {
+            release_slot(state, &id);
+            return Err(e);
+        }
+    };
+    let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    state.running.lock().map_err(|e| e.to_string())?.insert(id.clone(), AiSlot::Local(cancel.clone()));
+    let (emitter, id_line) = (app.clone(), id.clone());
+    let emit: Arc<dyn Fn(String) + Send + Sync> = Arc::new(move |line| {
+        let _ = emitter.emit("ai-line", AiLine { id: id_line.clone(), line });
+    });
+    // Permisos: en modo Agente los comandos y las páginas web se preguntan en el panel, salvo lo que ya se permitió.
+    let broker = app.state::<Arc<crate::agentperms::Broker>>().inner().clone();
+    let perms = Arc::new(crate::agentperms::Permissions::new(
+        Arc::new(crate::agentperms::UiApprover { broker: broker.clone(), conversation: id.clone(), cancel: cancel.clone(), emit: emit.clone() }),
+        crate::agentperms::rule_store(&app),
+        Path::new(&cwd),
+        broker.allow_all_for(&id),
+    ));
+    tauri::async_runtime::spawn(async move {
+        let outcome = crate::agent::run(cloud, PathBuf::from(&cwd), id.clone(), history, prompt, images, mode, cancel.clone(), emit, config, resolver, perms).await;
+        release_slot(&app.state::<AiState>(), &id);
         let stopped = cancel.load(std::sync::atomic::Ordering::Relaxed);
         let (code, stderr) = match outcome {
             Ok(()) => (Some(0), String::new()),

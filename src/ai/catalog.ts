@@ -17,7 +17,7 @@ export interface AntigravityBucket { id: string; name: string; window: string; r
 export interface AntigravityQuotaGroup { name: string; description: string; buckets: AntigravityBucket[] }
 export interface AntigravityUsage { groups: AntigravityQuotaGroup[] }
 export interface ExtraUsage { codex?: CodexQuota; antigravity?: AntigravityUsage }
-export interface AllAiTools { claude: AiTool; codex: AiTool; antigravity: AiTool; local?: AiTool }
+export interface AllAiTools { claude: AiTool; codex: AiTool; antigravity: AiTool; local?: AiTool; cloud?: AiTool }
 
 export interface ModelOption {
   value: string;
@@ -124,6 +124,23 @@ export const PROVIDERS: Record<AiProvider, ProviderMeta> = {
     modelKey: "pulso.ai.model.local",
     supportsEffort: false,
     // Los modelos salen de la instalación de Ollama (`ollama list`).
+    models: [],
+    specific: [],
+  },
+  cloud: {
+    id: "cloud",
+    short: t("Nube"),
+    title: t("Modelos en la nube"),
+    accountTitle: t("Modelos en la nube (models.dev)"),
+    installCmdPs: "",
+    installCmdSh: "",
+    loginCmd: "",
+    loginBtn: t("Conectar un proveedor"),
+    installHint: t("Los modelos en la nube no necesitan instalar nada: conecta un proveedor con su clave."),
+    docsUrl: "https://models.dev",
+    modelKey: "pulso.ai.model.cloud",
+    supportsEffort: false,
+    // Los modelos salen de los proveedores que tienen clave (catálogo de models.dev).
     models: [],
     specific: [],
   },

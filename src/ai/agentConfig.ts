@@ -1,0 +1,71 @@
+/**
+ * «Qué carga el agente de este proyecto»: instrucciones (AGENTS.md, CLAUDE.md), skills, subagentes y comandos propios, con el
+ * archivo de donde sale cada uno. Se pueden abrir para editarlos; los de la carpeta personal solo se muestran.
+ */
+import { invoke } from "@tauri-apps/api/core";
+import { t as tr } from "../i18n";
+import { openFile } from "../groups";
+import { quickPick, setStatus, type PickItem } from "../ui";
+import { ws } from "../workspace";
+
+export interface ConfigEntry {
+  kind: "instruction" | "skill" | "agent" | "command";
+  name: string;
+  description: string;
+  path: string;
+  user: boolean;
+}
+
+const ORDER: ConfigEntry["kind"][] = ["instruction", "skill", "agent", "command"];
+
+export function kindLabel(kind: ConfigEntry["kind"]): string {
+  switch (kind) {
+    case "instruction": return tr("Instrucciones");
+    case "skill": return tr("Skill");
+    case "agent": return tr("Subagente");
+    default: return tr("Comando");
+  }
+}
+
+/** De dónde sale: el proyecto, la carpeta personal o el propio Pulso (subagentes integrados). */
+export function originLabel(e: ConfigEntry): string {
+  if (!e.path) return tr("integrado");
+  return e.user ? tr("personal") : tr("proyecto");
+}
+
+/** Ordena por tipo (instrucciones, skills, subagentes, comandos) y por nombre; lo del proyecto antes que lo personal. */
+export function sortConfig(list: readonly ConfigEntry[]): ConfigEntry[] {
+  return [...list].sort((a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind) || Number(a.user) - Number(b.user) || a.name.localeCompare(b.name));
+}
+
+export function configSummary(list: readonly ConfigEntry[]): string {
+  const n = (k: ConfigEntry["kind"]) => list.filter((e) => e.kind === k).length;
+  return tr("{i} instrucciones · {s} skills · {a} subagentes · {c} comandos", { i: n("instruction"), s: n("skill"), a: n("agent"), c: n("command") });
+}
+
+export async function showAgentConfig(): Promise<void> {
+  if (!ws.root) { setStatus(tr("Abre una carpeta de proyecto primero."), 5000); return; }
+  const root = ws.root;
+  quickPick({
+    placeholder: tr("Lo que carga el agente en este proyecto (instrucciones, skills, subagentes y comandos)"),
+    empty: tr("No hay nada configurado. Crea un AGENTS.md o una carpeta .pulso/skills."),
+    load: async () => {
+      let list: ConfigEntry[];
+      try {
+        list = await invoke<ConfigEntry[]>("agent_config", { cwd: root });
+      } catch (e) {
+        setStatus(tr("No se pudo leer la configuración del agente: {error}", { error: String(e) }), 8000);
+        return [];
+      }
+      return sortConfig(list).map<PickItem>((e) => ({
+        label: `${kindLabel(e.kind)} · ${e.name}`,
+        detail: `${originLabel(e)}${e.description ? ` · ${e.description}` : ""}`,
+        keywords: `${e.kind} ${e.name} ${e.description}`,
+        run: () => {
+          if (e.path && !e.user) void openFile(e.path);
+          else if (e.path) setStatus(e.path, 8000);
+        },
+      }));
+    },
+  });
+}

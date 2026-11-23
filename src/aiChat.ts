@@ -9,6 +9,8 @@ import {
   EFFORTS, EXAMPLES, PROVIDERS, QUICK_PROMPTS,
   type AiModelInfo, type AiTool, type AllAiTools, type AntigravityBucket, type AntigravityUsage, type CodexQuota, type ExtraUsage, type ModelOption, type ProviderMeta, type WindowQuota,
 } from "./ai/catalog";
+import { addRequest, buildPermissionCard, clearConversation, parsePermissionEvent, pendingFor, resolveRequest } from "./ai/permissions";
+import { connectProvider } from "./ai/providers";
 import { applyAiAppearance, buildAppearancePopover } from "./ai/appearance";
 import { linkTarget, parseInline, parseMarkdown } from "./aiMarkdown";
 import { buildPrompt, chipLabels, fileMentionAt, filterProjectFiles, type ContextNote, type EditorContext } from "./aiContext";
@@ -62,13 +64,14 @@ function savedProvider(): AiProvider {
   if (p === "codex") return "codex";
   if (p === "antigravity" || p === "gemini") return "antigravity";
   if (p === "local") return "local";
+  if (p === "cloud") return "cloud";
   return "claude";
 }
 
 const lives = new Map<string, Live>();
 let activeProvider: AiProvider = savedProvider();
 let current: Live | null = null;
-const tools: Record<AiProvider, AiTool | null> = { claude: null, codex: null, antigravity: null, local: null };
+const tools: Record<AiProvider, AiTool | null> = { claude: null, codex: null, antigravity: null, local: null, cloud: null };
 let tool: AiTool | null = null;
 let toolAt = 0;
 let detectInFlight: Promise<void> | null = null;
@@ -170,7 +173,7 @@ function providerCatalog(prov: AiProvider): { models: ModelOption[]; specific: M
   const toOption = (d: AiModelInfo): ModelOption => {
     const rawLabel = d.label || titleFromId(d.id);
     const { name, tier } = splitLabelLevel(rawLabel);
-    const isNew = prov === "antigravity" ? /gemini-4|opus-5-5|sonnet-5-5|orchestrator/i.test(d.id) : /gpt-6|new|preview/i.test(d.id);
+    const isNew = prov === "cloud" ? false : prov === "antigravity" ? /gemini-4|opus-5-5|sonnet-5-5|orchestrator/i.test(d.id) : /gpt-6|new|preview/i.test(d.id);
     return {
       value: d.id,
       label: name,
@@ -218,7 +221,7 @@ function syncModelButton() {
 // ---------- Conversaciones ----------
 function fromSaved(c: SavedChat): Live {
   const rawProv = c.provider as string | undefined;
-  const prov: AiProvider = rawProv === "codex" ? "codex" : rawProv === "antigravity" || rawProv === "gemini" ? "antigravity" : rawProv === "local" ? "local" : "claude";
+  const prov: AiProvider = rawProv === "codex" ? "codex" : rawProv === "antigravity" || rawProv === "gemini" ? "antigravity" : rawProv === "local" ? "local" : rawProv === "cloud" ? "cloud" : "claude";
   return { id: c.id, provider: prov, normalize: createProviderNormalizer(prov, c.model || ""), cwd: c.cwd, title: c.title, convo: { ...emptyConversation(), messages: c.messages, sessionId: c.sessionId, model: c.model, usage: prov === "claude" ? usage : {} } };
 }
 
@@ -311,7 +314,7 @@ function refreshExtraUsage(): Promise<boolean> {
 function providerUsage(prov: AiProvider = activeProvider): Conversation["usage"] {
   if (prov === "claude") { usage = pruneUsage(usage); return usage; }
   if (prov === "codex") { codexUsage = pruneUsage(codexUsage); return codexUsage; }
-  if (prov === "local") return {};
+  if (prov === "local" || prov === "cloud") return {};
   return agyPrimaryUsage();
 }
 
@@ -736,7 +739,7 @@ function openPopover(anchor: HTMLElement, pop: HTMLElement, placement: "below" |
 
 function buildProviderTabs(onPick?: (p: AiProvider) => void): HTMLElement {
   const bar = h("div", "ai-prov-tabs");
-  for (const id of ["claude", "codex", "antigravity", "local"] as const) {
+  for (const id of ["claude", "codex", "antigravity", "local", "cloud"] as const) {
     const t = tools[id];
     const dotCls = t?.logged_in ? "on" : t?.installed ? "wait" : "off";
     const btn = h("button", `ai-prov-tab${activeProvider === id ? " active" : ""}`);
@@ -803,7 +806,7 @@ async function installAndConnect(prov: AiProvider, onDone?: () => void) {
 
 function buildAccountsList(onClose?: () => void): HTMLElement {
   const list = h("div", "ai-acct-list");
-  for (const id of ["claude", "codex", "antigravity", "local"] as const) {
+  for (const id of ["claude", "codex", "antigravity", "local", "cloud"] as const) {
     const meta = PROVIDERS[id];
     const t = tools[id];
     const isCurrent = activeProvider === id;
@@ -1178,7 +1181,7 @@ function populateUsageContainer(pop: HTMLElement, onRefreshDone: () => void) {
   head.append(syncBtn);
   pop.append(head);
 
-  const order: AiProvider[] = [prov, ...(["claude", "codex", "antigravity", "local"] as const).filter((p) => p !== prov && !!tools[p]?.logged_in)];
+  const order: AiProvider[] = [prov, ...(["claude", "codex", "antigravity", "local", "cloud"] as const).filter((p) => p !== prov && !!tools[p]?.logged_in)];
   for (const id of order) {
     const t = tools[id] ?? (id === prov ? tool : null);
     if (id === "antigravity") {
@@ -1199,6 +1202,11 @@ function populateUsageContainer(pop: HTMLElement, onRefreshDone: () => void) {
       continue;
     }
     const sec = h("div", "ai-usage-section");
+    if (id === "cloud") {
+      sec.append(h("div", "ai-usage-sec-title", tr("Modelos en la nube")), h("div", "ai-usage-note", tr("Pagas a tu proveedor según los tokens usados. Cada respuesta muestra su coste.")));
+      pop.append(sec);
+      continue;
+    }
     if (id === "local") {
       // Un modelo local no tiene cuotas ni límites de plan.
       sec.append(h("div", "ai-usage-sec-title", "Ollama (local)"), h("div", "ai-usage-note", tr("Se ejecuta en este equipo: sin límites de uso.")));
@@ -1604,6 +1612,8 @@ function watchLogin(prov: AiProvider, intervalMs = 1000) {
 }
 
 function startLoginFlow(prov: AiProvider = activeProvider) {
+  // Los modelos en la nube no tienen inicio de sesión: se conecta un proveedor pegando su clave.
+  if (prov === "cloud") { connectProvider(() => { toolAt = 0; void detect(true); }); return; }
   watchLogin(prov, 1000);
   void runInTerminal(PROVIDERS[prov].loginCmd);
 }
@@ -1874,8 +1884,10 @@ function renderBody() {
     const again = h("button", "foot-btn foot-btn-line", prov === "local" ? tr("Volver a comprobar") : tr("Ya inicié sesión: volver a comprobar")); again.type = "button"; again.onclick = recheck;
     const extraBtns: HTMLElement[] = [login, again];
     // Para Ollama «sin sesión» significa que no hay ningún modelo descargado.
-    const title = prov === "claude" ? tr("Inicia sesión para cargar tu plan") : prov === "local" ? tr("Descarga un modelo para Ollama") : tr("Inicia sesión en {provider}", { provider: meta.title });
-    const desc = prov === "local"
+    const title = prov === "cloud" ? tr("Conecta un proveedor de modelos") : prov === "claude" ? tr("Inicia sesión para cargar tu plan") : prov === "local" ? tr("Descarga un modelo para Ollama") : tr("Inicia sesión en {provider}", { provider: meta.title });
+    const desc = prov === "cloud"
+      ? tr("Pega la clave de un proveedor (OpenAI, Anthropic, Google, OpenRouter, DeepSeek… hay más de 300 en models.dev). La clave se guarda en el almacén seguro del sistema y nunca vuelve a la ventana.")
+      : prov === "local"
       ? tr("Ollama está en marcha pero no tiene ningún modelo. «Descargar un modelo» baja qwen2.5-coder:7b (unos 4,7 GB) en la terminal integrada; también puedes descargar otro con «ollama pull <modelo>».")
       : prov === "claude"
       ? tr("Claude Code está instalado pero no hay una sesión iniciada. Se abrirá el inicio de sesión y tu plan se cargará al instante.")
@@ -2034,9 +2046,11 @@ function renderBody() {
         tailNodes.push(o);
       }
     }
+    // Preguntas del agente que esperan tu respuesta (siempre al final, donde se ve).
+    for (const r of pendingFor(live.id)) tailNodes.push(buildPermissionCard(live.id, r, () => renderBody()));
     tailHost!.replaceChildren(...tailNodes);
   }
-  if (atBottom) body.scrollTop = body.scrollHeight;
+  if (atBottom || pendingFor(live.id).length) body.scrollTop = body.scrollHeight;
   const send = q<HTMLButtonElement>(".ai-send")!;
   send.innerHTML = c.running ? ICON_STOP : ICON_SEND;
   send.title = c.running ? tr("Parar") : tr("Enviar (Enter)");
@@ -2095,6 +2109,7 @@ async function detect(force = false) {
       tools.codex = all.codex;
       tools.antigravity = all.antigravity;
       tools.local = ("local" in all ? all.local : null) ?? null;
+      tools.cloud = ("cloud" in all ? all.cloud : null) ?? null;
       tool = tools[activeProvider];
 
       if (nextClaude.logged_in) {
@@ -2154,8 +2169,10 @@ async function dispatchPrompt(live: Live, displayText: string, prompt: string, e
   apply(live, userEvent(displayText, images));
   try {
     // El agente local no guarda sesiones: recibe la conversación anterior (solo el texto) desde aquí.
-    const sendModel = live.provider === "local" ? model || tools.local?.models?.[0]?.id || null : model || null;
-    const history = live.provider === "local" ? localHistory(live) : null;
+    const sendModel = live.provider === "local" ? model || tools.local?.models?.[0]?.id || null
+      : live.provider === "cloud" ? model || tools.cloud?.models?.[0]?.id || null
+      : model || null;
+    const history = live.provider === "local" || live.provider === "cloud" ? localHistory(live) : null;
     const imagePaths = images.length ? images.map((i) => i.path) : null;
     await invoke("ai_send", { id: live.id, cwd: ws.root, prompt, session: live.convo.sessionId || null, model: sendModel, effort: useEffort, mode: effectiveMode, provider: live.provider, history, images: imagePaths });
   } catch (e) {
@@ -2491,11 +2508,24 @@ export function initAi() {
     if (!live) return;
     try {
       const raw = JSON.parse(e.payload.line) as AiEvent;
+      // El agente propio se detiene a pedir permiso (comandos, páginas web): se muestra una tarjeta y se espera la respuesta.
+      const perm = parsePermissionEvent(raw);
+      if (perm) {
+        if (perm.kind === "ask") {
+          addRequest(live.id, perm.req);
+          setStatus(tr("El agente espera tu aprobación"), 8000);
+        } else {
+          resolveRequest(live.id, perm.id);
+        }
+        if (live === current) renderBody();
+        return;
+      }
       for (const ev of live.normalize(raw)) apply(live, ev);
     } catch { /* línea que no es JSON: se ignora */ }
   });
   void listen<{ id: string; code: number | null; stderr: string }>("ai-exit", (e) => {
     const live = lives.get(e.payload.id);
+    if (live) clearConversation(live.id);
     if (live) apply(live, exitEvent(live.stopping ? null : e.payload.code, e.payload.stderr));
   });
   // El contexto adjunto sigue al editor: archivo y selección actuales, liberando listeners al cerrar el editor.

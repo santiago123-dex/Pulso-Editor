@@ -25,6 +25,12 @@ pub mod fsguard;
 pub mod procguard;
 pub mod i18n;
 pub mod localai;
+pub mod catalog;
+pub mod llm;
+pub mod agent;
+pub mod agenttools;
+pub mod agentperms;
+pub mod agentconfig;
 mod updates;
 mod diag;
 
@@ -1070,6 +1076,8 @@ pub fn run() {
         .manage(term::TermState::default())
         .manage(lsp::LspState::default())
         .manage(aichat::AiState::default())
+        .manage(catalog::CatalogState::default())
+        .manage(std::sync::Arc::new(agentperms::Broker::default()))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .on_window_event(|window, event| {
@@ -1088,6 +1096,13 @@ pub fn run() {
             read_file,
             read_image_file,
             read_theme_file,
+            catalog::catalog_get,
+            aichat::agent_config,
+            agentperms::ai_permission_respond,
+            agentperms::agent_rules_list,
+            agentperms::agent_rules_remove,
+            catalog::provider_key_set,
+            catalog::provider_key_delete,
             write_file,
             file_mtime,
             backup_write,

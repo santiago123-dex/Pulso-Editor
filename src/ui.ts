@@ -119,12 +119,15 @@ export function promptText(o: {
   value?: string;
   placeholder?: string;
   validate?: (v: string) => string | null;
+  /** Oculta lo que se escribe (claves de API). */
+  secret?: boolean;
 }): Promise<string | null> {
   return new Promise((resolve) => {
     const box = h("div", "modal");
     box.append(h("div", "modal-title", o.title));
     const input = h("input", "modal-input");
-    input.type = "text";
+    input.type = o.secret ? "password" : "text";
+    input.autocomplete = o.secret ? "off" : "on";
     input.value = o.value ?? "";
     input.placeholder = o.placeholder ?? "";
     input.spellcheck = false;

@@ -101,7 +101,7 @@ pub fn parse_models(v: &Value) -> Vec<AiModelInfo> {
 
 // ---------- Herramientas (solo lectura, dentro de la carpeta) ----------
 
-fn tools_schema(allow_propose: bool) -> Value {
+pub(crate) fn tools_schema(allow_propose: bool) -> Value {
     let mut list = vec![
         json!({ "type": "function", "function": {
             "name": "list_files",
@@ -132,7 +132,7 @@ fn tools_schema(allow_propose: bool) -> Value {
     Value::Array(list)
 }
 
-fn safe_rel_edit_path(raw: &str) -> Result<String, String> {
+pub(crate) fn safe_rel_edit_path(raw: &str) -> Result<String, String> {
     let clean = raw.trim().replace('\\', "/").trim_start_matches("./").to_string();
     let p = Path::new(&clean);
     if clean.is_empty() || p.is_absolute() || p.components().any(|c| matches!(c, Component::Prefix(_) | Component::RootDir | Component::ParentDir)) {
@@ -141,7 +141,7 @@ fn safe_rel_edit_path(raw: &str) -> Result<String, String> {
     Ok(clean)
 }
 
-fn lang_for_path(path: &str) -> &'static str {
+pub(crate) fn lang_for_path(path: &str) -> &'static str {
     match Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase().as_str() {
         "ts" | "mts" | "cts" => "ts",
         "tsx" => "tsx",
@@ -157,7 +157,7 @@ fn lang_for_path(path: &str) -> &'static str {
     }
 }
 
-fn fence_for_content(content: &str) -> String {
+pub(crate) fn fence_for_content(content: &str) -> String {
     let mut longest = 0usize;
     let mut cur = 0usize;
     for ch in content.chars() {
@@ -323,7 +323,7 @@ pub fn run_tool(root: &Path, name: &str, args: &Value) -> (&'static str, Value, 
 
 // ---------- Agente ----------
 
-fn system_prompt(root: &Path, allow_propose: bool) -> String {
+pub(crate) fn system_prompt(root: &Path, allow_propose: bool) -> String {
     let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     if allow_propose {
         format!(
