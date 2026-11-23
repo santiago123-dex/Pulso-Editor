@@ -122,6 +122,18 @@ Para repositorios privados también se puede configurar un token a mano en Ajust
 
 Incluye temas de interfaz y sintaxis, colores de acento, configuración de la terminal y editor de atajos. Es posible importar temas de VS Code instalados o un archivo de tema JSON; esto no instala extensiones de VS Code.
 
+**Idioma.** Se elige en Configuración → Apariencia → Idioma: «Automático» (español si el sistema está en español; si no, inglés), «Español» o «English». El cambio se aplica al recargar la ventana: el diálogo ofrece «Recargar ahora». Traducido al inglés por ahora:
+- menús;
+- paleta de comandos;
+- barra de estado y barra de actividad;
+- pantalla de inicio;
+- diálogos comunes;
+- actualizaciones;
+- página de configuración;
+- textos fijos de los paneles.
+
+El resto (explorador, Git, tablero, chat, asistente de IA, mensajes del sistema) sigue en español hasta que se traduzca. Las opciones del propio editor Monaco (menú contextual, buscar en el documento) están siempre en inglés.
+
 **Aspecto por defecto.** El tema «Pulso Oscuro» usa grafito neutro y un único acento azul (`#5b9cf5`); el color queda para estados, etiquetas y la acción principal, y la barra de estado es neutra. El texto de los botones con acento se elige por contraste (blanco o negro, el que más contraste dé). Quien tenía el acento morado de fábrica pasa al nuevo; uno elegido a propósito se respeta. La dirección completa y sus razones están en [DESIGN.md](../DESIGN.md).
 
 ## Atajos predeterminados

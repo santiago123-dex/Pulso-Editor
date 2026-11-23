@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import { $, h, inp } from "./util";
 
 /** Funciones que otros módulos inyectan para evitar dependencias circulares. */
@@ -15,7 +16,7 @@ export function trackOverlay(): () => void {
 }
 
 // ---------- Barra de estado ----------
-let defaultStatus = "Listo";
+let defaultStatus = t("Listo");
 let statusTimer = 0;
 
 export function setDefaultStatus(text: string) {
@@ -125,15 +126,15 @@ export function promptText(o: {
     input.spellcheck = false;
     const err = h("div", "modal-err");
     const row = h("div", "modal-btns");
-    const cancel = h("button", "mbtn", "Cancelar");
-    const ok = h("button", "mbtn primary", "Aceptar");
+    const cancel = h("button", "mbtn", t("Cancelar"));
+    const ok = h("button", "mbtn primary", t("Aceptar"));
     row.append(cancel, ok);
     box.append(input, err, row);
     let close = () => {};
     const done = (v: string | null) => { close(); resolve(v); };
     const submit = () => {
       const v = input.value.trim();
-      const msg = o.validate ? o.validate(v) : v ? null : "Escribe un nombre";
+      const msg = o.validate ? o.validate(v) : v ? null : t("Escribe un nombre");
       if (msg) { err.textContent = msg; return; }
       done(v);
     };
@@ -172,8 +173,8 @@ export function showForm(o: { title: string; fields: FormField[]; submitLabel?: 
     if (o.hint) box.append(h("div", "form-hint", o.hint));
     const err = h("div", "modal-err");
     const row = h("div", "modal-btns");
-    const cancel = h("button", "mbtn", "Cancelar");
-    const ok = h("button", "mbtn primary", o.submitLabel ?? "Aceptar");
+    const cancel = h("button", "mbtn", t("Cancelar"));
+    const ok = h("button", "mbtn primary", o.submitLabel ?? t("Aceptar"));
     row.append(cancel, ok);
     box.append(err, row);
     let close = () => {};
@@ -182,7 +183,7 @@ export function showForm(o: { title: string; fields: FormField[]; submitLabel?: 
       const values: Record<string, string> = {};
       for (const f of o.fields) {
         const v = inputs.get(f.key)!.value.trim();
-        if (f.required && !v) { err.textContent = `Escribe ${f.label.toLowerCase()}`; inputs.get(f.key)!.focus(); return; }
+        if (f.required && !v) { err.textContent = t("Falta: {field}", { field: f.label }); inputs.get(f.key)!.focus(); return; }
         values[f.key] = v;
       }
       done(values);
@@ -289,7 +290,7 @@ export function quickPick(o: {
   input.value = "";
   input.placeholder = o.placeholder;
   input.focus();
-  list.replaceChildren(h("li", "none", "Cargando…"));
+  list.replaceChildren(h("li", "none", t("Cargando…")));
 
   let items: PickItem[] = [];
   let shown: PickItem[] = [];
@@ -308,7 +309,7 @@ export function quickPick(o: {
 
   const paint = (preview = false) => {
     list.replaceChildren();
-    if (!shown.length) { list.append(h("li", "none", items.length ? "Sin resultados" : o.empty ?? "Sin resultados")); return; }
+    if (!shown.length) { list.append(h("li", "none", items.length ? t("Sin resultados") : o.empty ?? t("Sin resultados"))); return; }
     shown.forEach((it, i) => {
       const li = h("li", i === index ? "on" : "");
       if (it.icon) li.append(it.icon);

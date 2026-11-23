@@ -5,6 +5,8 @@ import { THEMES, tokenRules, type Theme } from "./themes";
 export interface Settings {
   /** Versión del formato; sirve para migrar configuraciones antiguas. */
   v: number;
+  /** Idioma de la interfaz: "auto" sigue al sistema. Lo lee i18n.ts al arrancar. */
+  language: "auto" | "es" | "en";
   theme: string;
   accent: string;
   fontSize: number;
@@ -42,6 +44,7 @@ export interface Settings {
 
 export const DEFAULTS: Settings = {
   v: 2,
+  language: "auto",
   theme: "pulso-dark",
   accent: THEMES["pulso-dark"].accent,
   fontSize: 14,

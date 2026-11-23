@@ -55,7 +55,15 @@ Puntos fuertes:
   | `src-tauri/src/lib.rs` | 1044 |
 
 - [ ] **Almacenamiento repartido.** Diez módulos usan `localStorage` directamente, aunque existe `src/core/storage.ts`. Centralizarlo facilita las migraciones, los límites de tamaño y las pruebas.
-- [ ] **Interfaz solo en español.** Todos los textos están escritos directamente en el código. Para llegar a más público hace falta una capa de traducciones, como mínimo en español e inglés, y un selector de idioma.
+- [ ] **Interfaz en inglés (en curso).** Ya hay capa de traducciones (`src/i18n.ts`, `src/locales/en.ts`) y selector de idioma.
+  - Primera tanda traducida: menús, paleta, barra de estado, inicio, diálogos, actualizaciones, configuración e `index.html`, unos 400 textos.
+  - Faltan unos 1.600 textos:
+    - [ ] explorador, búsqueda, pestañas y documentos;
+    - [ ] Git, historial y pull requests;
+    - [ ] issues, tablero y chat del equipo;
+    - [ ] asistente de IA;
+    - [ ] temas, atajos y terminal;
+    - [ ] mensajes de error que llegan desde Rust y la herramienta de línea de comandos `pulso`.
 
 ## 3. Funciones nuevas
 
