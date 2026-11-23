@@ -1,6 +1,7 @@
 //! Actualizaciones automáticas: busca `latest.json` en las releases de GitHub (ver `plugins.updater`
 //! en tauri.conf.json), comprueba la firma con la clave pública y, si la persona acepta, instala y reinicia.
 //! Solo en la versión instalada: las compilaciones de desarrollo no se actualizan.
+use crate::i18n::{tr, trf};
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_updater::UpdaterExt;
@@ -14,17 +15,17 @@ pub struct UpdateInfo {
 
 fn ensure_installed() -> Result<(), String> {
     if cfg!(debug_assertions) {
-        return Err("Las actualizaciones solo funcionan en la versión instalada de Pulso.".into());
+        return Err(tr("Las actualizaciones solo funcionan en la versión instalada de Pulso.").into());
     }
     Ok(())
 }
 
 async fn find(app: &AppHandle) -> Result<Option<tauri_plugin_updater::Update>, String> {
-    let updater = app.updater().map_err(|e| format!("No se pudo preparar el actualizador: {e}"))?;
+    let updater = app.updater().map_err(|e| trf("No se pudo preparar el actualizador: {e}", &[("e", &e)]))?;
     updater
         .check()
         .await
-        .map_err(|e| format!("No se pudo comprobar si hay una versión nueva: {e}"))
+        .map_err(|e| trf("No se pudo comprobar si hay una versión nueva: {e}", &[("e", &e)]))
 }
 
 #[tauri::command]
@@ -44,16 +45,16 @@ pub async fn update_install(app: AppHandle) -> Result<(), String> {
     ensure_installed()?;
     let update = find(&app)
         .await?
-        .ok_or_else(|| "Ya no hay ninguna versión nueva pendiente.".to_string())?;
+        .ok_or_else(|| tr("Ya no hay ninguna versión nueva pendiente.").to_string())?;
     let bytes = update
         .download(|_, _| {}, || {})
         .await
-        .map_err(|e| format!("No se pudo descargar la actualización: {e}"))?;
+        .map_err(|e| trf("No se pudo descargar la actualización: {e}", &[("e", &e)]))?;
     app.state::<crate::term::TermState>().kill_all();
     app.state::<crate::lsp::LspState>().stop();
     app.state::<crate::aichat::AiState>().stop_all();
     update
         .install(bytes)
-        .map_err(|e| format!("No se pudo instalar la actualización: {e}"))?;
+        .map_err(|e| trf("No se pudo instalar la actualización: {e}", &[("e", &e)]))?;
     app.restart();
 }

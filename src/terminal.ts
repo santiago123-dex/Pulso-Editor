@@ -82,7 +82,7 @@ function shellBadge(label: string): string {
   if (low.includes("powershell") || low.includes("pwsh")) return "PS";
   if (low.includes("git bash") || low.includes("bash")) return "SH";
   if (low.includes("wsl") || low.includes("ubuntu")) return "WSL";
-  if (low.includes("cmd") || low.includes("símbolo")) return "CMD";
+  if (low.includes("cmd") || low.includes("símbolo") || low.includes("command prompt")) return "CMD";
   return ">_";
 }
 

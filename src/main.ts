@@ -5,7 +5,7 @@ import cssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker";
 import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
 import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
-import { t, translateStatic } from "./i18n";
+import { lang, t, translateStatic } from "./i18n";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getVersion } from "@tauri-apps/api/app";
 import { checkForUpdates, initUpdates } from "./updates";
@@ -53,6 +53,8 @@ import { addRecent, clearLastRoot, clearSession, createSessionPersister, getLast
 
 // Los textos fijos de index.html, en el idioma elegido, antes de que nada se pinte encima.
 translateStatic(document.body);
+// Los mensajes que nacen en Rust (errores de archivos, Git, terminal…) siguen el mismo idioma.
+if ("__TAURI_INTERNALS__" in window) void invoke("i18n_set_lang", { lang: lang() }).catch(() => {});
 
 // La sesión se lee antes que nada: lo que ocurra durante el arranque no debe poder pisarla.
 const startupSession = loadSession();

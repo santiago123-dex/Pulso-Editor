@@ -656,6 +656,8 @@ export const en: Record<string, string> = {
   "Inteligencia de TypeScript y JavaScript activada (con el TypeScript del proyecto)": "TypeScript and JavaScript intelligence on (using the project's TypeScript)",
   "Inteligencia de TypeScript y JavaScript activada": "TypeScript and JavaScript intelligence on",
   "No se pudo iniciar LSP: {error}": "Couldn't start LSP: {error}",
+  // Debe coincidir con cómo empiezan los mensajes de Rust en inglés (src-tauri/src/i18n.rs): «Couldn't start …».
+  "No se pudo iniciar": "Couldn't start",
   "Iniciando inteligencia de código…": "Starting code intelligence…",
   "Buscando definición…": "Finding definition…",
   "Ya se escribieron: {files}.": "Already written: {files}.",

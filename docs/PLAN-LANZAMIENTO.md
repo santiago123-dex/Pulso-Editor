@@ -55,7 +55,7 @@ Puntos fuertes:
   | `src-tauri/src/lib.rs` | 1044 |
 
 - [ ] **Almacenamiento repartido.** Diez módulos usan `localStorage` directamente, aunque existe `src/core/storage.ts`. Centralizarlo facilita las migraciones, los límites de tamaño y las pruebas.
-- [ ] **Interfaz en inglés (en curso).** Ya hay capa de traducciones (`src/i18n.ts`, `src/locales/en.ts`) y selector de idioma.
+- [x] **Interfaz en inglés.** Ya hay capa de traducciones (`src/i18n.ts`, `src/locales/en.ts`) y selector de idioma.
   - Primera tanda traducida: menús, paleta, barra de estado, inicio, diálogos, actualizaciones, configuración e `index.html`, unos 400 textos.
   - Segunda tanda traducida, unos 260 textos:
     - [x] explorador, búsqueda, pestañas y documentos;
@@ -64,8 +64,8 @@ Puntos fuertes:
   - Tercera tanda traducida, unos 130 textos: [x] issues, tablero, chat del equipo y «trabajar en una issue». Quedan en español a propósito el título de la sala del chat y el texto de su issue (los comparte todo el equipo en GitHub) y las instrucciones que se envían a la IA.
   - Cuarta tanda traducida, unos 285 textos: [x] asistente de IA (modelos, cuentas, uso del plan, modos y permisos, acciones rápidas y resumen de lo que hizo la IA). Siguen en español a propósito los mensajes que Pulso envía a la IA para que continúe una tarea.
   - Quinta tanda traducida, unos 120 textos: [x] temas, atajos de teclado, terminal, scripts y los textos sueltos que quedaban. Con ella toda la interfaz web está traducida, salvo lo que se deja en español a propósito (lo que se envía a la IA o se publica en GitHub para todo el equipo).
-  - Falta:
-    - [ ] los mensajes de error que llegan desde Rust (archivos, Git, terminal, servidor de lenguaje) y la herramienta de línea de comandos `pulso`.
+  - Sexta tanda: [x] los mensajes que nacen en Rust (archivos, Git, terminal, servidor de lenguaje, IA, actualizaciones), unos 150, con `src-tauri/src/i18n.rs`; la ventana le pasa el idioma elegido al arrancar. La herramienta `pulso` también está traducida y usa el idioma del sistema o `PULSO_LANG`.
+  - Pendiente de comprobar con una persona que use Pulso en inglés: textos largos que no quepan en botones o menús.
 
 ## 3. Funciones nuevas
 

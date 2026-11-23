@@ -1,3 +1,4 @@
+use crate::i18n::{tr, trf};
 use regex::{NoExpand, Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -21,6 +22,7 @@ pub mod termchat;
 pub mod termui;
 pub mod fsguard;
 pub mod procguard;
+pub mod i18n;
 mod updates;
 
 /// Los procesos auxiliares no deben abrir ventanas de consola en Windows.
@@ -133,10 +135,12 @@ fn list_files_sync(path: String) -> Result<Vec<String>, String> {
 fn read_file_sync(path: &Path) -> Result<String, String> {
     let meta = fs::metadata(path).map_err(|e| e.to_string())?;
     if meta.len() > MAX_OPEN_FILE_BYTES {
-        return Err(format!(
-            "El archivo es demasiado grande ({:.1} MB; límite {} MB)",
-            meta.len() as f64 / (1024.0 * 1024.0),
-            MAX_OPEN_FILE_BYTES / (1024 * 1024)
+        return Err(trf(
+            "El archivo es demasiado grande ({size} MB; límite {limit} MB)",
+            &[
+                ("size", &format!("{:.1}", meta.len() as f64 / (1024.0 * 1024.0))),
+                ("limit", &(MAX_OPEN_FILE_BYTES / (1024 * 1024))),
+            ],
         ));
     }
     fs::read_to_string(path).map_err(|e| e.to_string())
@@ -157,11 +161,11 @@ async fn read_theme_file(path: String) -> Result<String, String> {
         let p = Path::new(&path);
         let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
         if ext != "json" && ext != "jsonc" {
-            return Err("Solo se pueden importar archivos de tema .json o .jsonc".into());
+            return Err(tr("Solo se pueden importar archivos de tema .json o .jsonc").into());
         }
         let meta = fs::metadata(p).map_err(|e| e.to_string())?;
         if !meta.is_file() || meta.len() > MAX_THEME_FILE_BYTES {
-            return Err("El archivo de tema es demasiado grande o no es válido".into());
+            return Err(tr("El archivo de tema es demasiado grande o no es válido").into());
         }
         fs::read_to_string(p).map_err(|e| e.to_string())
     })
@@ -320,9 +324,9 @@ fn ai_history_read_in(file: &Path) -> String {
 }
 
 fn ai_history_write_in(file: &Path, text: &str) -> Result<(), String> {
-    if text.len() > AI_HISTORY_MAX { return Err("El historial del asistente es demasiado grande.".into()); }
+    if text.len() > AI_HISTORY_MAX { return Err(tr("El historial del asistente es demasiado grande.").into()); }
     if serde_json::from_str::<serde_json::Value>(text).map(|v| !v.is_array()).unwrap_or(true) {
-        return Err("El historial del asistente no tiene un formato válido.".into());
+        return Err(tr("El historial del asistente no tiene un formato válido.").into());
     }
     if let Some(dir) = file.parent() { fs::create_dir_all(dir).map_err(|e| e.to_string())?; }
     write_atomic(file, text.as_bytes()).map_err(|e| e.to_string())
@@ -366,7 +370,7 @@ fn ensure_allowed_secret_key(name: &str) -> Result<(), String> {
     if name == "github-token" {
         Ok(())
     } else {
-        Err("Clave de credencial no permitida".into())
+        Err(tr("Clave de credencial no permitida").into())
     }
 }
 
@@ -417,7 +421,7 @@ fn create_file_sync(path: &Path) -> Result<(), String> {
     match fs::OpenOptions::new().write(true).create_new(true).open(path) {
         Ok(_) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            Err("Ya existe un archivo o carpeta con ese nombre".into())
+            Err(tr("Ya existe un archivo o carpeta con ese nombre").into())
         }
         Err(e) => Err(e.to_string()),
     }
@@ -433,7 +437,7 @@ async fn create_file(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: Str
 
 fn create_dir_sync(path: &Path) -> Result<(), String> {
     if path.exists() {
-        return Err("Ya existe un archivo o carpeta con ese nombre".into());
+        return Err(tr("Ya existe un archivo o carpeta con ese nombre").into());
     }
     fs::create_dir_all(path).map_err(|e| e.to_string())
 }
@@ -448,12 +452,12 @@ async fn create_dir(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: Stri
 
 fn rename_path_sync(from: &Path, to: &Path) -> Result<(), String> {
     if to.exists() {
-        return Err("Ya existe un archivo o carpeta con ese nombre".into());
+        return Err(tr("Ya existe un archivo o carpeta con ese nombre").into());
     }
     let from_res = fsguard::resolve_safe(from).unwrap_or_else(|_| from.to_path_buf());
     let to_res = fsguard::resolve_safe(to).unwrap_or_else(|_| to.to_path_buf());
     if to_res.starts_with(&from_res) && to_res != from_res {
-        return Err("No se puede mover una carpeta dentro de sí misma".into());
+        return Err(tr("No se puede mover una carpeta dentro de sí misma").into());
     }
     fs::rename(from, to).map_err(|e| e.to_string())
 }
@@ -510,7 +514,7 @@ async fn reveal_in_explorer(guard: tauri::State<'_, fsguard::WorkspaceGuard>, pa
             c.arg(dir);
             c
         };
-        let child = cmd.spawn().map_err(|e| format!("No se pudo abrir el explorador de archivos: {e}"))?;
+        let child = cmd.spawn().map_err(|e| trf("No se pudo abrir el explorador de archivos: {e}", &[("e", &e)]))?;
         procguard::reap_detached(child);
         Ok(())
     })
@@ -520,7 +524,7 @@ async fn reveal_in_explorer(guard: tauri::State<'_, fsguard::WorkspaceGuard>, pa
 
 fn build_regex(query: &str, case_sensitive: bool, use_regex: bool, whole_word: bool) -> Result<Regex, String> {
     if query.is_empty() {
-        return Err("La búsqueda está vacía".into());
+        return Err(tr("La búsqueda está vacía").into());
     }
     let mut pat = if use_regex { query.to_string() } else { regex::escape(query) };
     if whole_word {
@@ -529,7 +533,7 @@ fn build_regex(query: &str, case_sensitive: bool, use_regex: bool, whole_word: b
     RegexBuilder::new(&pat)
         .case_insensitive(!case_sensitive)
         .build()
-        .map_err(|e| format!("Expresión regular no válida: {}", e))
+        .map_err(|e| trf("Expresión regular no válida: {e}", &[("e", &e)]))
 }
 
 #[derive(Serialize)]
@@ -730,7 +734,7 @@ fn replace_in_file_sync(
     let re = build_regex(&query, case_sensitive, use_regex, whole_word)?;
     let p = Path::new(&path);
     let mtime = mtime_ms(p);
-    let text = read_text(p).ok_or_else(|| "El archivo es binario, demasiado grande o no es UTF-8; no se modifica".to_string())?;
+    let text = read_text(p).ok_or_else(|| tr("El archivo es binario, demasiado grande o no es UTF-8; no se modifica").to_string())?;
     let mut out = String::with_capacity(text.len());
     let mut count = 0u32;
     for seg in text.split_inclusive('\n') {
@@ -755,7 +759,7 @@ fn replace_in_file_sync(
     }
     if let Some(e) = expected {
         if e != count {
-            return Err(format!("El archivo cambió desde la búsqueda ({} coincidencias previstas, {} ahora)", e, count));
+            return Err(trf("El archivo cambió desde la búsqueda ({expected} coincidencias previstas, {now} ahora)", &[("expected", &e), ("now", &count)]));
         }
     }
     write_checked(p, out.as_bytes(), mtime)?;
@@ -934,18 +938,18 @@ async fn install_cli_command() -> Result<String, String> {
 
 fn install_cli_command_sync() -> Result<String, String> {
     #[cfg(not(windows))]
-    { return Ok("En Linux y macOS el paquete ya instala el comando `pulso` en el PATH; no hace falta hacer nada más.".into()); }
+    { return Ok(tr("En Linux y macOS el paquete ya instala el comando `pulso` en el PATH; no hace falta hacer nada más.").into()); }
     #[cfg(windows)]
     {
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-        let dir = exe.parent().ok_or("No se encontró la carpeta del programa")?.to_path_buf();
-        if !dir.join("pulso.exe").exists() { return Err("No se encontró pulso.exe junto a Pulso Editor (¿es una compilación de desarrollo?).".into()); }
+        let dir = exe.parent().ok_or(tr("No se encontró la carpeta del programa"))?.to_path_buf();
+        if !dir.join("pulso.exe").exists() { return Err(tr("No se encontró pulso.exe junto a Pulso Editor (¿es una compilación de desarrollo?).").into()); }
         let _ = std::fs::remove_file(dir.join("pulso.cmd"));
         let script = "$d = $args[0]; $p = [Environment]::GetEnvironmentVariable('Path','User'); $parts = @(); if ($p) { $parts = $p -split ';' | Where-Object { $_ }; }; if ($parts -notcontains $d) { [Environment]::SetEnvironmentVariable('Path', (($parts + $d) -join ';'), 'User'); 'added' } else { 'present' }";
         let out = background_command("powershell").args(["-NoProfile", "-NonInteractive", "-Command", script, &dir.to_string_lossy()])
             .output().map_err(|e| e.to_string())?;
         if !out.status.success() { return Err(String::from_utf8_lossy(&out.stderr).trim().to_string()); }
-        Ok(format!("Listo: `pulso` quedó disponible en {}. Abre una terminal nueva para usarlo.", dir.display()))
+        Ok(trf("Listo: `pulso` quedó disponible en {dir}. Abre una terminal nueva para usarlo.", &[("dir", &dir.display())]))
     }
 }
 
@@ -1056,7 +1060,8 @@ pub fn run() {
             aichat::ai_send,
             aichat::ai_stop,
             updates::update_check,
-            updates::update_install
+            updates::update_install,
+            i18n::i18n_set_lang
         ])
         .build(app_context())
         .expect("error al iniciar Pulso Editor")

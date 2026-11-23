@@ -1,5 +1,6 @@
 //! Parte visual y de seguridad de `pulso` en la terminal: qué carpetas se aceptan, en cuáles ya se confió,
 //! y cómo se ve la respuesta (markdown sencillo, recuadros). Todo puro y probado; sin entrada ni salida.
+use crate::i18n::{tr};
 use std::path::Path;
 
 pub const ACCENT: &str = "38;2;56;189;248";
@@ -158,7 +159,7 @@ pub fn header_banner(
     let model_txt = model.unwrap_or("modelo predeterminado");
     let effort_txt = effort.unwrap_or("normal");
     let mode_badge = if edit {
-        paint(color, AMBER, "⚡ edición activa")
+        paint(color, AMBER, tr("⚡ edición activa"))
     } else {
         paint(color, CYAN, "● solo lectura")
     };
@@ -192,7 +193,7 @@ pub fn header_banner(
     let tip = format!(
         "  {} {}  {}  {}  {}  {}  {}  {}",
         paint(color, CYAN, "▸"),
-        paint(color, DIM, "Shift+Tab alternar edición"),
+        paint(color, DIM, tr("Shift+Tab alternar edición")),
         paint(color, RULE, "·"),
         paint(color, DIM, "/ comandos"),
         paint(color, RULE, "·"),
@@ -211,10 +212,10 @@ pub fn header_banner(
 pub fn trust_card(dir: &Path, home: Option<&Path>, color: bool) -> String {
     let shown = short_path(dir, home);
     boxed(&[
-        ("◈ Pulso CLI · Seguridad del espacio de trabajo".into(), paint(color, &format!("1;{CYAN}"), "◈ Pulso CLI · Seguridad del espacio de trabajo")),
+        (tr("◈ Pulso CLI · Seguridad del espacio de trabajo").into(), paint(color, &format!("1;{CYAN}"), tr("◈ Pulso CLI · Seguridad del espacio de trabajo"))),
         (String::new(), String::new()),
         (format!("Carpeta: {shown}"), format!("{} {}", paint(color, DIM, "Carpeta:"), paint(color, BRIGHT, &shown))),
-        ("La IA podrá leer archivos aquí y modificarlos solo si activas /edit o Shift+Tab.".into(), paint(color, SLATE, "La IA podrá leer archivos aquí y modificarlos solo si activas /edit o Shift+Tab.")),
+        (tr("La IA podrá leer archivos aquí y modificarlos solo si activas /edit o Shift+Tab.").into(), paint(color, SLATE, tr("La IA podrá leer archivos aquí y modificarlos solo si activas /edit o Shift+Tab."))),
     ], color)
 }
 
@@ -236,16 +237,16 @@ pub fn broad_dir_reason(dir: &Path, home: Option<&Path>) -> Option<&'static str>
     let d = norm_path(dir);
     let is_root = d == "/" || (d.len() == 3 && d.ends_with(":/")) || (d.len() == 2 && d.ends_with(':'));
     if is_root {
-        return Some("es la raíz de una unidad");
+        return Some(tr("es la raíz de una unidad"));
     }
     if let Some(h) = home {
         let h = norm_path(h);
         if d == h {
-            return Some("es tu carpeta personal");
+            return Some(tr("es tu carpeta personal"));
         }
         for sub in ["desktop", "documents", "downloads", "escritorio", "documentos", "descargas"] {
             if d == format!("{h}/{sub}") {
-                return Some("mezcla todos tus proyectos y archivos");
+                return Some(tr("mezcla todos tus proyectos y archivos"));
             }
         }
     }
@@ -254,12 +255,12 @@ pub fn broad_dir_reason(dir: &Path, home: Option<&Path>) -> Option<&'static str>
     let first = rest.split('/').next().unwrap_or("");
     let top_level = if on_drive { !rest.contains('/') } else { d.starts_with('/') && !rest.contains('/') };
     if top_level && ["windows", "program files", "program files (x86)", "programdata", "users", "etc", "usr", "bin", "sbin", "var", "system", "library", "applications"].contains(&rest) {
-        return Some("es una carpeta del sistema");
+        return Some(tr("es una carpeta del sistema"));
     }
     if (d.starts_with('/') && ["etc", "usr", "bin", "sbin", "system"].contains(&first))
         || (on_drive && (rest == "windows/system32" || rest.starts_with("windows/system32/") || rest == "windows/syswow64" || rest.starts_with("windows/syswow64/")))
     {
-        return Some("es una carpeta del sistema");
+        return Some(tr("es una carpeta del sistema"));
     }
     None
 }
