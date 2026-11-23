@@ -1,3 +1,4 @@
+import { lang, t as tr } from "./i18n";
 import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -109,6 +110,8 @@ function switchProvider(next: AiProvider) {
 }
 
 const isFull = () => localStorage.getItem(FULL_KEY) === "1";
+/** Segundos con un decimal, con la coma o el punto que use el idioma elegido: «3,2» o «3.2». */
+const seconds = (ms: number) => (ms / 1000).toLocaleString(lang(), { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const viewEl = () => $("view-ai");
 const q = <T extends HTMLElement>(sel: string) => viewEl().querySelector<T>(sel);
 
@@ -141,14 +144,14 @@ function titleFromId(id: string): string {
 }
 
 function tierFromNote(note: string): string {
-  if (/legacy/i.test(note)) return "Legado";
-  if (/previous generation/i.test(note)) return "Anterior";
-  if (/most capable|complex/i.test(note)) return "Más capaz";
-  if (/affordable|easier|simpler/i.test(note)) return "Ligero";
-  if (/visual/i.test(note)) return "Visión";
-  if (/fast|go-to/i.test(note)) return "Rápido";
+  if (/legacy/i.test(note)) return tr("Legado");
+  if (/previous generation/i.test(note)) return tr("Anterior");
+  if (/most capable|complex/i.test(note)) return tr("Más capaz");
+  if (/affordable|easier|simpler/i.test(note)) return tr("Ligero");
+  if (/visual/i.test(note)) return tr("Visión");
+  if (/fast|go-to/i.test(note)) return tr("Rápido");
   if (/^(Low|Medium|High|XHigh|Max)$/i.test(note)) return note;
-  return "Disponible";
+  return tr("Disponible");
 }
 
 function providerCatalog(prov: AiProvider): { models: ModelOption[]; specific: ModelOption[] } {
@@ -163,7 +166,7 @@ function providerCatalog(prov: AiProvider): { models: ModelOption[]; specific: M
       value: d.id,
       label: name,
       tier: tier || tierFromNote(d.note),
-      badge: /preview/i.test(d.id) ? "Preview" : isNew ? "Nuevo" : undefined,
+      badge: /preview/i.test(d.id) ? "Preview" : isNew ? tr("Nuevo") : undefined,
       hint: d.note ? `${d.id} · ${d.note}` : d.id,
     };
   };
@@ -184,7 +187,7 @@ function findModelOption(val: string, prov: AiProvider = activeProvider): ModelO
   const cat = providerCatalog(prov);
   return cat.models.find((m) => m.value === val)
     ?? cat.specific.find((m) => m.value === val)
-    ?? { value: val, label: formatModelName(val) || val, tier: "Personalizado", hint: `Modelo específico: ${val}` };
+    ?? { value: val, label: formatModelName(val) || val, tier: tr("Personalizado"), hint: tr("Modelo específico: {model}", { model: val }) };
 }
 
 function modelButtonText(): string {
@@ -211,7 +214,7 @@ function fromSaved(c: SavedChat): Live {
 }
 
 function newLive(): Live {
-  const live: Live = { id: newChatId(), provider: activeProvider, normalize: createProviderNormalizer(activeProvider, model), convo: { ...emptyConversation(), usage: activeProvider === "claude" ? usage : {} }, cwd: ws.root ?? "", title: "Conversación nueva" };
+  const live: Live = { id: newChatId(), provider: activeProvider, normalize: createProviderNormalizer(activeProvider, model), convo: { ...emptyConversation(), usage: activeProvider === "claude" ? usage : {} }, cwd: ws.root ?? "", title: tr("Conversación nueva") };
   lives.set(live.id, live);
   return live;
 }
@@ -326,13 +329,13 @@ function refreshUsage(): Promise<boolean> {
     try {
       const next = parseUsageText(await invoke<string>("ai_usage"));
       if (!next.fiveHour && !next.sevenDay) {
-        usageError = "La CLI no devolvió ventanas de uso reconocibles.";
+        usageError = tr("La CLI no devolvió ventanas de uso reconocibles.");
         return false;
       }
       saveUsage(next);
       return true;
     } catch (e) {
-      usageError = e instanceof Error ? e.message : String(e || "No se pudo consultar /usage.");
+      usageError = e instanceof Error ? e.message : String(e || tr("No se pudo consultar /usage."));
       return false;
     } finally {
       usageSyncing = false;
@@ -392,18 +395,18 @@ function renderChips() {
     c.title = title;
     c.append(h("span", "", text));
     const x = h("button", "ai-chip-x", "×");
-    x.type = "button"; x.title = "No adjuntar esto"; x.setAttribute("aria-label", `Quitar ${text}`);
+    x.type = "button"; x.title = tr("No adjuntar esto"); x.setAttribute("aria-label", tr("Quitar {item}", { item: text }));
     x.onclick = () => { off(); renderChips(); };
     c.append(x);
     return c;
   };
   const nodes: HTMLElement[] = [];
-  if (labels.file) nodes.push(chip(labels.file, "Archivo abierto: se le dice a la IA cuál es", () => { useFile = false; }));
+  if (labels.file) nodes.push(chip(labels.file, tr("Archivo abierto: se le dice a la IA cuál es"), () => { useFile = false; }));
   for (const extra of extraFiles) {
     if (extra === ctx.file) continue;
-    nodes.push(chip(baseName(extra), `Archivo adjunto: ${extra}`, () => { extraFiles = extraFiles.filter((f) => f !== extra); }));
+    nodes.push(chip(baseName(extra), tr("Archivo adjunto: {file}", { file: extra }), () => { extraFiles = extraFiles.filter((f) => f !== extra); }));
   }
-  if (labels.selection) nodes.push(chip(labels.selection, "Tu selección se envía a la IA con el mensaje", () => { useSel = false; }));
+  if (labels.selection) nodes.push(chip(labels.selection, tr("Tu selección se envía a la IA con el mensaje"), () => { useSel = false; }));
   box.replaceChildren(...nodes);
   box.hidden = !nodes.length;
   const ctxWrap = q(".ai-dock-ctx");
@@ -415,23 +418,23 @@ function renderChips() {
 // ---------- Pintado ----------
 function copy(text: string, btn?: HTMLButtonElement) {
   void navigator.clipboard.writeText(text).then(() => {
-    setStatus("Copiado", 2000);
+    setStatus(tr("Copiado"), 2000);
     if (!btn) return;
-    const prev = btn.textContent ?? "Copiar";
-    btn.textContent = "Copiado";
+    const prev = btn.textContent ?? tr("Copiar");
+    btn.textContent = tr("Copiado");
     btn.classList.add("copied");
     window.setTimeout(() => { btn.textContent = prev; btn.classList.remove("copied"); }, 1400);
-  }, () => setStatus("No se pudo copiar"));
+  }, () => setStatus(tr("No se pudo copiar")));
 }
 
 function insertCode(text: string) {
   const ed = focusedEditor();
   const sel = ed?.getSelection();
-  if (!ed || !sel) { setStatus("Abre un archivo en el editor para insertar el código"); return; }
+  if (!ed || !sel) { setStatus(tr("Abre un archivo en el editor para insertar el código")); return; }
   if (isFull()) setFull(false);
   ed.executeEdits("pulso-ai", [{ range: sel, text, forceMoveMarkers: true }]);
   ed.focus();
-  setStatus("Código insertado en el editor", 2500);
+  setStatus(tr("Código insertado en el editor"), 2500);
 }
 
 /** Enlace de una respuesta: los archivos se abren en el editor en su línea; las páginas, en el navegador. */
@@ -440,7 +443,7 @@ function linkNode(text: string, href: string): Node {
   if (!target) return document.createTextNode(text);
   const b = h("button", "ai-link", text);
   b.type = "button";
-  b.title = target.kind === "file" ? `Abrir ${target.path}${target.line > 1 ? ` en la línea ${target.line}` : ""}` : target.url;
+  b.title = target.kind === "file" ? (target.line > 1 ? tr("Abrir {path} en la línea {line}", { path: target.path, line: target.line }) : tr("Abrir {path}", { path: target.path })) : target.url;
   b.onclick = () => {
     if (target.kind === "web") { void invoke("open_external", { url: target.url }).catch((e) => setStatus(String(e))); return; }
     if (isFull()) setFull(false);
@@ -466,13 +469,13 @@ function markdown(text: string): HTMLElement[] {
       head.append(h("span", "", b.lang || "código"));
       const acts = h("div", "ai-code-acts");
       if (focusedEditor()) {
-        const ins = h("button", "ai-code-copy", "Insertar");
+        const ins = h("button", "ai-code-copy", tr("Insertar"));
         ins.type = "button";
-        ins.title = "Insertar en la posición actual del editor";
+        ins.title = tr("Insertar en la posición actual del editor");
         ins.onclick = () => insertCode(b.text);
         acts.append(ins);
       }
-      const c = h("button", "ai-code-copy", "Copiar");
+      const c = h("button", "ai-code-copy", tr("Copiar"));
       c.type = "button";
       c.onclick = () => copy(b.text, c);
       acts.append(c);
@@ -504,9 +507,9 @@ function toolRow(b: Extract<Block, { kind: "tool" }>): HTMLElement {
   s.append(h("span", `ai-tool-dot ${state}`), h("span", "ai-tool-text", toolSummary(b)));
   const filePath = resolveToolFile(b.input.file_path ?? b.input.notebook_path ?? b.input.path ?? b.input.Path ?? b.input.TargetFile);
   if (filePath && ["Read", "Edit", "MultiEdit", "Write", "NotebookEdit"].includes(b.name)) {
-    const open = h("button", "ai-tool-open", "Abrir");
+    const open = h("button", "ai-tool-open", tr("Abrir"));
     open.type = "button";
-    open.title = `Abrir ${filePath}`;
+    open.title = tr("Abrir {path}", { path: filePath });
     open.onclick = (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -593,7 +596,7 @@ function activityCard(turnId: string, items: Block[], running: boolean): HTMLEle
   const sum = h("summary", "ai-act-head");
   const pulse = h("span", "ai-act-pulse");
   pulse.innerHTML = PULSE_SVG;
-  const title = h("span", "ai-act-title", running ? "Trabajando" : "Trabajó");
+  const title = h("span", "ai-act-title", running ? tr("Trabajando") : tr("Trabajó"));
   const time = h("span", "ai-act-time", "");
   if (running && t0) {
     time.dataset.start = String(t0);
@@ -603,8 +606,8 @@ function activityCard(turnId: string, items: Block[], running: boolean): HTMLEle
     time.textContent = elapsedLabel(t1 - t0);
   }
   const detail = h("span", "ai-act-detail", running ? now : counts || `${items.length} pasos`);
-  const more = h("span", "ai-act-more", items.length ? (d.open ? "Ocultar" : "Ver pasos") : "");
-  d.addEventListener("toggle", () => { more.textContent = items.length ? (d.open ? "Ocultar" : "Ver pasos") : ""; });
+  const more = h("span", "ai-act-more", items.length ? (d.open ? tr("Ocultar") : tr("Ver pasos")) : "");
+  d.addEventListener("toggle", () => { more.textContent = items.length ? (d.open ? tr("Ocultar") : tr("Ver pasos")) : ""; });
   sum.append(pulse, title, time, detail, more);
   if (!items.length) sum.classList.add("empty");
   d.append(sum);
@@ -688,7 +691,7 @@ function buildProviderTabs(onPick?: (p: AiProvider) => void): HTMLElement {
     const dotCls = t?.logged_in ? "on" : t?.installed ? "wait" : "off";
     const btn = h("button", `ai-prov-tab${activeProvider === id ? " active" : ""}`);
     btn.type = "button";
-    btn.title = t?.logged_in ? `${PROVIDERS[id].title} conectado` : t?.installed ? `${PROVIDERS[id].title}: falta iniciar sesión` : `${PROVIDERS[id].title}: sin instalar`;
+    btn.title = t?.logged_in ? tr("{provider} conectado", { provider: PROVIDERS[id].title }) : t?.installed ? tr("{provider}: falta iniciar sesión", { provider: PROVIDERS[id].title }) : tr("{provider}: sin instalar", { provider: PROVIDERS[id].title });
     btn.append(h("span", `ai-prov-dot ${dotCls}`, ""), h("span", "", PROVIDERS[id].short));
     btn.onclick = () => {
       switchProvider(id);
@@ -700,18 +703,18 @@ function buildProviderTabs(onPick?: (p: AiProvider) => void): HTMLElement {
 }
 
 function accountStatusText(id: AiProvider, t: AiTool | null): string {
-  if (!t) return "Comprobando sesión…";
+  if (!t) return tr("Comprobando sesión…");
   const meta = PROVIDERS[id];
   const installable = !!(meta.npmPkg || meta.installCmdPs);
-  if (!t.installed) return installable ? "CLI sin instalar · instalable aquí" : "CLI sin instalar";
-  if (!t.logged_in) return "Instalado · falta iniciar sesión";
-  if (id === "claude") return t.plan ? `Conectado · Plan ${planLabel(t.plan)}` : "Conectado · Suscripción Claude";
+  if (!t.installed) return installable ? tr("CLI sin instalar · instalable aquí") : tr("CLI sin instalar");
+  if (!t.logged_in) return tr("Instalado · falta iniciar sesión");
+  if (id === "claude") return t.plan ? tr("Conectado · Plan {plan}", { plan: planLabel(t.plan) }) : tr("Conectado · Suscripción Claude");
   if (id === "codex") {
-    if (t.auth_method === "chatgpt") return t.plan && t.plan !== "ChatGPT" ? `Conectado · Plan ${planLabel(t.plan)}` : "Conectado · Suscripción ChatGPT";
-    if (t.auth_method === "api_key") return "Conectado · Clave API";
-    return "Conectado · ChatGPT";
+    if (t.auth_method === "chatgpt") return t.plan && t.plan !== "ChatGPT" ? tr("Conectado · Plan {plan}", { plan: planLabel(t.plan) }) : tr("Conectado · Suscripción ChatGPT");
+    if (t.auth_method === "api_key") return tr("Conectado · Clave API");
+    return tr("Conectado · ChatGPT");
   }
-  return "Conectado · Cuenta Antigravity";
+  return tr("Conectado · Cuenta Antigravity");
 }
 
 async function installAndConnect(prov: AiProvider, onDone?: () => void) {
@@ -734,9 +737,9 @@ async function installAndConnect(prov: AiProvider, onDone?: () => void) {
   }
   if (!cmd) { void openExternal(meta.docsUrl); return; }
   const r = await showDialog({
-    title: `Instalar y conectar ${meta.accountTitle}`,
-    message: `Se ejecutará en la terminal integrada:\n${cmd}\n\nPulso no pide ni guarda claves: iniciarás sesión directamente en la herramienta oficial.`,
-    buttons: [{ label: "Cancelar", value: "cancel" }, { label: "Instalar y conectar", value: "ok", primary: true }],
+    title: tr("Instalar y conectar {account}", { account: meta.accountTitle }),
+    message: tr("Se ejecutará en la terminal integrada:") + "\n" + cmd + "\n\n" + tr("Pulso no pide ni guarda claves: iniciarás sesión directamente en la herramienta oficial."),
+    buttons: [{ label: tr("Cancelar"), value: "cancel" }, { label: tr("Instalar y conectar"), value: "ok", primary: true }],
   });
   if (r !== "ok") return;
   onDone?.();
@@ -761,7 +764,7 @@ function buildAccountsList(onClose?: () => void): HTMLElement {
 
     const canInstall = !!(meta.npmPkg || meta.installCmdPs);
     if (!t?.installed) {
-      const btn = h("button", "ai-acct-btn", canInstall ? "Instalar y conectar" : "Cómo instalar");
+      const btn = h("button", "ai-acct-btn", canInstall ? tr("Instalar y conectar") : tr("Cómo instalar"));
       btn.type = "button";
       btn.onclick = () => {
         if (canInstall) void installAndConnect(id, onClose);
@@ -769,7 +772,7 @@ function buildAccountsList(onClose?: () => void): HTMLElement {
       };
       row.append(btn);
     } else if (!t.logged_in) {
-      const btn = h("button", "ai-acct-btn primary", "Conectar");
+      const btn = h("button", "ai-acct-btn primary", tr("Conectar"));
       btn.type = "button";
       btn.onclick = () => {
         onClose?.();
@@ -778,9 +781,9 @@ function buildAccountsList(onClose?: () => void): HTMLElement {
       };
       row.append(btn);
     } else if (isCurrent) {
-      row.append(h("span", "ai-acct-badge", "En uso"));
+      row.append(h("span", "ai-acct-badge", tr("En uso")));
     } else {
-      const btn = h("button", "ai-acct-btn", "Usar");
+      const btn = h("button", "ai-acct-btn", tr("Usar"));
       btn.type = "button";
       btn.onclick = () => {
         switchProvider(id);
@@ -798,19 +801,19 @@ function openAccountsPopover(anchor: HTMLElement) {
   const render = () => {
     pop.replaceChildren();
     const head = h("div", "ai-usage-pop-head");
-    head.append(h("span", "ai-usage-group", "Cuentas y suscripciones"));
-    const checkBtn = h("button", "ai-usage-sync", "Comprobar");
+    head.append(h("span", "ai-usage-group", tr("Cuentas y suscripciones")));
+    const checkBtn = h("button", "ai-usage-sync", tr("Comprobar"));
     checkBtn.type = "button";
     checkBtn.onclick = () => {
       checkBtn.disabled = true;
-      checkBtn.textContent = "Comprobando…";
+      checkBtn.textContent = tr("Comprobando…");
       toolAt = 0;
       void detect(true).finally(() => { if (pop.isConnected) render(); });
     };
     head.append(checkBtn);
     pop.append(
       head,
-      h("div", "ai-usage-note", "Cada proveedor administra su sesión en su CLI oficial. Pulso detecta cuáles tienes activas para habilitar sus modelos."),
+      h("div", "ai-usage-note", tr("Cada proveedor administra su sesión en su CLI oficial. Pulso detecta cuáles tienes activas para habilitar sus modelos.")),
       buildAccountsList(() => dismissPopover()),
     );
   };
@@ -824,7 +827,7 @@ function openModelPopover(anchor: HTMLElement) {
   const dockWrap = h("div", "ai-popover-pair");
   const pop = h("div", "ai-popover ai-model-pop");
   pop.setAttribute("role", "listbox");
-  pop.setAttribute("aria-label", "Seleccionar proveedor y modelo");
+  pop.setAttribute("aria-label", tr("Seleccionar proveedor y modelo"));
   const sideUsage = h("div", "ai-popover ai-usage-pop ai-usage-docked");
   sideUsage.hidden = true;
   dockWrap.append(pop, sideUsage);
@@ -859,7 +862,7 @@ function openModelPopover(anchor: HTMLElement) {
     const meta = PROVIDERS[activeProvider];
     const cat = providerCatalog(activeProvider);
     pop.replaceChildren();
-    pop.append(h("div", "ai-pop-head", "Herramienta"), buildProviderTabs(() => {
+    pop.append(h("div", "ai-pop-head", tr("Herramienta")), buildProviderTabs(() => {
       const target = tools[activeProvider];
       if (target && !target.logged_in) { dismissPopover(); return; }
       specificOpen = providerCatalog(activeProvider).specific.some((m) => m.value === model);
@@ -867,7 +870,7 @@ function openModelPopover(anchor: HTMLElement) {
       render();
       if (usageSideOpen) renderSideUsage();
     }));
-    pop.append(h("div", "ai-pop-sep"), h("div", "ai-pop-head", `Modelo · ${meta.short}`));
+    pop.append(h("div", "ai-pop-sep"), h("div", "ai-pop-head", tr("Modelo · {provider}", { provider: meta.short })));
 
     const listBox = h("div", "ai-model-list");
     const addOption = (m: ModelOption) => {
@@ -897,7 +900,7 @@ function openModelPopover(anchor: HTMLElement) {
       const toggleSpec = h("button", "ai-pop-item ai-pop-subtoggle");
       toggleSpec.type = "button";
       const toggleMain = h("span", "ai-pop-main");
-      toggleMain.append(h("span", "ai-pop-name", `Más modelos (${cat.specific.length})`));
+      toggleMain.append(h("span", "ai-pop-name", tr("Más modelos ({count})", { count: cat.specific.length })));
       toggleSpec.append(toggleMain, h("span", "ai-pop-chev", specificOpen ? "▾" : "›"));
       toggleSpec.onclick = () => { specificOpen = !specificOpen; render(); };
       listBox.append(h("div", "ai-pop-sep"), toggleSpec);
@@ -907,11 +910,11 @@ function openModelPopover(anchor: HTMLElement) {
     const custom = h("button", "ai-pop-item ai-pop-custom");
     custom.type = "button";
     const customMain = h("span", "ai-pop-main");
-    customMain.append(h("span", "ai-pop-name", "Otro ID de modelo…"), h("span", "ai-pop-tier", "Manual"));
+    customMain.append(h("span", "ai-pop-name", tr("Otro ID de modelo…")), h("span", "ai-pop-tier", tr("Manual")));
     custom.append(customMain);
     custom.onclick = async () => {
       dismissPopover();
-      const entered = await promptText({ title: "Identificador exacto del modelo", value: model, placeholder: cat.models[1]?.value ?? "modelo" });
+      const entered = await promptText({ title: tr("Identificador exacto del modelo"), value: model, placeholder: cat.models[1]?.value ?? "modelo" });
       if (!entered) return;
       model = entered.trim();
       localStorage.setItem(meta.modelKey, model);
@@ -922,7 +925,7 @@ function openModelPopover(anchor: HTMLElement) {
 
     if (meta.supportsEffort && (activeProvider !== "antigravity" || !model)) {
       const effBox = h("div", "ai-pop-effort");
-      effBox.append(h("span", "ai-pop-effort-lbl", "Esfuerzo"));
+      effBox.append(h("span", "ai-pop-effort-lbl", tr("Esfuerzo")));
       const pills = h("div", "ai-effort-pills");
       for (const e of EFFORTS) {
         const b = h("button", `ai-effort-pill${effort === e.value ? " active" : ""}`, e.label);
@@ -944,7 +947,7 @@ function openModelPopover(anchor: HTMLElement) {
     const usageMain = h("span", "ai-pop-main");
     const gIcon = h("span", "ai-pop-gauge");
     gIcon.innerHTML = ICON_GAUGE;
-    usageMain.append(gIcon, h("span", "ai-pop-name", "Ver uso y límites"));
+    usageMain.append(gIcon, h("span", "ai-pop-name", tr("Ver uso y límites")));
     viewUsage.append(usageMain, h("span", "ai-pop-chev", "›"));
     viewUsage.onmouseenter = () => openSideUsage();
     viewUsage.onclick = () => {
@@ -955,7 +958,7 @@ function openModelPopover(anchor: HTMLElement) {
     const manage = h("button", "ai-pop-item ai-pop-subtoggle");
     manage.type = "button";
     const manageMain = h("span", "ai-pop-main");
-    manageMain.append(h("span", "ai-pop-name", "Cuentas y suscripciones…"));
+    manageMain.append(h("span", "ai-pop-name", tr("Cuentas y suscripciones…")));
     manage.append(manageMain, h("span", "ai-pop-chev", "›"));
     manage.onclick = () => openAccountsPopover(anchor);
     pop.append(h("div", "ai-pop-sep"), viewUsage, manage);
@@ -976,9 +979,9 @@ async function syncAccountAndUsage(): Promise<void> {
 }
 
 function agyBucketLabel(b: AntigravityBucket): string {
-  if (b.window === "5h") return "Límite 5 h";
-  if (b.window === "weekly") return "Límite semanal";
-  return b.name || "Límite";
+  if (b.window === "5h") return tr("Límite 5 h");
+  if (b.window === "weekly") return tr("Límite semanal");
+  return b.name || tr("Límite");
 }
 
 function fillQuotaCard(card: HTMLElement) {
@@ -988,21 +991,21 @@ function fillQuotaCard(card: HTMLElement) {
   const head = h("div", "ai-inst-head");
   const headLeft = h("div", "ai-inst-head-left");
   const planBadgeText = activeProvider === "claude"
-    ? (tool?.plan ? `Plan ${planLabel(tool.plan)}` : "Conectado")
+    ? (tool?.plan ? tr("Plan {plan}", { plan: planLabel(tool.plan) }) : tr("Conectado"))
     : activeProvider === "codex"
-      ? (tool?.plan && tool.plan !== "ChatGPT" ? `Plan ${planLabel(tool.plan)}` : "ChatGPT")
+      ? (tool?.plan && tool.plan !== "ChatGPT" ? tr("Plan {plan}", { plan: planLabel(tool.plan) }) : "ChatGPT")
       : (tool?.plan || meta.short);
   headLeft.append(
-    h("span", "ai-inst-kicker", "Cuotas del plan"),
+    h("span", "ai-inst-kicker", tr("Cuotas del plan")),
     h("span", "ai-inst-plan", planBadgeText),
   );
-  const syncBtn = h("button", "ai-inst-sync", usageSyncing ? "Actualizando…" : "Sincronizar");
+  const syncBtn = h("button", "ai-inst-sync", usageSyncing ? tr("Actualizando…") : tr("Sincronizar"));
   syncBtn.type = "button";
   syncBtn.disabled = usageSyncing;
-  syncBtn.title = "Actualizar límites disponibles del plan";
+  syncBtn.title = tr("Actualizar límites disponibles del plan");
   syncBtn.onclick = () => {
     syncBtn.disabled = true;
-    syncBtn.textContent = "Actualizando…";
+    syncBtn.textContent = tr("Actualizando…");
     void syncAccountAndUsage().finally(() => { if (card.isConnected) fillQuotaCard(card); });
   };
   head.append(headLeft, syncBtn);
@@ -1016,21 +1019,21 @@ function fillQuotaCard(card: HTMLElement) {
           const w = agyWindowFromBucket(b);
           const row = h("div", "ai-inst-row");
           const top = h("div", "ai-inst-row-top");
-          top.append(h("span", "ai-inst-lbl", `${g.name} · ${agyBucketLabel(b)}`), h("span", "ai-inst-val", `${remainingPercent(w)} disp.`));
+          top.append(h("span", "ai-inst-lbl", `${g.name} · ${agyBucketLabel(b)}`), h("span", "ai-inst-val", tr("{pct} disp.", { pct: remainingPercent(w) })));
           const track = h("div", "ai-inst-track");
           const rem = remainingRatio(w);
           const bar = h("div", `ai-inst-fill${rem <= 0.1 ? " high" : rem <= 0.3 ? " warn" : ""}`);
           bar.style.width = `${Math.round(rem * 100)}%`;
           track.append(bar);
           const cd = resetCountdown(w);
-          const reset = cd && cd !== "ahora" ? `Se reinicia en ${cd}` : resetClockText(w);
+          const reset = cd && cd !== "ahora" ? tr("Se reinicia en {time}", { time: cd }) : resetClockText(w);
           row.append(top, track);
           if (reset) row.append(h("div", "ai-inst-sub", reset));
           meters.append(row);
         }
       }
     } else {
-      card.append(h("div", "ai-inst-note", "Consultando límites de Antigravity…"));
+      card.append(h("div", "ai-inst-note", tr("Consultando límites de Antigravity…")));
       return;
     }
     card.append(meters);
@@ -1038,7 +1041,7 @@ function fillQuotaCard(card: HTMLElement) {
   }
 
   const meters = h("div", "ai-inst-meters");
-  for (const [label, w] of [["Ventana 5 h", curUsage.fiveHour], ["Semanal", curUsage.sevenDay]] as const) {
+  for (const [label, w] of [[tr("Ventana 5 h"), curUsage.fiveHour], [tr("Semanal"), curUsage.sevenDay]] as const) {
     const row = h("div", "ai-inst-row");
     const top = h("div", "ai-inst-row-top");
     top.append(h("span", "ai-inst-lbl", label), h("span", "ai-inst-val", w ? `${remainingPercent(w)} disp.` : "—"));
@@ -1050,9 +1053,9 @@ function fillQuotaCard(card: HTMLElement) {
     const cd = resetCountdown(w);
     const clock = resetClockText(w);
     const emptyMsg = activeProvider === "claude"
-      ? (usageSyncing ? "Leyendo /usage…" : "Sin datos en esta ventana")
-      : "Consultando límites de ChatGPT…";
-    const reset = cd && cd !== "ahora" ? `Se reinicia en ${cd}` : (clock || emptyMsg);
+      ? (usageSyncing ? tr("Leyendo /usage…") : tr("Sin datos en esta ventana"))
+      : tr("Consultando límites de ChatGPT…");
+    const reset = cd && cd !== "ahora" ? tr("Se reinicia en {time}", { time: cd }) : (clock || emptyMsg);
     row.append(top, track, h("div", "ai-inst-sub", reset));
     meters.append(row);
   }
@@ -1061,18 +1064,18 @@ function fillQuotaCard(card: HTMLElement) {
   if (activeProvider === "claude" && usageError) {
     card.append(h("div", "ai-inst-note err", usageError));
   } else if (activeProvider === "claude" && usageSyncing) {
-    card.append(h("div", "ai-inst-note", "Sincronizando límites reales con Claude Code…"));
+    card.append(h("div", "ai-inst-note", tr("Sincronizando límites reales con Claude Code…")));
   }
 }
 
 function fillScopeStrip(box: HTMLElement, ctx: EditorContext) {
   box.replaceChildren();
-  const label = h("span", "ai-scope-lbl", "Alcance");
+  const label = h("span", "ai-scope-lbl", tr("Alcance"));
   const pills = h("div", "ai-scope-pills");
   if (ctx.file) {
     pills.append(h("span", "ai-scope-item active", baseName(ctx.file)));
   } else {
-    pills.append(h("span", "ai-scope-item", "Sin archivo activo"));
+    pills.append(h("span", "ai-scope-item", tr("Sin archivo activo")));
   }
   if (ctx.selection) {
     pills.append(h("span", "ai-scope-item sel", `L${ctx.selection.startLine}–${ctx.selection.endLine}`));
@@ -1080,7 +1083,7 @@ function fillScopeStrip(box: HTMLElement, ctx: EditorContext) {
   for (const ex of extraFiles) {
     if (ex !== ctx.file) pills.append(h("span", "ai-scope-item", baseName(ex)));
   }
-  const add = h("button", "ai-scope-add", "+ Adjuntar");
+  const add = h("button", "ai-scope-add", tr("+ Adjuntar"));
   add.type = "button";
   add.onclick = attachProjectFile;
   box.append(label, pills, add);
@@ -1098,7 +1101,7 @@ function usageRingRow(title: string, w: UsageWindow | undefined, emptyText: stri
   left.append(h("span", "ai-usage-label", title));
   const cd = resetCountdown(w);
   const clock = resetClockText(w);
-  const sub = cd && cd !== "ahora" ? `Se reinicia en ${cd}` : clock || emptyText;
+  const sub = cd && cd !== "ahora" ? tr("Se reinicia en {time}", { time: cd }) : clock || emptyText;
   left.append(h("span", "ai-usage-reset", sub));
   const right = h("div", "ai-usage-row-right");
   right.append(h("span", "ai-usage-pct", w ? `${remainingPercent(w)} disp.` : "—"), usageRing(w ? remainingRatio(w) : 0, 16));
@@ -1110,13 +1113,13 @@ function populateUsageContainer(pop: HTMLElement, onRefreshDone: () => void) {
   const prov = current?.convo.messages.length ? current.provider : activeProvider;
   pop.replaceChildren();
   const head = h("div", "ai-usage-pop-head");
-  head.append(h("span", "ai-usage-group", "Uso"));
-  const syncBtn = h("button", "ai-usage-sync", usageSyncing ? "Actualizando…" : "Actualizar");
+  head.append(h("span", "ai-usage-group", tr("Uso")));
+  const syncBtn = h("button", "ai-usage-sync", usageSyncing ? tr("Actualizando…") : tr("Actualizar"));
   syncBtn.type = "button";
   syncBtn.disabled = usageSyncing;
   syncBtn.onclick = () => {
     syncBtn.disabled = true;
-    syncBtn.textContent = "Actualizando…";
+    syncBtn.textContent = tr("Actualizando…");
     void syncAccountAndUsage().finally(onRefreshDone);
   };
   head.append(syncBtn);
@@ -1131,13 +1134,13 @@ function populateUsageContainer(pop: HTMLElement, onRefreshDone: () => void) {
           const sec = h("div", "ai-usage-section");
           sec.append(h("div", "ai-usage-sec-title", g.name));
           for (const b of g.buckets) {
-            sec.append(usageRingRow(agyBucketLabel(b), agyWindowFromBucket(b), "Sin datos"));
+            sec.append(usageRingRow(agyBucketLabel(b), agyWindowFromBucket(b), tr("Sin datos")));
           }
           pop.append(sec);
         }
       } else {
         const sec = h("div", "ai-usage-section");
-        sec.append(h("div", "ai-usage-sec-title", "Antigravity"), h("div", "ai-usage-note", "Consultando límites de tu cuenta…"));
+        sec.append(h("div", "ai-usage-sec-title", "Antigravity"), h("div", "ai-usage-note", tr("Consultando límites de tu cuenta…")));
         pop.append(sec);
       }
       continue;
@@ -1145,20 +1148,20 @@ function populateUsageContainer(pop: HTMLElement, onRefreshDone: () => void) {
     const sec = h("div", "ai-usage-section");
     if (id === "claude") {
       const cur = providerUsage("claude");
-      const title = t?.plan ? `Claude Code · Plan ${planLabel(t.plan)}` : "Claude Code";
+      const title = t?.plan ? "Claude Code · " + tr("Plan {plan}", { plan: planLabel(t.plan) }) : "Claude Code";
       sec.append(
         h("div", "ai-usage-sec-title", title),
-        usageRingRow("Límite semanal", cur.sevenDay, usageSyncing ? "Consultando /usage…" : "Pendiente de lectura"),
-        usageRingRow("Límite 5 h", cur.fiveHour, usageSyncing ? "Consultando /usage…" : "Pendiente de lectura"),
+        usageRingRow(tr("Límite semanal"), cur.sevenDay, usageSyncing ? tr("Consultando /usage…") : tr("Pendiente de lectura")),
+        usageRingRow(tr("Límite 5 h"), cur.fiveHour, usageSyncing ? tr("Consultando /usage…") : tr("Pendiente de lectura")),
       );
       if (usageError) sec.append(h("div", "ai-usage-note err", usageError));
     } else {
       const cur = providerUsage("codex");
-      const title = t?.plan && t.plan !== "ChatGPT" ? `ChatGPT / Codex · Plan ${planLabel(t.plan)}` : "ChatGPT / Codex";
+      const title = t?.plan && t.plan !== "ChatGPT" ? "ChatGPT / Codex · " + tr("Plan {plan}", { plan: planLabel(t.plan) }) : "ChatGPT / Codex";
       sec.append(
         h("div", "ai-usage-sec-title", title),
-        usageRingRow("Límite semanal", cur.sevenDay, "Consultando app-server…"),
-        usageRingRow("Límite 5 h", cur.fiveHour, "Consultando app-server…"),
+        usageRingRow(tr("Límite semanal"), cur.sevenDay, tr("Consultando app-server…")),
+        usageRingRow(tr("Límite 5 h"), cur.fiveHour, tr("Consultando app-server…")),
       );
     }
     pop.append(sec);
@@ -1167,9 +1170,9 @@ function populateUsageContainer(pop: HTMLElement, onRefreshDone: () => void) {
   const convo = current?.convo;
   if (convo && (convo.model || convo.outcome)) {
     const sess = h("div", "ai-usage-sess");
-    if (convo.model) sess.append(h("div", "ai-usage-meta", `Modelo activo: ${formatModelName(convo.model)}`));
-    if (convo.outcome?.durationMs) sess.append(h("div", "ai-usage-meta", `Último turno: ${(convo.outcome.durationMs / 1000).toFixed(1).replace(".", ",")} s`));
-    if (convo.outcome && convo.outcome.costUsd > 0) sess.append(h("div", "ai-usage-meta", `Coste reportado: $${convo.outcome.costUsd.toFixed(4)}`));
+    if (convo.model) sess.append(h("div", "ai-usage-meta", tr("Modelo activo: {model}", { model: formatModelName(convo.model) })));
+    if (convo.outcome?.durationMs) sess.append(h("div", "ai-usage-meta", tr("Último turno: {secs} s", { secs: seconds(convo.outcome.durationMs) })));
+    if (convo.outcome && convo.outcome.costUsd > 0) sess.append(h("div", "ai-usage-meta", tr("Coste reportado: {cost}", { cost: "$" + convo.outcome.costUsd.toFixed(4) })));
     pop.append(sess);
   }
 }
@@ -1189,7 +1192,7 @@ function openUsagePopover(anchor: HTMLElement) {
 
 function openQuickPromptsPopover(anchor: HTMLElement) {
   const pop = h("div", "ai-popover ai-quick-pop");
-  pop.append(h("div", "ai-pop-head", "Acciones rápidas"));
+  pop.append(h("div", "ai-pop-head", tr("Acciones rápidas")));
   for (const item of QUICK_PROMPTS) {
     const row = h("button", "ai-pop-item");
     row.type = "button";
@@ -1210,9 +1213,9 @@ function openQuickPromptsPopover(anchor: HTMLElement) {
 }
 
 function attachProjectFile() {
-  if (!ws.root) { setStatus("Abre una carpeta primero"); return; }
+  if (!ws.root) { setStatus(tr("Abre una carpeta primero")); return; }
   quickPick({
-    placeholder: "Adjuntar archivo del proyecto al contexto…",
+    placeholder: tr("Adjuntar archivo del proyecto al contexto…"),
     load: async () => {
       const files = await invoke<string[]>("list_files", { path: ws.root });
       return files.map((p) => ({ p, r: rel(p) })).sort((a, b) => a.r.localeCompare(b.r)).map<PickItem>(({ p, r }) => ({
@@ -1233,9 +1236,9 @@ function usageText(): string {
   const curTool = tools[prov] ?? tool;
   const curUsage = providerUsage(prov);
   const parts: string[] = [];
-  if (curTool?.plan) parts.push(prov === "claude" ? `Plan ${planLabel(curTool.plan)}` : `${PROVIDERS[prov].short} · ${planLabel(curTool.plan)}`);
-  if (curUsage.fiveHour) parts.push(`5 h: ${remainingPercent(curUsage.fiveHour)} disp.${resetIn(curUsage.fiveHour) ? ` (${resetIn(curUsage.fiveHour)})` : ""}`);
-  if (curUsage.sevenDay) parts.push(`sem.: ${remainingPercent(curUsage.sevenDay)} disp.`);
+  if (curTool?.plan) parts.push(prov === "claude" ? tr("Plan {plan}", { plan: planLabel(curTool.plan) }) : `${PROVIDERS[prov].short} · ${planLabel(curTool.plan)}`);
+  if (curUsage.fiveHour) parts.push(tr("5 h: {pct} disp.", { pct: remainingPercent(curUsage.fiveHour) }) + (resetIn(curUsage.fiveHour) ? ` (${resetIn(curUsage.fiveHour)})` : ""));
+  if (curUsage.sevenDay) parts.push(tr("sem.: {pct} disp.", { pct: remainingPercent(curUsage.sevenDay) }));
   return parts.join(" · ");
 }
 
@@ -1250,13 +1253,13 @@ function renderFoot() {
   const ratioLeft = curUsage.fiveHour ? remainingRatio(curUsage.fiveHour) : curUsage.sevenDay ? remainingRatio(curUsage.sevenDay) : 1;
   const trigger = h("button", "ai-usage-btn");
   trigger.type = "button";
-  trigger.title = "Ver límites disponibles del plan";
-  const pctText = curUsage.fiveHour ? `${remainingPercent(curUsage.fiveHour)} disp.` : curUsage.sevenDay ? `${remainingPercent(curUsage.sevenDay)} sem.` : "Ver uso";
+  trigger.title = tr("Ver límites disponibles del plan");
+  const pctText = curUsage.fiveHour ? tr("{pct} disp.", { pct: remainingPercent(curUsage.fiveHour) }) : curUsage.sevenDay ? tr("{pct} sem.", { pct: remainingPercent(curUsage.sevenDay) }) : tr("Ver uso");
   trigger.append(usageRing(hasWindows ? ratioLeft : 0, 14), h("span", "", pctText));
   trigger.onclick = () => openUsagePopover(trigger);
 
   if (!text || !hasWindows) {
-    foot.append(h("span", "ai-foot-text", `${text ? `${text} · ` : ""}Usa tu sesión de ${PROVIDERS[prov].title}`), trigger);
+    foot.append(h("span", "ai-foot-text", `${text ? `${text} · ` : ""}${tr("Usa tu sesión de {provider}", { provider: PROVIDERS[prov].title })}`), trigger);
     return;
   }
   const bars = h("span", "ai-meters");
@@ -1284,7 +1287,7 @@ function setupMessage(title: string, text: string, ...extra: HTMLElement[]): HTM
     card.append(actions);
   }
   const accts = h("div", "ai-setup-accts");
-  accts.append(h("div", "ai-inst-kicker", "Tus cuentas y suscripciones"), buildAccountsList());
+  accts.append(h("div", "ai-inst-kicker", tr("Tus cuentas y suscripciones")), buildAccountsList());
   card.append(accts);
   box.append(card);
   return box;
@@ -1301,7 +1304,7 @@ async function detectProviderNow(prov: AiProvider) {
     if (next.logged_in) {
       awaitingLogin = false;
       window.clearInterval(loginWatchTimer);
-      if (!wasLogged) setStatus(`${PROVIDERS[prov].title} conectado`, 4000);
+      if (!wasLogged) setStatus(tr("{provider} conectado", { provider: PROVIDERS[prov].title }), 4000);
       if (prov === "claude") void refreshUsage();
       void detect(true);
     }
@@ -1334,7 +1337,7 @@ function buildEmptyWorkbench(): HTMLElement {
   const empty = h("div", "ai-empty ai-bench");
   const main = h("div", "ai-bench-main");
 
-  const modeShort = mode === "full" ? "Agente" : mode === "edit" ? "Puede editar" : "Solo leer";
+  const modeShort = mode === "full" ? tr("Agente") : mode === "edit" ? tr("Puede editar") : tr("Solo leer");
   const modeCls = mode === "full" ? " full" : mode === "edit" ? " edit" : "";
   const eyebrow = h("div", "ai-bench-eyebrow");
   eyebrow.append(
@@ -1343,10 +1346,10 @@ function buildEmptyWorkbench(): HTMLElement {
   );
 
   const hero = h("div", "ai-bench-hero");
-  const wsName = baseName(ws.root ?? "") || "Proyecto";
+  const wsName = baseName(ws.root ?? "") || tr("Proyecto");
   hero.append(
-    h("div", "ai-empty-title", `Mesa de trabajo · ${wsName}`),
-    h("p", "ai-bench-lead", `Conversa directo sobre el código abierto usando tu sesión local de ${meta.title}, sin claves almacenadas.`),
+    h("div", "ai-empty-title", tr("Mesa de trabajo · {folder}", { folder: wsName })),
+    h("p", "ai-bench-lead", tr("Conversa directo sobre el código abierto usando tu sesión local de {provider}, sin claves almacenadas.", { provider: meta.title })),
   );
 
   const scope = h("div", "ai-scope-strip");
@@ -1369,8 +1372,8 @@ function buildEmptyWorkbench(): HTMLElement {
   const threadsCard = h("div", "ai-inst-card ai-inst-threads");
   const thHead = h("div", "ai-inst-head");
   const thLeft = h("div", "ai-inst-head-left");
-  thLeft.append(h("span", "ai-inst-kicker", "Sesiones recientes"));
-  const allBtn = h("button", "ai-inst-sync", "Ver todo");
+  thLeft.append(h("span", "ai-inst-kicker", tr("Sesiones recientes")));
+  const allBtn = h("button", "ai-inst-sync", tr("Ver todo"));
   allBtn.type = "button";
   allBtn.onclick = () => { historyOpen = true; renderBody(); };
   thHead.append(thLeft, allBtn);
@@ -1397,9 +1400,9 @@ function buildEmptyWorkbench(): HTMLElement {
     const activeOpt = findModelOption(model);
     const effOpt = EFFORTS.find((e) => e.value === effort)?.label ?? "Auto";
     spec.append(
-      h("div", "ai-spec-row", `Motor activo: ${activeOpt.label}`),
-      h("div", "ai-spec-row", `Esfuerzo: ${effOpt} · Modo: ${mode === "full" ? "Agente completo" : mode === "edit" ? "Edición directa" : "Solo lectura"}`),
-      h("div", "ai-inst-note", `Tus hilos guardados en ${wsName} aparecerán aquí para retomarlos en un clic.`),
+      h("div", "ai-spec-row", tr("Motor activo: {model}", { model: activeOpt.label })),
+      h("div", "ai-spec-row", tr("Esfuerzo: {effort} · Modo: {mode}", { effort: effOpt, mode: mode === "full" ? tr("Agente completo") : mode === "edit" ? tr("Edición directa") : tr("Solo lectura") })),
+      h("div", "ai-inst-note", tr("Tus hilos guardados en {folder} aparecerán aquí para retomarlos en un clic.", { folder: wsName })),
     );
     threadsCard.append(spec);
   }
@@ -1417,16 +1420,16 @@ const dismissedDenials = new Set<string>();
 function buildDenialCard(live: Live, denials: number, actions: readonly DeniedAction[] | undefined, dismissKey: string): HTMLElement {
   const card = h("div", "ai-denial-card");
   card.setAttribute("role", "region");
-  card.setAttribute("aria-label", "Permiso requerido por el agente");
+  card.setAttribute("aria-label", tr("Permiso requerido por el agente"));
 
   const wantsFull = mode !== "read" || needsCommandPermission(actions);
   const targetMode: AiMode = wantsFull ? "full" : "edit";
-  const targetLabel = targetMode === "full" ? "Agente" : "Puede editar";
+  const targetLabel = targetMode === "full" ? tr("Agente") : tr("Puede editar");
 
   const head = h("div", "ai-denial-head");
   head.append(
     h("span", "ai-denial-badge", "PERMISO REQUERIDO"),
-    h("span", "ai-denial-title", denials === 1 ? "El agente necesitó ejecutar una acción bloqueada" : `El agente necesitó ejecutar ${denials} acciones bloqueadas`),
+    h("span", "ai-denial-title", denials === 1 ? tr("El agente necesitó ejecutar una acción bloqueada") : tr("El agente necesitó ejecutar {count} acciones bloqueadas", { count: denials })),
   );
   card.append(head);
 
@@ -1442,23 +1445,23 @@ function buildDenialCard(live: Live, denials: number, actions: readonly DeniedAc
     card.append(list);
   } else {
     const explain = targetMode === "full"
-      ? "El modo actual no permite ejecutar comandos de terminal (como run_command o Bash). Aprueba esta acción para que el agente pueda completar la tarea."
-      : "El modo «Solo leer» impide modificar archivos. Aprueba la edición para que el agente pueda continuar.";
+      ? tr("El modo actual no permite ejecutar comandos de terminal (como run_command o Bash). Aprueba esta acción para que el agente pueda completar la tarea.")
+      : tr("El modo «Solo leer» impide modificar archivos. Aprueba la edición para que el agente pueda continuar.");
     card.append(h("p", "ai-denial-msg", explain));
   }
 
   const acts = h("div", "ai-denial-acts");
-  const onceBtn = h("button", "ai-denial-btn primary", "Permitir una vez y continuar");
+  const onceBtn = h("button", "ai-denial-btn primary", tr("Permitir una vez y continuar"));
   onceBtn.type = "button";
   onceBtn.onclick = () => {
     dismissedDenials.add(dismissKey);
     const contPrompt = targetMode === "full"
       ? "El usuario aprobó ejecutar el comando o herramienta que quedó bloqueada en el paso anterior. Ejecútalo ahora y completa la tarea pendiente."
       : "El usuario aprobó modificar archivos para el paso anterior. Aplica los cambios y completa la tarea pendiente.";
-    void dispatchPrompt(live, "Permiso concedido (una vez) · continuar", contPrompt, targetMode);
+    void dispatchPrompt(live, tr("Permiso concedido (una vez) · continuar"), contPrompt, targetMode);
   };
 
-  const switchBtn = h("button", "ai-denial-btn", `Activar «${targetLabel}» y continuar`);
+  const switchBtn = h("button", "ai-denial-btn", tr("Activar «{mode}» y continuar", { mode: targetLabel }));
   switchBtn.type = "button";
   switchBtn.onclick = () => {
     dismissedDenials.add(dismissKey);
@@ -1469,10 +1472,10 @@ function buildDenialCard(live: Live, denials: number, actions: readonly DeniedAc
     const contPrompt = targetMode === "full"
       ? "El usuario activó el modo Agente completo (edición y comandos de terminal aprobados). Ejecuta lo que quedó pendiente y completa la tarea."
       : "El usuario activó el modo Puede editar. Aplica los cambios y completa la tarea pendiente.";
-    void dispatchPrompt(live, `Modo «${targetLabel}» activado · continuar`, contPrompt, targetMode);
+    void dispatchPrompt(live, tr("Modo «{mode}» activado · continuar", { mode: targetLabel }), contPrompt, targetMode);
   };
 
-  const dismissBtn = h("button", "ai-denial-btn ghost", "No permitir");
+  const dismissBtn = h("button", "ai-denial-btn ghost", tr("No permitir"));
   dismissBtn.type = "button";
   dismissBtn.onclick = () => {
     dismissedDenials.add(dismissKey);
@@ -1501,16 +1504,16 @@ function renderIssueBanner() {
     h("code", "ai-issue-branch", work.branch),
   );
   const acts = h("div", "ai-issue-acts");
-  const prBtn = h("button", "ai-issue-btn primary", "Crear PR");
+  const prBtn = h("button", "ai-issue-btn primary", tr("Crear PR"));
   prBtn.type = "button";
-  prBtn.title = `Crear pull request enlazando Closes #${work.number}`;
+  prBtn.title = tr("Crear pull request enlazando Closes #{number}", { number: work.number });
   prBtn.onclick = () => {
     const files = current ? touchedFiles(current.convo.messages) : [];
     void createPrForActiveIssue(files);
   };
-  const endBtn = h("button", "ai-issue-btn", "Finalizar");
+  const endBtn = h("button", "ai-issue-btn", tr("Finalizar"));
   endBtn.type = "button";
-  endBtn.title = "Dejar de asociar esta issue al asistente";
+  endBtn.title = tr("Dejar de asociar esta issue al asistente");
   endBtn.onclick = () => { clearActiveIssueWork(); renderIssueBanner(); };
   acts.append(prBtn, endBtn);
   banner.replaceChildren(info, acts);
@@ -1544,7 +1547,7 @@ function renderBody() {
   const sub = q(".ai-sub");
   if (sub) {
     if (!curTool?.installed) sub.textContent = "";
-    else if (prov === "claude") sub.textContent = `Claude Code${curTool.version ? ` ${curTool.version.split(" ")[0]}` : ""}${curTool.plan ? ` · plan ${planLabel(curTool.plan)}` : ""}`;
+    else if (prov === "claude") sub.textContent = `Claude Code${curTool.version ? ` ${curTool.version.split(" ")[0]}` : ""}${curTool.plan ? " · " + tr("plan {plan}", { plan: planLabel(curTool.plan) }) : ""}`;
     else sub.textContent = `${meta.title}${curTool.version ? ` ${curTool.version.split(" ")[0]}` : ""}${curTool.plan ? ` · ${curTool.plan}` : ""}`;
   }
   const liveDot = q(".ai-live-dot");
@@ -1555,51 +1558,51 @@ function renderBody() {
   if (planBadge) {
     planBadge.hidden = !curTool?.installed || !curTool.logged_in;
     planBadge.textContent = prov === "claude"
-      ? (curTool?.plan ? `Plan ${planLabel(curTool.plan)}` : "Conectado")
+      ? (curTool?.plan ? tr("Plan {plan}", { plan: planLabel(curTool.plan) }) : tr("Conectado"))
       : prov === "codex"
         ? (curTool?.auth_method === "api_key" ? "Codex API" : curTool?.plan && curTool.plan !== "ChatGPT" ? `ChatGPT ${planLabel(curTool.plan)}` : "ChatGPT")
         : (curTool?.plan || "Antigravity");
   }
-  const histBtn = q<HTMLButtonElement>('.ai-tools button[title="Conversaciones anteriores"]');
+  const histBtn = q<HTMLButtonElement>('.ai-tools button[title=tr("Conversaciones anteriores")]');
   if (histBtn) { histBtn.classList.toggle("active", historyOpen); histBtn.setAttribute("aria-pressed", String(historyOpen)); }
   renderIssueBanner();
   renderFoot();
   const recheck = () => { toolAt = 0; void detect(true); };
   const ready = !!curTool?.installed && curTool.logged_in && !!ws.root;
   compose.hidden = !ready || historyOpen;
-  if (!curTool) { resetTurnCache(); body.replaceChildren(setupMessage(`Detectando ${meta.title}`, "Comprobando sesión y estado de tu cuenta…")); return; }
+  if (!curTool) { resetTurnCache(); body.replaceChildren(setupMessage(tr("Detectando {provider}", { provider: meta.title }), tr("Comprobando sesión y estado de tu cuenta…"))); return; }
   if (!curTool.installed) {
     resetTurnCache();
     const canInstall = !!(meta.npmPkg || meta.installCmdPs);
-    const installBtn = canInstall ? (() => { const b = h("button", "foot-btn ai-btn-primary", "Instalar y conectar"); b.type = "button"; b.onclick = () => void installAndConnect(prov); return b; })() : null;
-    const again = h("button", canInstall ? "foot-btn foot-btn-line" : "foot-btn ai-btn-primary", "Volver a comprobar"); again.type = "button"; again.onclick = recheck;
-    const guide = h("button", "foot-btn foot-btn-line", "Cómo instalarlo"); guide.type = "button"; guide.onclick = () => void openExternal(meta.docsUrl);
+    const installBtn = canInstall ? (() => { const b = h("button", "foot-btn ai-btn-primary", tr("Instalar y conectar")); b.type = "button"; b.onclick = () => void installAndConnect(prov); return b; })() : null;
+    const again = h("button", canInstall ? "foot-btn foot-btn-line" : "foot-btn ai-btn-primary", tr("Volver a comprobar")); again.type = "button"; again.onclick = recheck;
+    const guide = h("button", "foot-btn foot-btn-line", tr("Cómo instalarlo")); guide.type = "button"; guide.onclick = () => void openExternal(meta.docsUrl);
     const extraBtns: HTMLElement[] = [...(installBtn ? [installBtn] : []), again, guide];
     if (prov !== "claude") {
-      const back = h("button", "foot-btn foot-btn-line", "Volver a Claude Code"); back.type = "button"; back.onclick = () => switchProvider("claude");
+      const back = h("button", "foot-btn foot-btn-line", tr("Volver a Claude Code")); back.type = "button"; back.onclick = () => switchProvider("claude");
       extraBtns.push(back);
     }
-    body.replaceChildren(setupMessage(`${meta.title} no está instalado`, meta.installHint, ...extraBtns));
+    body.replaceChildren(setupMessage(tr("{provider} no está instalado", { provider: meta.title }), meta.installHint, ...extraBtns));
     return;
   }
   if (!curTool.logged_in) {
     resetTurnCache();
     const login = h("button", "foot-btn ai-btn-primary", meta.loginBtn); login.type = "button";
     login.onclick = () => startLoginFlow(prov);
-    const again = h("button", "foot-btn foot-btn-line", "Ya inicié sesión: volver a comprobar"); again.type = "button"; again.onclick = recheck;
+    const again = h("button", "foot-btn foot-btn-line", tr("Ya inicié sesión: volver a comprobar")); again.type = "button"; again.onclick = recheck;
     const extraBtns: HTMLElement[] = [login, again];
-    const title = prov === "claude" ? "Inicia sesión para cargar tu plan" : `Inicia sesión en ${meta.title}`;
+    const title = prov === "claude" ? tr("Inicia sesión para cargar tu plan") : tr("Inicia sesión en {provider}", { provider: meta.title });
     const desc = prov === "claude"
       ? "Claude Code está instalado pero no hay una sesión iniciada. Se abrirá el inicio de sesión y tu plan se cargará al instante."
-      : `${meta.title} está instalado pero no hay una sesión iniciada. Se abrirá el inicio de sesión en la terminal integrada.`;
+      : tr("{provider} está instalado pero no hay una sesión iniciada. Se abrirá el inicio de sesión en la terminal integrada.", { provider: meta.title });
     if (prov !== "claude") {
-      const back = h("button", "foot-btn foot-btn-line", "Volver a Claude Code"); back.type = "button"; back.onclick = () => switchProvider("claude");
+      const back = h("button", "foot-btn foot-btn-line", tr("Volver a Claude Code")); back.type = "button"; back.onclick = () => switchProvider("claude");
       extraBtns.push(back);
     }
     body.replaceChildren(setupMessage(title, desc, ...extraBtns));
     return;
   }
-  if (!ws.root) { resetTurnCache(); body.replaceChildren(setupMessage("Abre un proyecto", "Abre una carpeta de proyecto para que el asistente pueda leer tu código y ayudarte dentro de ella.")); return; }
+  if (!ws.root) { resetTurnCache(); body.replaceChildren(setupMessage(tr("Abre un proyecto"), tr("Abre una carpeta de proyecto para que el asistente pueda leer tu código y ayudarte dentro de ella."))); return; }
   if (historyOpen) { resetTurnCache(); renderHistory(body); return; }
 
   const live = current ?? (current = newLive());
@@ -1654,7 +1657,7 @@ function renderBody() {
       const e = h("div", "ai-error");
       e.append(h("div", "", c.error));
       if (isAuthError(c.error)) {
-        const b = h("button", "foot-btn foot-btn-line", "Iniciar sesión en la terminal"); b.type = "button";
+        const b = h("button", "foot-btn foot-btn-line", tr("Iniciar sesión en la terminal")); b.type = "button";
         b.onclick = () => startLoginFlow(live.provider);
         e.append(b);
       }
@@ -1674,14 +1677,14 @@ function renderBody() {
       const proposals = assistantMd ? extractProposedEdits(assistantMd) : [];
       if (proposals.length) {
         const pbox = h("div", "ai-proposals");
-        pbox.append(h("span", "ai-touched-label", `Revisar cambios propuestos (${proposals.length}):`));
+        pbox.append(h("span", "ai-touched-label", tr("Revisar cambios propuestos ({count}):", { count: proposals.length })));
         for (const edit of proposals) {
           const pkey = `${live.id}:${lastAssistant?.id ?? ""}:${edit.path}`;
           const st = proposalStatus.get(pkey);
           const label = st === "applied" ? `${baseName(edit.path)} ✓` : st === "discarded" ? `${baseName(edit.path)} ✕` : `Diff: ${baseName(edit.path)}`;
           const btn = h("button", `ai-prop-btn${st ? ` ${st}` : ""}`, label);
           btn.type = "button";
-          btn.title = `${edit.path} — Revisar diferencias antes de aplicar`;
+          btn.title = tr("{path} — Revisar diferencias antes de aplicar", { path: edit.path });
           btn.onclick = () => {
             if (isFull()) setFull(false);
             void reviewProposedEdit(
@@ -1698,7 +1701,7 @@ function renderBody() {
         const files = touchedFiles(c.messages);
         if (files.length) {
           const box = h("div", "ai-touched");
-          box.append(h("span", "ai-touched-label", "Archivos modificados:"));
+          box.append(h("span", "ai-touched-label", tr("Archivos modificados:")));
           for (const fp of files) {
             const resolved = resolveToolFile(fp);
             const btn = h("button", "ai-touched-file", baseName(fp));
@@ -1719,11 +1722,11 @@ function renderBody() {
             tailNodes.push(buildDenialCard(live, c.outcome.denials, c.outcome.deniedActions, dKey));
           }
         }
-        const secs = c.outcome.durationMs ? ` · ${(c.outcome.durationMs / 1000).toFixed(1).replace(".", ",")} s` : "";
+        const secs = c.outcome.durationMs ? ` · ${seconds(c.outcome.durationMs)} s` : "";
         const modelTag = c.model ? ` · ${formatModelName(c.model)}` : "";
-        const o = h("div", "ai-outcome", `Listo${secs}${modelTag}`);
+        const o = h("div", "ai-outcome", tr("Listo") + secs + modelTag);
         if (c.touched) o.append(` · ${c.touched} archivo${c.touched === 1 ? "" : "s"} modificado${c.touched === 1 ? "" : "s"}`);
-        if (c.outcome.denials) o.append(` · ${c.outcome.denials} acción${c.outcome.denials === 1 ? "" : "es"} no permitida${c.outcome.denials === 1 ? "" : "s"}`);
+        if (c.outcome.denials) o.append(" · " + (c.outcome.denials === 1 ? tr("1 acción no permitida") : tr("{count} acciones no permitidas", { count: c.outcome.denials })));
         tailNodes.push(o);
       }
     }
@@ -1732,7 +1735,7 @@ function renderBody() {
   if (atBottom) body.scrollTop = body.scrollHeight;
   const send = q<HTMLButtonElement>(".ai-send")!;
   send.innerHTML = c.running ? ICON_STOP : ICON_SEND;
-  send.title = c.running ? "Parar" : "Enviar (Enter)";
+  send.title = c.running ? tr("Parar") : tr("Enviar (Enter)");
   send.setAttribute("aria-label", send.title);
   send.classList.toggle("stop", c.running);
   renderChips();
@@ -1744,8 +1747,8 @@ function renderHistory(body: HTMLElement) {
   for (const l of lives.values()) if (l.convo.messages.length && l.cwd === ws.root) rows.push({ id: l.id, title: titleFrom(l.convo.messages), when: Date.now(), running: l.convo.running });
   for (const c of saved) if (!rows.some((r) => r.id === c.id)) rows.push({ id: c.id, title: c.title, when: c.updatedAt, running: false });
   rows.sort((a, b) => b.when - a.when);
-  const nodes: HTMLElement[] = [h("div", "ai-hist-title", "Conversaciones de este proyecto")];
-  if (!rows.length) nodes.push(h("div", "ai-hist-empty", "Aún no hay conversaciones guardadas."));
+  const nodes: HTMLElement[] = [h("div", "ai-hist-title", tr("Conversaciones de este proyecto"))];
+  if (!rows.length) nodes.push(h("div", "ai-hist-empty", tr("Aún no hay conversaciones guardadas.")));
   for (const r of rows) {
     const row = h("div", `ai-hist-row${current?.id === r.id ? " current" : ""}`);
     const open = h("button", "ai-hist-open"); open.type = "button";
@@ -1756,7 +1759,7 @@ function renderHistory(body: HTMLElement) {
       current = opened;
       historyOpen = false; renderBody();
     };
-    const del = iconBtn('<svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/></svg>', "Eliminar esta conversación", "ai-hist-del");
+    const del = iconBtn('<svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/></svg>', tr("Eliminar esta conversación"), "ai-hist-del");
     del.onclick = () => { deleteChat(r.id); if (lives.get(r.id)?.convo.running) { void invoke("ai_stop", { id: r.id }); } lives.delete(r.id); if (current?.id === r.id) current = null; renderBody(); };
     row.append(open, del);
     nodes.push(row);
@@ -1801,9 +1804,9 @@ async function detect(force = false) {
         awaitingLogin = false;
         window.clearInterval(loginWatchTimer);
         if (activeProvider === "claude" && curTool.plan) {
-          setStatus(`Claude Code conectado · Plan ${planLabel(curTool.plan)}`, 4000);
+          setStatus(tr("Claude Code conectado · Plan {plan}", { plan: planLabel(curTool.plan) }), 4000);
         } else if (activeProvider !== "claude") {
-          setStatus(`${PROVIDERS[activeProvider].title} conectado`, 4000);
+          setStatus(tr("{provider} conectado", { provider: PROVIDERS[activeProvider].title }), 4000);
         }
       }
     } catch (e) {
@@ -1870,7 +1873,7 @@ function applyMode() {
   v.classList.toggle("ai-full", isFull());
   v.classList.toggle("ai-docked", !isFull());
   const expand = q<HTMLElement>(".ai-expand");
-  if (expand) { expand.title = isFull() ? "Volver a la barra lateral (Esc)" : "Pantalla completa"; expand.setAttribute("aria-label", expand.title); expand.innerHTML = isFull() ? ICON_SHRINK : ICON_EXPAND; }
+  if (expand) { expand.title = isFull() ? tr("Volver a la barra lateral (Esc)") : tr("Pantalla completa"); expand.setAttribute("aria-label", expand.title); expand.innerHTML = isFull() ? ICON_SHRINK : ICON_EXPAND; }
 }
 
 function setFull(full: boolean) {
@@ -1886,20 +1889,20 @@ function onKey(e: KeyboardEvent) {
 async function chooseMode(next: AiMode) {
   if (next === mode) return;
   if (next === "edit" && localStorage.getItem("pulso.ai.editOk") !== "1") {
-    const msg = `Con «Puede editar», ${PROVIDERS[activeProvider].title} podrá modificar y crear archivos en tu proyecto sin preguntar cada vez. Verás los cambios en el panel de Git y podrás descartarlos. Si necesita ejecutar un comando de terminal, Pulso te pedirá permiso.`;
+    const msg = tr("Con «Puede editar», {provider} podrá modificar y crear archivos en tu proyecto sin preguntar cada vez. Verás los cambios en el panel de Git y podrás descartarlos. Si necesita ejecutar un comando de terminal, Pulso te pedirá permiso.", { provider: PROVIDERS[activeProvider].title });
     const r = await showDialog({
-      title: "Permitir que la IA edite archivos",
+      title: tr("Permitir que la IA edite archivos"),
       message: msg,
-      buttons: [{ label: "Cancelar", value: "cancel" }, { label: "Permitir editar", value: "ok", primary: true }],
+      buttons: [{ label: tr("Cancelar"), value: "cancel" }, { label: tr("Permitir editar"), value: "ok", primary: true }],
     });
     if (r !== "ok") { build(); return; }
     localStorage.setItem("pulso.ai.editOk", "1");
   } else if (next === "full" && localStorage.getItem("pulso.ai.fullOk") !== "1") {
-    const msg = `Con «Agente», ${PROVIDERS[activeProvider].title} podrá modificar archivos Y ejecutar comandos de terminal (pruebas, búsquedas, diagnósticos, git, etc.) dentro de tu proyecto sin pedir confirmación en cada paso. Actívalo solo en proyectos en los que confíes.`;
+    const msg = tr("Con «Agente», {provider} podrá modificar archivos Y ejecutar comandos de terminal (pruebas, búsquedas, diagnósticos, git, etc.) dentro de tu proyecto sin pedir confirmación en cada paso. Actívalo solo en proyectos en los que confíes.", { provider: PROVIDERS[activeProvider].title });
     const r = await showDialog({
-      title: "Activar modo Agente completo",
+      title: tr("Activar modo Agente completo"),
       message: msg,
-      buttons: [{ label: "Cancelar", value: "cancel" }, { label: "Activar modo Agente", value: "ok", primary: true }],
+      buttons: [{ label: tr("Cancelar"), value: "cancel" }, { label: tr("Activar modo Agente"), value: "ok", primary: true }],
     });
     if (r !== "ok") { build(); return; }
     localStorage.setItem("pulso.ai.fullOk", "1");
@@ -1925,55 +1928,55 @@ function build() {
   const titleRow = h("div", "ai-title-row");
   const planBtn = h("button", "ai-plan-pill", "");
   planBtn.type = "button";
-  planBtn.title = "Ver y conectar suscripciones (Claude, ChatGPT, Antigravity)";
+  planBtn.title = tr("Ver y conectar suscripciones (Claude, ChatGPT, Antigravity)");
   planBtn.onclick = () => openAccountsPopover(planBtn);
-  titleRow.append(h("span", "ai-live-dot", ""), h("span", "ai-title", "Asistente"), planBtn);
+  titleRow.append(h("span", "ai-live-dot", ""), h("span", "ai-title", tr("Asistente")), planBtn);
   titles.append(titleRow, h("span", "ai-sub", ""));
   const tools = h("div", "ai-tools");
-  const add = iconBtn(ICON_PLUS, "Nueva conversación"); add.onclick = newConversation;
-  const hist = iconBtn(ICON_CLOCK, "Conversaciones anteriores"); hist.onclick = () => { historyOpen = !historyOpen; renderBody(); };
-  const themeBtn = iconBtn(ICON_PALETTE, "Cambiar color de fondo"); themeBtn.onclick = () => openAppearancePopover(themeBtn);
-  const expand = iconBtn(ICON_EXPAND, "Pantalla completa", "ai-expand"); expand.onclick = () => setFull(!isFull());
+  const add = iconBtn(ICON_PLUS, tr("Nueva conversación")); add.onclick = newConversation;
+  const hist = iconBtn(ICON_CLOCK, tr("Conversaciones anteriores")); hist.onclick = () => { historyOpen = !historyOpen; renderBody(); };
+  const themeBtn = iconBtn(ICON_PALETTE, tr("Cambiar color de fondo")); themeBtn.onclick = () => openAppearancePopover(themeBtn);
+  const expand = iconBtn(ICON_EXPAND, tr("Pantalla completa"), "ai-expand"); expand.onclick = () => setFull(!isFull());
   tools.append(add, hist, themeBtn, expand);
   head.append(titles, h("span", "grow"), tools);
 
   const body = h("div", "ai-body");
   body.tabIndex = 0;
   body.setAttribute("role", "log");
-  body.setAttribute("aria-label", "Conversación con la IA");
+  body.setAttribute("aria-label", tr("Conversación con la IA"));
 
   const compose = h("form", "ai-compose");
   const dock = h("div", "ai-dock");
   const dockCtx = h("div", "ai-dock-ctx"); dockCtx.hidden = true;
   const chips = h("div", "ai-chips"); chips.hidden = true;
-  dockCtx.append(h("span", "ai-dock-ctx-lbl", "Contexto"), chips);
+  dockCtx.append(h("span", "ai-dock-ctx-lbl", tr("Contexto")), chips);
 
   const inputWrap = h("div", "ai-input-wrap");
   const input = h("textarea", "ai-input");
-  input.rows = 1; input.placeholder = "Describe el cambio, duda o archivo a inspeccionar…"; input.setAttribute("aria-label", "Mensaje para la IA"); input.value = keep;
+  input.rows = 1; input.placeholder = tr("Describe el cambio, duda o archivo a inspeccionar…"); input.setAttribute("aria-label", tr("Mensaje para la IA")); input.value = keep;
   inputWrap.append(h("span", "ai-input-caret", "›"), input);
 
   const dockBar = h("div", "ai-dock-bar");
   const leftBar = h("div", "ai-dock-left");
-  const attachBtn = iconBtn(ICON_PLUS, "Adjuntar archivo del proyecto", "ai-compose-act");
+  const attachBtn = iconBtn(ICON_PLUS, tr("Adjuntar archivo del proyecto"), "ai-compose-act");
   attachBtn.onclick = attachProjectFile;
-  const quickBtn = iconBtn('<svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>', "Acciones rápidas", "ai-compose-act");
+  const quickBtn = iconBtn('<svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>', tr("Acciones rápidas"), "ai-compose-act");
   quickBtn.onclick = () => openQuickPromptsPopover(quickBtn);
 
   const modelBtn = h("button", "ai-model-btn");
   modelBtn.type = "button";
-  modelBtn.title = "Cambiar modelo y esfuerzo";
-  modelBtn.setAttribute("aria-label", "Modelo");
+  modelBtn.title = tr("Cambiar modelo y esfuerzo");
+  modelBtn.setAttribute("aria-label", tr("Modelo"));
   modelBtn.append(h("span", "ai-model-btn-label", modelButtonText()), h("span", "ai-model-btn-chev", "⌄"));
   modelBtn.onclick = () => openModelPopover(modelBtn);
 
   const seg = h("div", "seg ai-mode");
   seg.setAttribute("role", "tablist");
-  seg.setAttribute("aria-label", "Permisos");
+  seg.setAttribute("aria-label", tr("Permisos"));
   const modeOptions: readonly [AiMode, string, string][] = [
-    ["read", "Solo leer", "La IA puede leer y buscar en tu proyecto, pero no modificarlo"],
-    ["edit", "Puede editar", "La IA puede editar archivos directamente. Si intenta ejecutar comandos, Pulso te pedirá permiso"],
-    ["full", "Agente", "La IA puede editar archivos y ejecutar comandos de terminal en tu proyecto para completar tareas"],
+    ["read", tr("Solo leer"), tr("La IA puede leer y buscar en tu proyecto, pero no modificarlo")],
+    ["edit", tr("Puede editar"), tr("La IA puede editar archivos directamente. Si intenta ejecutar comandos, Pulso te pedirá permiso")],
+    ["full", tr("Agente"), tr("La IA puede editar archivos y ejecutar comandos de terminal en tu proyecto para completar tareas")],
   ];
   for (const [value, label, hint] of modeOptions) {
     const b = h("button", "", label); b.type = "button"; b.title = hint; b.setAttribute("role", "tab"); b.setAttribute("aria-selected", String(mode === value));
@@ -1983,7 +1986,7 @@ function build() {
   leftBar.append(attachBtn, quickBtn, modelBtn, seg);
 
   const rightBar = h("div", "ai-dock-right");
-  const sendBtn = h("button", "ai-send"); sendBtn.type = "submit"; sendBtn.innerHTML = ICON_SEND; sendBtn.title = "Enviar (Enter)"; sendBtn.setAttribute("aria-label", "Enviar");
+  const sendBtn = h("button", "ai-send"); sendBtn.type = "submit"; sendBtn.innerHTML = ICON_SEND; sendBtn.title = tr("Enviar (Enter)"); sendBtn.setAttribute("aria-label", tr("Enviar"));
   rightBar.append(h("span", "ai-send-hint", "Enter ↵"), sendBtn);
   dockBar.append(leftBar, rightBar);
   dock.append(dockCtx, inputWrap, dockBar);
