@@ -64,6 +64,7 @@ La configuración y los atajos se pueden consultar con `Ctrl+,`. La vista de iss
 - [Funciones y guía de uso](docs/FUNCIONES.md): inventario, atajos, limitaciones y pruebas manuales.
 - [Arquitectura e implementaciones](docs/ARQUITECTURA.md): estructura del código, almacenamiento, terminal, confiabilidad y LSP.
 - [Mejoras pendientes](docs/HOJA-DE-RUTA.md): prioridades y propuestas que aún no están implementadas.
+- [Plan para publicar](docs/PLAN-LANZAMIENTO.md): qué falta para entregar Pulso al público, arreglos, funciones nuevas y cómo depender menos de terceros.
 
 ## Pruebas
 
@@ -82,3 +83,9 @@ El instalador y su prueba están en [docs/DISTRIBUCION.md](docs/DISTRIBUCION.md)
 
 `npm run e2e` necesita la aplicación abierta con el puerto de depuración WebView2 configurado; los pasos están al comienzo de `scripts/e2e.mjs`.
 `test:lsp:ui` requiere Windows, WebView2 y una compilación reciente en `src-tauri\target\debug\pulso-editor.exe`; abre una instancia aislada con un proyecto temporal y usa el puerto local 19337.
+
+En GitHub, la integración continua (`.github/workflows/ci.yml`) ejecuta en Windows y Linux, en cada push a `main` y en cada pull request, las pruebas TypeScript y Rust, la comprobación de tipos y la compilación web.
+
+## Licencia
+
+Pulso se publica bajo la [licencia MIT](LICENSE). Los componentes de terceros que incluye y sus licencias están en [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

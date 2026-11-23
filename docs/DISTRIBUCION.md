@@ -35,6 +35,17 @@ Probado el 17/11/2026 en un solo equipo con Windows 11 (el del desarrollo, con N
 - Sin Node ni Git en el `PATH` la aplicación arranca, no lanza errores de página y degrada con mensajes claros: «LSP: detenido» con el motivo y la indicación de instalar Node.js, y el panel Git explica que falta Git.
 - `npm run perf` contra la compilación de producción da cifras parecidas a las de depuración (ver [Rendimiento](RENDIMIENTO.md)).
 
+## Publicar una versión desde GitHub
+
+El flujo `.github/workflows/release.yml` se activa al subir una etiqueta `vX.Y.Z`, que debe coincidir con la versión de `src-tauri/tauri.conf.json`. Por ejemplo, para publicar la 0.2.0 después de cambiar la versión en `tauri.conf.json`, `package.json` y `Cargo.toml`:
+
+```powershell
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+Compila el instalador NSIS en Windows y los paquetes .deb, .rpm y AppImage en Linux (Ubuntu 22.04), y los adjunta a un **borrador** de release marcado como versión preliminar. Hay que revisarlo y publicarlo a mano en GitHub. Los instaladores no están firmados y no hay actualizaciones automáticas. No se genera versión para macOS porque nunca se compiló ahí. Este flujo todavía no se ha ejecutado en GitHub.
+
 ## Qué NO se probó
 
 - Un Windows limpio o una máquina virtual (sin herramientas de desarrollo, sin WebView2 preinstalado).

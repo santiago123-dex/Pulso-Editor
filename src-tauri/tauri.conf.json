@@ -52,6 +52,7 @@
   },
   "bundle": {
     "active": true,
+    "license": "MIT",
     "targets": "all",
     "windows": { "nsis": { "installerHooks": "installer-hooks.nsh" } },
     "resources": {

@@ -1,6 +1,6 @@
 # Hoja de ruta y mejoras pendientes
 
-Estas son propuestas, no funciones ya implementadas. El orden es una recomendación y puede cambiar según el uso de Pulso.
+Estas son propuestas, no funciones ya implementadas. El orden es una recomendación y puede cambiar según el uso de Pulso. Lo necesario para publicar Pulso, con su orden, está en el [Plan para publicar](PLAN-LANZAMIENTO.md).
 
 ## Prioridad 1: confianza y pruebas en Windows
 
@@ -35,4 +35,4 @@ La prueba `test:lsp:ui` ya comprueba una compilación de desarrollo en WebView2 
 - Perfiles, accesibilidad y pruebas de uso con distintos tamaños de ventana.
 - Sistema de extensibilidad definido y acotado antes de prometer compatibilidad con extensiones de VS Code.
 - Hecho: asistente de IA con Claude Code (ver Funciones). Falta Codex y otros proveedores, claves de API propias, aprobar permisos desde Pulso, mostrar los cambios propuestos como diferencias antes de aplicarlos, adjuntar issues, pull requests y diffs, y flujos como issue → plan → cambios → revisión.
-- Distribución de versiones, actualizaciones y firma de instaladores cuando el proyecto esté preparado para entregarse a otras personas.
+- Hecho: licencia MIT, avisos de terceros, CI y un flujo que genera los instaladores en un borrador de release (ver [Distribución](DISTRIBUCION.md)). Falta firmar los instaladores, las actualizaciones automáticas, macOS y separar el identificador de la versión de desarrollo del de la instalada.
