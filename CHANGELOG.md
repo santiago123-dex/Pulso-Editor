@@ -4,6 +4,9 @@ Todos los cambios notables en Pulso Editor se documentan en este archivo.
 
 ## [Sin publicar]
 
+### Añadido
+- **Memoria del agente entre sesiones.** El agente propio puede guardar notas cortas del proyecto (`memory_save`) y las recibe de nuevo en la conversación siguiente. Viven fuera del proyecto, solo se usan en proyectos de confianza y «IA: Memoria del agente en este proyecto…» las muestra y las borra.
+
 ### Seguridad
 - **Confianza en el proyecto para el agente propio.** Lo que viene del proyecto (`AGENTS.md`, `CLAUDE.md`, skills, subagentes y comandos) ya no llega al modelo hasta que confíes en él: sin confianza solo se cargan lo personal y los subagentes integrados. «IA: Confiar en este proyecto…» abre un diálogo nativo (lo pregunta Rust, la ventana no puede darse confianza a sí misma) y comparte la lista con la terminal `pulso`.
 - **La ventana ya no decide su carpeta de trabajo.** `set_workspace_root` solo acepta carpetas que la persona aprobó: las que elige con «Abrir carpeta» (el diálogo ahora lo abre Rust), las que escribe en la terminal (`pulso carpeta`) y las que ya aprobó en sesiones anteriores (lista en la carpeta de datos de Pulso). Cualquier otra pide una confirmación nativa que la ventana no puede saltarse, y la raíz de una unidad, la carpeta personal y las carpetas del sistema se rechazan siempre.

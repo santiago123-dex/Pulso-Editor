@@ -277,7 +277,7 @@ async fn converse(
     let max_tokens = (model.max_output > 0).then(|| model.max_output.min(16_384));
     let stamp = Instant::now().elapsed().as_nanos() ^ (std::process::id() as u128) << 64 ^ (rand_part() as u128);
     let mut out = Converse { final_text: String::new(), input: 0, output: 0, cost: 0.0, proposed: Vec::new(), tool_calls: 0 };
-    let mut session = Session { root: &env.root, mode, cancel: env.cancel.clone(), perms: env.perms.clone(), agent: agent.to_string(), proposed: Vec::new(), todos: Vec::new() };
+    let mut session = Session { root: &env.root, mode, cancel: env.cancel.clone(), perms: env.perms.clone(), agent: agent.to_string(), proposed: Vec::new(), todos: Vec::new(), memory: if agent.is_empty() { env.config.memory_store.clone() } else { None } };
     let mut guard = RepeatGuard::default();
 
     for round in 0..max_rounds {

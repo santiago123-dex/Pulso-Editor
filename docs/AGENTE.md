@@ -77,8 +77,9 @@ Hecho en `src-tauri/src/agenttools.rs`. Los permisos siguen los tres modos que e
   - Los subagentes preguntan por el mismo camino y la tarjeta dice cuál lo pide. Si varios piden a la vez, salen varias tarjetas.
   - Si pulsas «Parar» o pasan 15 minutos sin respuesta, la pregunta se da por denegada.
   - «IA: Comandos permitidos para este proyecto…» lista las reglas guardadas y deja quitarlas.
+- [x] **Memoria entre sesiones** (`src-tauri/src/agentmem.rs`). La herramienta `memory_save` guarda notas cortas del proyecto (hasta 40 de 400 caracteres; al llegar al límite se descartan las más viejas) y se le vuelven a dar al modelo en las conversaciones siguientes, como apuntes que no mandan sobre las reglas de seguridad. Se guardan **fuera del proyecto** (`agent-memory.json` en la carpeta de datos), solo las usa el agente principal y solo en proyectos de confianza. «IA: Memoria del agente en este proyecto…» las muestra y deja borrarlas.
 - [ ] **Escribir reglas de denegar desde la interfaz:** hoy se editan en el archivo `agent-permissions.json` de la carpeta de datos.
-- [ ] **Aprobar también las ediciones directas** del modo Agente (hoy se aplican sin preguntar; se pueden deshacer con Git).
+- [ ] **Aprobar también las ediciones directas** del modo Agente (hoy se aplican sin preguntar; se pueden deshacer con Git). Quien quiera revisarlas antes puede usar el modo «Puede editar», que las muestra como diferencias.
 - [ ] **Resumir la conversación** al llegar al límite, en vez de solo podar resultados.
 - [ ] **Modo de plan** propiamente dicho. «Solo leer» ya impide tocar nada, pero no guarda el plan para aprobarlo.
 

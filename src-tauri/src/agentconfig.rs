@@ -64,6 +64,10 @@ pub struct Config {
     pub skills: Vec<Skill>,
     pub agents: Vec<AgentDef>,
     pub commands: Vec<Command>,
+    /// Notas que el agente guardó en sesiones anteriores de este proyecto (viven fuera de él).
+    pub memory: Vec<String>,
+    /// Dónde se guardan las notas nuevas; `None` si no hay memoria (proyecto sin confianza o pruebas).
+    pub memory_store: Option<crate::agentmem::MemoryStore>,
 }
 
 // ---------- Cabecera de los archivos Markdown ----------
@@ -363,7 +367,7 @@ pub fn load_commands(root: &Path, home: Option<&Path>) -> Vec<Command> {
 impl Default for Config {
     /// Sin archivos de configuración quedan los subagentes integrados (`explore` y `general`).
     fn default() -> Self {
-        Config { instructions: Vec::new(), skills: Vec::new(), agents: builtin_agents(), commands: Vec::new() }
+        Config { instructions: Vec::new(), skills: Vec::new(), agents: builtin_agents(), commands: Vec::new(), memory: Vec::new(), memory_store: None }
     }
 }
 
@@ -373,12 +377,22 @@ impl Config {
     }
 
     pub fn load_with_home(root: &Path, home: Option<&Path>) -> Config {
-        Config { instructions: load_instructions(root, home), skills: load_skills(root, home), agents: load_agents(root, home), commands: load_commands(root, home) }
+        Config { instructions: load_instructions(root, home), skills: load_skills(root, home), agents: load_agents(root, home), commands: load_commands(root, home), memory: Vec::new(), memory_store: None }
     }
 
     /// Deja solo lo de la carpeta personal y lo integrado: lo que viene del proyecto (AGENTS.md, skills, subagentes y
     /// comandos) es contenido de sus autores y no se le da al modelo hasta que la persona confíe en el proyecto.
+    pub fn with_memory(mut self, store: Option<crate::agentmem::MemoryStore>) -> Config {
+        if let Some(s) = &store {
+            self.memory = s.load();
+        }
+        self.memory_store = store;
+        self
+    }
+
     pub fn without_project(mut self) -> Config {
+        self.memory.clear();
+        self.memory_store = None;
         self.instructions.retain(|i| i.user);
         self.skills.retain(|s| s.user);
         self.agents.retain(|a| a.user || a.builtin);
@@ -405,6 +419,7 @@ impl Config {
                 out.push_str(&format!("\n## {}\n{}\n", i.source, i.text));
             }
         }
+        out.push_str(&crate::agentmem::prompt_block(&self.memory));
         if !self.skills.is_empty() {
             out.push_str("\n\n# Skills\nSkills are specialised instructions. When a task matches one, load it with the use_skill tool BEFORE starting, then follow it.\n");
             for s in &self.skills {
@@ -688,5 +703,19 @@ mod tests {
         }
         println!("agentes: {:?}", cfg.agents.iter().map(|a| (&a.name, a.builtin)).collect::<Vec<_>>());
         println!("comandos: {:?}", cfg.commands.iter().map(|c| &c.name).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn la_memoria_llega_al_modelo_solo_con_confianza() {
+        let root = tmp("mem");
+        let file = tmp("mem-datos").join("m.json");
+        let store = crate::agentmem::MemoryStore::new(file, &root);
+        store.add("Los tests se lanzan con pnpm test").unwrap();
+        let cfg = Config::load_with_home(&root, None).with_memory(Some(store));
+        assert!(cfg.prompt_addendum(false).contains("Los tests se lanzan con pnpm test"));
+        assert!(cfg.memory_store.is_some());
+        let sin = cfg.without_project();
+        assert!(sin.memory.is_empty() && sin.memory_store.is_none());
+        assert!(!sin.prompt_addendum(false).contains("pnpm"));
     }
 }
