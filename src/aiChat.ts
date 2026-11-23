@@ -3,6 +3,7 @@ import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { bus } from "./core/events";
+import { currentRepo } from "./core/repo";
 import { readStorage, removeStorage } from "./core/storage";
 import {
   EFFORTS, EXAMPLES, PROVIDERS, QUICK_PROMPTS,
@@ -10,7 +11,7 @@ import {
 } from "./ai/catalog";
 import { applyAiAppearance, buildAppearancePopover } from "./ai/appearance";
 import { linkTarget, parseInline, parseMarkdown } from "./aiMarkdown";
-import { buildPrompt, chipLabels, fileMentionAt, filterProjectFiles, type EditorContext } from "./aiContext";
+import { buildPrompt, chipLabels, fileMentionAt, filterProjectFiles, type ContextNote, type EditorContext } from "./aiContext";
 import {
   activitySummary, createProviderNormalizer, elapsedLabel, emptyConversation, exitEvent, mergeAssistantRuns, formatModelName, isAuthError, needsCommandPermission, parseUsageText, planLabel, pruneUsage,
   reduce, remainingPercent, remainingRatio, resetClockText, resetCountdown, resetIn, resetTimeFromIso, splitAssistantTurn, toolSummary, touchedFiles,
@@ -22,6 +23,9 @@ import { refreshTree } from "./explorer";
 import { activePath, focusedEditor, openFile } from "./groups";
 import { agoFrom, relativeToTop } from "./historyModel";
 import { refreshScm } from "./scm";
+import type { Changes } from "./scmModel";
+import { fetchIssues } from "./github";
+import { listPulls } from "./pulls";
 import { state } from "./settings";
 import { listShells, runInTerminal } from "./terminal";
 import { promptText, quickPick, setStatus, showDialog, type PickItem } from "./ui";
@@ -85,6 +89,7 @@ let mode: AiMode = savedMode();
 let useFile = true;
 let useSel = true;
 let extraFiles: string[] = [];
+let extraNotes: ContextNote[] = [];
 let attachedImages: UserImage[] = [];
 let mentionFiles: { root: string; list: string[] } | null = null;
 let lastFile = "";
@@ -381,6 +386,7 @@ function editorContext(): EditorContext {
   const p = activePath();
   if (p && useFile) ctx.file = (ws.root && relativeToTop(norm(p), ws.root)) || norm(p);
   if (extraFiles.length) ctx.extraFiles = [...extraFiles];
+  if (extraNotes.length) ctx.notes = [...extraNotes];
   if (attachedImages.length) ctx.images = attachedImages.map((i) => ({ path: i.path, name: i.name }));
   const ed = focusedEditor();
   const sel = ed?.getSelection();
@@ -411,6 +417,9 @@ function renderChips() {
   for (const extra of extraFiles) {
     if (extra === ctx.file) continue;
     nodes.push(chip(baseName(extra), tr("Archivo adjunto: {file}", { file: extra }), () => { extraFiles = extraFiles.filter((f) => f !== extra); }));
+  }
+  for (const note of extraNotes) {
+    nodes.push(chip(note.label, note.title, () => { extraNotes = extraNotes.filter((n) => n.id !== note.id); }));
   }
   for (const img of attachedImages) {
     const c = h("span", "ai-chip ai-chip-img");
@@ -1399,7 +1408,13 @@ async function addImageFiles(files: Iterable<File>) {
   q<HTMLTextAreaElement>(".ai-input")?.focus();
 }
 
-function attachProjectFile() {
+function addContextNote(note: ContextNote) {
+  extraNotes = [...extraNotes.filter((n) => n.id !== note.id), note];
+  renderChips();
+  q<HTMLTextAreaElement>(".ai-input")?.focus();
+}
+
+function attachProjectFileOnly() {
   if (!ws.root) { setStatus(tr("Abre una carpeta primero")); return; }
   quickPick({
     placeholder: tr("Adjuntar archivo del proyecto al contexto…"),
@@ -1415,6 +1430,84 @@ function attachProjectFile() {
         },
       }));
     },
+  });
+}
+
+async function attachGitChanges() {
+  if (!ws.root) { setStatus(tr("Abre una carpeta primero")); return; }
+  try {
+    const c = await invoke<Changes>("git_changes", { root: ws.root });
+    const lines: string[] = [`Rama: ${c.branch}`];
+    if (c.conflicted.length) lines.push("Conflictos:\n" + c.conflicted.map((x) => `  ! ${x.path}`).join("\n"));
+    if (c.staged.length) lines.push("Preparados:\n" + c.staged.map((x) => `  ${x.status} ${x.path}`).join("\n"));
+    if (c.unstaged.length) lines.push("Sin preparar:\n" + c.unstaged.map((x) => `  ${x.status} ${x.path}`).join("\n"));
+    const total = c.conflicted.length + c.staged.length + c.unstaged.length;
+    if (!total) { setStatus(tr("No hay cambios de Git pendientes para adjuntar")); return; }
+    addContextNote({
+      id: "git:changes",
+      label: tr("Git · {count} cambios", { count: total }),
+      title: tr("Cambios de Git en rama «{branch}»", { branch: c.branch }),
+      body: lines.join("\n\n"),
+    });
+  } catch (e) {
+    setStatus(String(e));
+  }
+}
+
+async function attachGithubIssue() {
+  const repo = await currentRepo();
+  if (!repo) { setStatus(tr("Esta carpeta no tiene un remoto de GitHub.")); return; }
+  quickPick({
+    placeholder: tr("Adjuntar issue de GitHub al contexto…"),
+    empty: tr("No hay issues abiertas"),
+    load: async () => {
+      const issues = await fetchIssues(repo.owner, repo.repo, "open");
+      return issues.map<PickItem>((i) => ({
+        label: `#${i.number} ${i.title}`,
+        detail: i.labels.map((l) => l.name).join(", "),
+        run: () => addContextNote({
+          id: `issue:${i.number}`,
+          label: `Issue #${i.number}`,
+          title: `Issue #${i.number}: ${i.title}`,
+          body: (i.body?.trim() || i.title) + `\n\nURL: ${i.html_url}`,
+        }),
+      }));
+    },
+  });
+}
+
+async function attachGithubPr() {
+  const repo = await currentRepo();
+  if (!repo) { setStatus(tr("Esta carpeta no tiene un remoto de GitHub.")); return; }
+  quickPick({
+    placeholder: tr("Adjuntar pull request de GitHub al contexto…"),
+    empty: tr("No hay pull requests abiertas"),
+    load: async () => {
+      const prs = await listPulls(repo.owner, repo.repo, "open");
+      return prs.map<PickItem>((p) => ({
+        label: `PR #${p.number} ${p.title}`,
+        detail: `${p.head.ref} → ${p.base.ref}`,
+        run: () => addContextNote({
+          id: `pr:${p.number}`,
+          label: `PR #${p.number}`,
+          title: `Pull Request #${p.number}: ${p.title} (${p.head.ref} → ${p.base.ref})`,
+          body: (p.body?.trim() || p.title) + `\n\nURL: ${p.html_url}`,
+        }),
+      }));
+    },
+  });
+}
+
+function attachProjectFile() {
+  if (!ws.root) { setStatus(tr("Abre una carpeta primero")); return; }
+  quickPick({
+    placeholder: tr("¿Qué quieres adjuntar al contexto?"),
+    load: () => [
+      { label: tr("Archivo del proyecto…"), detail: tr("Añade una ruta del proyecto (también puedes escribir @archivo)"), run: attachProjectFileOnly },
+      { label: tr("Cambios de Git actuales"), detail: tr("Rama activa y archivos modificados/preparados"), run: () => void attachGitChanges() },
+      { label: tr("Issue de GitHub…"), detail: tr("Adjunta título y descripción de una issue abierta"), run: () => void attachGithubIssue() },
+      { label: tr("Pull request de GitHub…"), detail: tr("Adjunta título, ramas y descripción de una PR abierta"), run: () => void attachGithubPr() },
+    ],
   });
 }
 
@@ -2086,6 +2179,7 @@ async function send() {
   const prompt = buildPrompt(promptText, editorContext());
   input.value = ""; autosize();
   attachedImages = [];
+  extraNotes = [];
   renderChips();
   await dispatchPrompt(live, text, prompt, mode, imgs);
 }
@@ -2095,6 +2189,7 @@ function newConversation() {
   if (current && !current.convo.messages.length) { historyOpen = false; renderBody(); return; }
   current = newLive();
   extraFiles = [];
+  extraNotes = [];
   attachedImages = [];
   historyOpen = false;
   renderBody();
@@ -2455,6 +2550,7 @@ export async function stopRunningAiForWorkspace(root: string | null): Promise<vo
 export function resetAi() {
   dismissPopover();
   extraFiles = [];
+  extraNotes = [];
   attachedImages = [];
   mentionFiles = null;
   lastFile = "";

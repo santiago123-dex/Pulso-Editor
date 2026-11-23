@@ -1,5 +1,12 @@
 import { t } from "./i18n";
 /** Contexto del editor que se adjunta a un mensaje. Siempre es visible antes de enviar (chips) y la persona puede quitarlo. */
+export interface ContextNote {
+  id: string;
+  label: string;
+  title: string;
+  body: string;
+}
+
 export interface EditorContext {
   /** Ruta del archivo abierto, relativa a la carpeta del proyecto si está dentro. */
   file?: string;
@@ -8,6 +15,8 @@ export interface EditorContext {
   extraFiles?: string[];
   /** Imágenes adjuntadas al mensaje (guardadas en disco para que la IA pueda leerlas). */
   images?: { path: string; name: string }[];
+  /** Bloques de contexto adjuntos: issues, PRs o estado/cambios de Git. */
+  notes?: ContextNote[];
 }
 
 export const MAX_SELECTION = 20_000;
@@ -28,6 +37,13 @@ export function buildPrompt(text: string, ctx: EditorContext): string {
   }
   for (const img of ctx.images ?? []) {
     if (img.path) parts.push(`- Imagen adjunta (${img.name || img.path}): ${img.path}`);
+  }
+  for (const note of ctx.notes ?? []) {
+    if (!note.body.trim()) continue;
+    const cut = note.body.length > MAX_SELECTION;
+    const body = cut ? note.body.slice(0, MAX_SELECTION) : note.body;
+    const fence = fenceFor(body);
+    parts.push(`- ${note.title}${cut ? ` (recortado a ${MAX_SELECTION} caracteres)` : ""}:\n${fence}\n${body}\n${fence}`);
   }
   if (ctx.selection && ctx.selection.text.trim()) {
     const { startLine, endLine } = ctx.selection;
