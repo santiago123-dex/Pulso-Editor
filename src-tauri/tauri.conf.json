@@ -54,7 +54,10 @@
     "active": true,
     "license": "MIT",
     "targets": "all",
-    "windows": { "nsis": { "installerHooks": "installer-hooks.nsh" } },
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true },
+      "nsis": { "installerHooks": "installer-hooks.nsh" }
+    },
     "resources": {
       "../scripts/lsp-no-console.cjs": "lsp/no-console.cjs",
       "../node_modules/typescript-language-server/lib/cli.mjs": "lsp/node_modules/typescript-language-server/lib/cli.mjs",

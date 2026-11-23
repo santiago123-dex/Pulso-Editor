@@ -8,6 +8,8 @@ npm run tauri build -- --bundles nsis
 
 Produce `src-tauri/target/release/bundle/nsis/Pulso Editor_0.1.0_x64-setup.exe` (≈ 8,4 MB). La primera compilación de producción tarda unos 3 minutos. El instalador se instala por usuario en `%LOCALAPPDATA%\Pulso Editor` (`/S` para instalación silenciosa). Incluye el servidor de TypeScript y la configuración que usa el LSP; no incluye Node.js.
 
+Si el equipo no tiene WebView2, el instalador descarga el instalador de Microsoft y lo ejecuta sin preguntar (`webviewInstallMode: downloadBootstrapper` en `tauri.conf.json`). Para eso necesita conexión a internet. En Windows 11 y en la mayoría de los Windows 10 actualizados ya viene instalado.
+
 ## Linux (Fedora): paquete .rpm
 
 Desde Windows, con Docker Desktop en marcha:
