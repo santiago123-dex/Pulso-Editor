@@ -27,6 +27,10 @@ pub mod i18n;
 pub mod localai;
 mod updates;
 mod diag;
+mod project_check;
+mod test_runner;
+mod git_hunks;
+mod inline_ai;
 
 /// Los procesos auxiliares no deben abrir ventanas de consola en Windows.
 fn background_command(program: &str) -> Command {
@@ -1163,7 +1167,13 @@ pub fn run() {
             updates::update_install,
             diag::diag_log,
             diag::diag_collect,
-            i18n::i18n_set_lang
+            i18n::i18n_set_lang,
+            project_check::project_check,
+            test_runner::test_detect,
+            test_runner::test_run,
+            git_hunks::git_file_hunks,
+            git_hunks::git_apply_hunk,
+            inline_ai::ai_inline_complete
         ])
         .build(app_context())
         .expect("error al iniciar Pulso Editor")

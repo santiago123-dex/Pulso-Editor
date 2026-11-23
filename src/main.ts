@@ -31,7 +31,10 @@ import { closeDiff } from "./diffView";
 import { closePreview, openPreviewFor } from "./preview";
 import { isOnboardingDone, openOnboarding, shouldShowOnboarding } from "./onboarding";
 import { initIssues, loadIssues } from "./issues";
-import { initProblems, setProblemsVisible } from "./problems";
+import { initProblems, resetProjectProblems, runProjectProblemsCheck, setProblemsVisible } from "./problems";
+import { initTestsView, resetTestsView, runAllTests, setTestsVisible } from "./testsView";
+import { initConflictHelper } from "./conflictHelper";
+import { initInlineCompletions, resetInlineAiBackoff } from "./inlineCompletion";
 import { pickScript } from "./scripts";
 import { initHistory, openHistoryTab, resetHistory, showFileHistory } from "./history";
 import { initBlame, toggleBlame } from "./blame";
@@ -98,19 +101,20 @@ const inTauri = "__TAURI_INTERNALS__" in window;
 hooks.focusEditor = () => focusedEditor()?.focus();
 
 // ---------- Vistas de la barra lateral ----------
-type View = "explorer" | "search" | "git" | "issues" | "problems" | "chat" | "prs" | "ai";
+type View = "explorer" | "search" | "git" | "issues" | "problems" | "tests" | "chat" | "prs" | "ai";
 let currentView: View = "explorer";
 
 function showView(view: View | "settings") {
   if (view === "settings") { toggleSettings(); return; }
   closeSettings();
   const app = $("app");
-  if (view === currentView && !app.classList.contains("no-sidebar")) { app.classList.add("no-sidebar"); setProblemsVisible(false); setChatVisible(false); setPrsVisible(false); setAiVisible(false); return; }
+  if (view === currentView && !app.classList.contains("no-sidebar")) { app.classList.add("no-sidebar"); setProblemsVisible(false); setTestsVisible(false); setChatVisible(false); setPrsVisible(false); setAiVisible(false); return; }
   app.classList.remove("no-sidebar");
   currentView = view;
   document.querySelectorAll<HTMLElement>(".act[data-view]").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
-  for (const v of ["explorer", "search", "git", "issues", "problems", "chat", "prs", "ai"] as View[]) $(`view-${v}`).hidden = v !== view;
+  for (const v of ["explorer", "search", "git", "issues", "problems", "tests", "chat", "prs", "ai"] as View[]) $(`view-${v}`).hidden = v !== view;
   setProblemsVisible(view === "problems");
+  setTestsVisible(view === "tests");
   setChatVisible(view === "chat");
   setPrsVisible(view === "prs");
   setAiVisible(view === "ai");
@@ -190,6 +194,8 @@ async function openWorkspace(raw: string, layout?: Layout | null): Promise<boole
     resetScm();
     resetHistory();
     resetPrs();
+    resetProjectProblems();
+    resetTestsView();
     resetRepoChat();
     resetAi();
     closeBoard();
@@ -443,7 +449,7 @@ function pickRecent() {
 }
 
 // ---------- Comandos y atajos ----------
-type BoolKey = "minimap" | "wordWrap" | "lineNumbers" | "whitespace" | "ligatures" | "autoSave" | "formatOnSave";
+type BoolKey = "minimap" | "wordWrap" | "lineNumbers" | "whitespace" | "ligatures" | "autoSave" | "formatOnSave" | "inlineAiEnabled";
 const toggle = (key: BoolKey, name: string) => () => {
   state.settings[key] = !state.settings[key];
   commit();
@@ -556,6 +562,9 @@ register(
   { id: "workflow.createPr", label: t("Flujo: Crear pull request para la issue activa"), keywords: "flujo issue pr pull request cerrar closes", run: () => { showView("prs"); void createPrForActiveIssue(); } },
   { id: "view.chat", label: t("Ver: Chat del equipo"), keywords: "chat mensajes equipo conversacion", run: () => showView("chat") },
   { id: "view.problems", label: t("Ver: Problemas (errores y avisos)"), key: "Ctrl+Shift+M", keywords: "problems errores avisos diagnosticos", run: () => showView("problems") },
+  { id: "problems.project", label: t("Problemas: Analizar todo el proyecto"), keywords: "problems proyecto tsc cargo ruff diagnosticos", run: () => { showView("problems"); void runProjectProblemsCheck(); } },
+  { id: "view.tests", label: t("Ver: Pruebas"), keywords: "tests pruebas vitest jest cargo pytest", run: () => showView("tests") },
+  { id: "tests.runAll", label: t("Pruebas: Ejecutar todas las pruebas"), keywords: "tests pruebas correr ejecutar vitest jest cargo pytest", run: () => { showView("tests"); void runAllTests(); } },
   { id: "view.issues", label: t("Ver: Issues de GitHub"), key: "Ctrl+Shift+I", run: () => showView("issues") },
   { id: "view.board", label: t("Issues: Abrir el tablero kanban"), keywords: "kanban tablero board issues github", run: () => void openBoard() },
   { id: "view.preview", label: t("Ver: Vista previa de Markdown o imagen"), key: "Ctrl+Shift+V", keywords: "preview vista previa markdown imagen svg png", run: () => void openPreviewFor(activePath()) },
@@ -588,6 +597,7 @@ register(
   { id: "pref.ligatures", label: t("Preferencias: Ligaduras de fuente"), run: toggle("ligatures", t("Ligaduras")) },
   { id: "pref.autosave", label: t("Preferencias: Autoguardado"), run: toggle("autoSave", t("Autoguardado")) },
   { id: "pref.formatonsave", label: t("Preferencias: Formatear al guardar"), keywords: "format formatear guardar", run: toggle("formatOnSave", t("Formatear al guardar")) },
+  { id: "pref.inlineai", label: t("IA: Alternar autocompletado en línea (Ollama)"), keywords: "ia ollama autocompletado fantasma tab inline", run: () => { resetInlineAiBackoff(); toggle("inlineAiEnabled", t("Autocompletado de IA en línea"))(); } },
 
   { id: "explorer.refresh", label: t("Explorador: Actualizar"), run: () => void refreshTree() },
   { id: "explorer.collapse", label: t("Explorador: Contraer todo"), run: collapseAll },
@@ -801,6 +811,9 @@ initPrs();
 initAi();
 bus.on("issue-workflow-start", () => showView("ai"));
 initProblems(() => showView("problems"));
+initTestsView();
+initConflictHelper();
+initInlineCompletions();
 initSettingsPage(() => void loadIssues());
 syncSettingsUI();
 commit();
