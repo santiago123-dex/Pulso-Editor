@@ -29,6 +29,7 @@ import { fileIcon, loadIconManifest } from "./icons";
 import { closeBoard, openBoard } from "./board";
 import { closeDiff } from "./diffView";
 import { closePreview, openPreviewFor } from "./preview";
+import { isOnboardingDone, openOnboarding, shouldShowOnboarding } from "./onboarding";
 import { initIssues, loadIssues } from "./issues";
 import { initProblems, setProblemsVisible } from "./problems";
 import { pickScript } from "./scripts";
@@ -501,6 +502,7 @@ register(
   { id: "cli.install", label: t("Instalar el comando «pulso» en la terminal"), run: installCliCommand },
   { id: "app.checkUpdates", label: t("Ayuda: Buscar actualizaciones"), keywords: "update actualizar versión nueva", run: () => checkForUpdates(true) },
   { id: "app.copyDiagnostics", label: t("Ayuda: Copiar información de diagnóstico"), keywords: "diagnostico log soporte bug error version", run: () => void copyDiagnostics() },
+  { id: "app.onboarding", label: t("Ayuda: Asistente de bienvenida"), keywords: "bienvenida inicio configurar tema idioma github onboarding", run: () => openOnboarding({ onOpenFolder: pickFolder }) },
   { id: "file.openRecent", label: t("Archivo: Abrir carpeta reciente…"), run: pickRecent },
   { id: "file.closeFolder", label: t("Archivo: Cerrar carpeta"), run: closeWorkspace },
   { id: "file.newFile", label: t("Archivo: Nuevo archivo…"), key: "Ctrl+N", run: () => newEntry("file") },
@@ -724,6 +726,7 @@ const MENUS: MenuDef[] = [
     { cmd: "view.settings", label: t("Configuración y atajos de teclado") },
     { cmd: "app.checkUpdates", label: t("Buscar actualizaciones") },
     { cmd: "app.copyDiagnostics", label: t("Copiar información de diagnóstico") },
+    { cmd: "app.onboarding", label: t("Asistente de bienvenida") },
     "sep",
     { label: t("Acerca de Pulso"), run: async () => { const version = inTauri ? await getVersion().catch(() => "") : ""; void showDialog({
       title: "Pulso Editor",
@@ -872,6 +875,9 @@ void (async () => {
       await listen<CliTarget[]>("cli-open", (e) => void applyCliTargets(e.payload));
       await applyCliTargets(cliTargets);
       await offerRecovery(openFile);
+      if (shouldShowOnboarding({ done: isOnboardingDone(), hasRecent: getRecent().length > 0, hasRoot: !!ws.root })) {
+        openOnboarding({ onOpenFolder: pickFolder });
+      }
       // Antes de instalar una versión nueva (Pulso se cierra): guardar lo pendiente o no instalar.
       initUpdates(async () => {
         for (const d of dirtyDocs()) if (!(await saveDoc(d))) return false;
