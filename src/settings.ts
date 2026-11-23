@@ -24,6 +24,10 @@ export interface Settings {
   autoSave: boolean;
   /** Formatea el documento con el servidor de lenguaje al guardar a mano (no en el autoguardado). */
   formatOnSave: boolean;
+  /** Autocompletado de IA en línea (texto fantasma con Tab) usando Ollama local. */
+  inlineAiEnabled: boolean;
+  /** Modelo de Ollama para autocompletado en línea; vacío = automático. */
+  inlineAiModel: string;
   /** Shell de la terminal integrada (id); vacío = la recomendada. */
   terminalShell: string;
   /** Fuente de la terminal; vacío = Nerd Fonts habituales y luego la del editor. */
@@ -60,6 +64,8 @@ export const DEFAULTS: Settings = {
   syntaxTheme: "auto",
   autoSave: false,
   formatOnSave: false,
+  inlineAiEnabled: true,
+  inlineAiModel: "",
   terminalShell: "",
   terminalFont: "",
   terminalFontSize: 0,

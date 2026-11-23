@@ -11,7 +11,7 @@ import { importFromFile, importInstalled } from "./themeImport";
 import { setStatus, showDialog } from "./ui";
 import { $, h } from "./util";
 
-type BoolKey = "ligatures" | "minimap" | "wordWrap" | "lineNumbers" | "whitespace" | "smoothCaret" | "autoSave" | "formatOnSave";
+type BoolKey = "ligatures" | "minimap" | "wordWrap" | "lineNumbers" | "whitespace" | "smoothCaret" | "autoSave" | "formatOnSave" | "inlineAiEnabled";
 
 interface Section { id: string; title: string; desc: string; icon: string; el: HTMLElement; rows: HTMLElement[] }
 
@@ -193,6 +193,17 @@ function buildEditor() {
     row(t("Cursor suave"), t("Anima el movimiento del cursor."), switchCtl("st-caret", "smoothCaret")),
     row(t("Autoguardado"), t("Guarda solo, poco después de dejar de escribir."), switchCtl("st-autosave", "autoSave"), "autosave guardar"),
     row(t("Formatear al guardar"), t("Da formato al documento con el servidor de lenguaje (TypeScript y JavaScript) al guardar con Ctrl+S."), switchCtl("st-formatsave", "formatOnSave"), "formatear format guardar"),
+    row(t("Autocompletado de IA en línea (Ollama)"), t("Muestra sugerencias fantasma mientras escribes usando Ollama local; pulsa Tab para aceptar."), switchCtl("st-inline-ai", "inlineAiEnabled"), "ia ollama autocompletado fantasma tab inline"),
+    (() => {
+      const modelInput = document.createElement("input");
+      modelInput.id = "st-inline-ai-model";
+      modelInput.type = "text";
+      modelInput.placeholder = t("Automático (p. ej. qwen2.5-coder:7b)");
+      modelInput.spellcheck = false;
+      modelInput.onchange = () => { state.settings.inlineAiModel = modelInput.value.trim(); commit(); };
+      syncers.push(() => { modelInput.value = state.settings.inlineAiModel || ""; });
+      return row(t("Modelo de Ollama para autocompletado"), t("Déjalo vacío para elegir automáticamente el mejor modelo de código instalado en Ollama."), modelInput, "ollama modelo autocompletado ia");
+    })(),
   ]);
 }
 

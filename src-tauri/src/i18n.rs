@@ -303,6 +303,11 @@ const EN: &[(&str, &str)] = &[
     ("Solo se pueden proponer cambios en rutas relativas dentro del proyecto.", "Changes can only be proposed for relative paths inside the project."),
     ("Propuesta preparada para {path}. La persona podrá revisarla y aplicarla en el visor de diferencias.", "Proposal ready for {path}. The user can review and apply it in the diff viewer."),
     ("El modo actual es de solo lectura.", "The current mode is read-only."),
+    ("No se encontró un servidor LSP de Python. Instala pyright (`npm i -g pyright` o `pip install pyright`).", "No Python LSP server was found. Install pyright (`npm i -g pyright` or `pip install pyright`)."),
+    ("No se encontró rust-analyzer. Instálalo con `rustup component add rust-analyzer`.", "rust-analyzer wasn't found. Install it with `rustup component add rust-analyzer`."),
+    ("No se encontró gopls. Instálalo con `go install golang.org/x/tools/gopls@latest`.", "gopls wasn't found. Install it with `go install golang.org/x/tools/gopls@latest`."),
+    ("No se encontró clangd. Instala LLVM/clangd para activar la inteligencia de C y C++.", "clangd wasn't found. Install LLVM/clangd to enable C and C++ intelligence."),
+    ("Servidor de lenguaje no soportado", "Unsupported language server"),
 ];
 
 #[cfg(test)]

@@ -9,6 +9,14 @@ import { setStatus } from "./ui";
 import { applyTextEdits, collectEdits } from "./lspEdits";
 import { fileKey } from "./util";
 import { diagnosticsStillValid, lspConfiguration } from "./lspConfig";
+import {
+  LSP_MONACO_LANGUAGES,
+  LSP_SERVER_LABEL,
+  LSP_SERVER_SHORT,
+  lspMarkerOwner,
+  lspTargetForPath,
+  type LspServerId,
+} from "./lspRegistry";
 
 type Json = any; // LSP messages are validated at the boundary where they are used.
 type Pending = { resolve: (value: Json) => void; reject: (error: Error) => void; timer: number };
@@ -23,6 +31,8 @@ type ServerCaps = {
 };
 type Session = {
   id: number;
+  server: LspServerId;
+  owner: string;
   root: string;
   ready: boolean;
   incremental: boolean;
@@ -41,30 +51,36 @@ type Session = {
   pullTimer: number;
 };
 /** Respuesta de `lsp_start`: qué servidor quedó en marcha. */
-type Started = { id: number; mode: "native" | "compat"; tsserver: string | null; notice: string | null };
-let session: Session | null = null;
+type Started = { id: number; mode: "native" | "compat" | "external"; tsserver: string | null; notice: string | null };
+const sessions = new Map<LspServerId, Session>();
+const startingServers = new Map<LspServerId, Promise<void>>();
+const failedServers = new Set<LspServerId>();
 let generation = 0;
 let transition: Promise<void> = Promise.resolve();
 let workspaceRoot: string | null = null;
 let listenersReady: Promise<void> | null = null;
 let inlayRefresh: monaco.Emitter<void> | null = null;
-const owner = "pulso-lsp";
 const defaults = [monaco.languages.typescript.typescriptDefaults, monaco.languages.typescript.javascriptDefaults];
 
 function builtIn(enabled: boolean) {
   for (const d of defaults) d.setModeConfiguration({ completionItems: enabled, hovers: enabled, definitions: enabled, references: enabled, diagnostics: enabled, rename: enabled, documentSymbols: true, documentHighlights: true, documentRangeFormattingEdits: true, signatureHelp: true, onTypeFormattingEdits: true, codeActions: true, inlayHints: true });
 }
-function language(model: monaco.editor.ITextModel): string | null {
-  const p = model.uri.path.toLowerCase();
-  if (/\.tsx$/.test(p)) return "typescriptreact";
-  if (/\.(ts|mts|cts)$/.test(p)) return "typescript";
-  if (/\.jsx$/.test(p)) return "javascriptreact";
-  if (/\.(js|mjs|cjs)$/.test(p)) return "javascript";
-  return null;
-}
+const targetOf = (model: monaco.editor.ITextModel) => lspTargetForPath(model.uri.path);
 const uri = (model: monaco.editor.ITextModel) => model.uri.toString();
 const pos = (p: monaco.Position) => ({ line: p.lineNumber - 1, character: p.column - 1 });
 const range = (r: Json): monaco.IRange => ({ startLineNumber: r.start.line + 1, startColumn: r.start.character + 1, endLineNumber: r.end.line + 1, endColumn: r.end.character + 1 });
+
+function syncLspStatus() {
+  if (!workspaceRoot) { setLspState({ kind: "off" }); return; }
+  const ready = [...sessions.values()].filter((s) => s.ready).map((s) => LSP_SERVER_SHORT[s.server]);
+  if (ready.length) { setLspState({ kind: "ready", servers: ready }); return; }
+  if (startingServers.size > 0) { setLspState({ kind: "starting" }); return; }
+}
+
+function sessionById(id: number): Session | null {
+  for (const s of sessions.values()) if (s.id === id) return s;
+  return null;
+}
 
 function send(s: Session, message: Json): Promise<void> {
   const operation = s.send.then(() => invoke<void>("lsp_send", { id: s.id, message }));
@@ -86,8 +102,8 @@ function request(s: Session, method: string, params: Json, token?: monaco.Cancel
     });
   });
 }
-function setMarkers(model: monaco.editor.ITextModel, diagnostics: Json[]) {
-  monaco.editor.setModelMarkers(model, owner, diagnostics.map((d: Json) => ({ ...range(d.range), message: d.message, severity: [monaco.MarkerSeverity.Error, monaco.MarkerSeverity.Warning, monaco.MarkerSeverity.Info, monaco.MarkerSeverity.Hint][(d.severity ?? 1) - 1] ?? monaco.MarkerSeverity.Error, code: d.code === undefined ? undefined : String(d.code), source: d.source })));
+function setMarkers(s: Session, model: monaco.editor.ITextModel, diagnostics: Json[]) {
+  monaco.editor.setModelMarkers(model, s.owner, diagnostics.map((d: Json) => ({ ...range(d.range), message: d.message, severity: [monaco.MarkerSeverity.Error, monaco.MarkerSeverity.Warning, monaco.MarkerSeverity.Info, monaco.MarkerSeverity.Hint][(d.severity ?? 1) - 1] ?? monaco.MarkerSeverity.Error, code: d.code === undefined ? undefined : String(d.code), source: d.source })));
 }
 /** Pide los diagnósticos poco después del último cambio. Sin `model`, los de todos los abiertos. */
 function schedulePull(s: Session, model?: monaco.editor.ITextModel) {
@@ -102,12 +118,12 @@ function schedulePull(s: Session, model?: monaco.editor.ITextModel) {
   }, 300);
 }
 async function pullDiagnostics(s: Session, model: monaco.editor.ITextModel) {
-  if (session !== s || model.isDisposed() || !s.models.has(uri(model))) return;
+  if (sessions.get(s.server) !== s || model.isDisposed() || !s.models.has(uri(model))) return;
   const version = model.getVersionId();
   const result = await request(s, "textDocument/diagnostic", { textDocument: { uri: uri(model) } }).catch(() => null);
   // Si el documento cambió mientras tanto, ya hay otra petición en camino con la versión nueva.
-  if (session !== s || !diagnosticsStillValid(version, model.isDisposed() ? -1 : model.getVersionId(), model.isDisposed())) return;
-  if (result?.kind === "full" && Array.isArray(result.items)) setMarkers(model, result.items);
+  if (sessions.get(s.server) !== s || !diagnosticsStillValid(version, model.isDisposed() ? -1 : model.getVersionId(), model.isDisposed())) return;
+  if (result?.kind === "full" && Array.isArray(result.items)) setMarkers(s, model, result.items);
 }
 function clear(s: Session) {
   clearTimeout(s.pullTimer);
@@ -116,23 +132,26 @@ function clear(s: Session) {
   s.pending.clear();
   for (const d of s.models.values()) d.dispose();
   s.models.clear();
-  for (const model of monaco.editor.getModels()) monaco.editor.setModelMarkers(model, owner, []);
+  for (const model of monaco.editor.getModels()) monaco.editor.setModelMarkers(model, s.owner, []);
 }
 function fail(s: Session, error: string) {
-  if (session !== s) return;
-  session = null;
+  if (sessions.get(s.server) !== s) return;
+  sessions.delete(s.server);
+  failedServers.add(s.server);
   clear(s);
-  builtIn(true);
-  setLspState({ kind: "stopped", reason: error });
+  if (s.server === "typescript") builtIn(true);
+  if (sessions.size === 0) setLspState({ kind: "stopped", reason: error });
+  else syncLspStatus();
   setStatus(t("Inteligencia de proyecto no disponible: {error}", { error }), 12000);
-  transition = transition.catch(() => {}).then(async () => { if (!session) await invoke("lsp_stop"); });
+  const key = s.server;
+  transition = transition.catch(() => {}).then(async () => { if (!sessions.has(key)) await invoke("lsp_stop", { server: key }).catch(() => {}); });
 }
 function openModel(s: Session, model: monaco.editor.ITextModel) {
-  const lang = language(model);
-  if (!s.ready || !lang || model.uri.scheme !== "file" || s.models.has(uri(model))) return;
+  const target = targetOf(model);
+  if (!s.ready || !target || target.server !== s.server || model.uri.scheme !== "file" || s.models.has(uri(model))) return;
   const documentUri = uri(model);
   s.openedAt.set(documentUri, Date.now());
-  notify(s, "textDocument/didOpen", { textDocument: { uri: documentUri, languageId: lang, version: model.getVersionId(), text: model.getValue() } });
+  notify(s, "textDocument/didOpen", { textDocument: { uri: documentUri, languageId: target.languageId, version: model.getVersionId(), text: model.getValue() } });
   const change = model.onDidChangeContent((event) => {
     s.definitions.clear();
     const contentChanges = s.incremental && !event.isFlush && !event.isEolChange
@@ -146,8 +165,8 @@ function openModel(s: Session, model: monaco.editor.ITextModel) {
   schedulePull(s, model);
 }
 function handleMessage(id: number, msg: Json) {
-  const s = session;
-  if (!s || s.id !== id || !msg || typeof msg !== "object") return;
+  const s = sessionById(id);
+  if (!s || !msg || typeof msg !== "object") return;
   if (msg.method && msg.id !== undefined) {
     // Responder a solicitudes del servidor evita que este quede esperando indefinidamente.
     if (msg.method === "workspace/applyEdit") {
@@ -169,7 +188,7 @@ function handleMessage(id: number, msg: Json) {
     const model = monaco.editor.getModel(resource) ?? findOpenDoc(resource.fsPath)?.model;
     if (!model || !Array.isArray(msg.params.diagnostics)) return;
     if (typeof msg.params.version === "number" && msg.params.version < model.getVersionId()) return;
-    setMarkers(model, msg.params.diagnostics);
+    setMarkers(s, model, msg.params.diagnostics);
   } else if (msg.id !== undefined && !msg.method) {
     const p = s.pending.get(msg.id);
     if (!p) return;
@@ -180,29 +199,25 @@ function handleMessage(id: number, msg: Json) {
 async function ensureListeners() {
   if (!listenersReady) listenersReady = (async () => {
     await listen<{ id: number; message: Json }>("lsp-message", (e) => handleMessage(e.payload.id, e.payload.message));
-    await listen<{ id: number; error: string }>("lsp-exit", (e) => { if (session?.id === e.payload.id) fail(session, e.payload.error); });
+    await listen<{ id: number; error: string }>("lsp-exit", (e) => { const s = sessionById(e.payload.id); if (s) fail(s, e.payload.error); });
   })();
   await listenersReady;
 }
 
-/** Cambiar de carpeta cierra el proceso anterior y sincroniza los modelos ya abiertos. */
-export function setLspWorkspace(root: string | null) {
-  workspaceRoot = root;
-  const current = ++generation;
-  const previous = session;
-  session = null;
-  if (previous) clear(previous);
-  builtIn(true);
-  setLspState(root ? { kind: "starting" } : { kind: "off" });
-  transition = transition.catch(() => {}).then(async () => {
-    await invoke("lsp_stop");
-    if (!root || current !== generation) return;
+function startServer(server: LspServerId, root: string, current: number): Promise<void> {
+  if (sessions.has(server) || startingServers.has(server) || failedServers.has(server)) {
+    return startingServers.get(server) ?? Promise.resolve();
+  }
+  const job = (async () => {
     await ensureListeners();
     if (current !== generation) return;
-    const started = await invoke<Started>("lsp_start", { root });
-    if (current !== generation) { await invoke("lsp_stop"); return; }
+    const args = server === "typescript" ? { root } : { root, server };
+    const started = await invoke<Started>("lsp_start", args);
+    if (current !== generation) { await invoke("lsp_stop", { server }).catch(() => {}); return; }
     const s: Session = {
       id: started.id,
+      server,
+      owner: lspMarkerOwner(server),
       root,
       ready: false,
       incremental: false,
@@ -218,10 +233,24 @@ export function setLspWorkspace(root: string | null) {
       pullQueue: new Set(),
       pullTimer: 0,
     };
-    session = s;
+    sessions.set(server, s);
     try {
       const rootUri = monaco.Uri.file(root).toString();
       const hostPid = await invoke<number>("lsp_host_pid").catch(() => null);
+      const initOpts = server === "typescript"
+        ? {
+            hostInfo: "Pulso",
+            // Modo compatible (TypeScript 5 o 6 del proyecto): typescript-language-server usa ese tsserver.
+            ...(started.tsserver ? { tsserver: { path: started.tsserver } } : {}),
+            disableAutomaticTypingAcquisition: true,
+            maxTsServerMemory: 1536,
+            preferences: {
+              includeInlayParameterNameHints: "literals",
+              includeInlayParameterNameHintsWhenArgumentMatchesName: false,
+              includeInlayEnumMemberValueHints: true,
+            },
+          }
+        : undefined;
       const result = await request(s, "initialize", {
         processId: hostPid,
         rootUri,
@@ -252,20 +281,9 @@ export function setLspWorkspace(root: string | null) {
             formatting: {},
           },
         },
-        initializationOptions: {
-          hostInfo: "Pulso",
-          // Modo compatible (TypeScript 5 o 6 del proyecto): typescript-language-server usa ese tsserver.
-          ...(started.tsserver ? { tsserver: { path: started.tsserver } } : {}),
-          disableAutomaticTypingAcquisition: true,
-          maxTsServerMemory: 1536,
-          preferences: {
-            includeInlayParameterNameHints: "literals",
-            includeInlayParameterNameHintsWhenArgumentMatchesName: false,
-            includeInlayEnumMemberValueHints: true,
-          },
-        },
+        ...(initOpts ? { initializationOptions: initOpts } : {}),
       });
-      if (session !== s || current !== generation) return;
+      if (sessions.get(server) !== s || current !== generation) return;
       const caps = result?.capabilities;
       const sync = caps?.textDocumentSync;
       s.incremental = (typeof sync === "number" ? sync : sync?.change) === 2;
@@ -282,18 +300,64 @@ export function setLspWorkspace(root: string | null) {
       s.pullInterFile = !!caps?.diagnosticProvider?.interFileDependencies;
       notify(s, "initialized", {});
       s.ready = true;
-      builtIn(false);
-      setLspState({ kind: "ready" });
+      if (server === "typescript") builtIn(false);
+      syncLspStatus();
       for (const model of monaco.editor.getModels()) openModel(s, model);
       if (started.notice) setStatus(started.notice, 15000);
-      else setStatus(started.mode === "compat"
-        ? t("Inteligencia de TypeScript y JavaScript activada (con el TypeScript del proyecto)")
-        : t("Inteligencia de TypeScript y JavaScript activada"));
+      else if (server === "typescript") {
+        setStatus(started.mode === "compat"
+          ? t("Inteligencia de TypeScript y JavaScript activada (con el TypeScript del proyecto)")
+          : t("Inteligencia de TypeScript y JavaScript activada"));
+      } else {
+        setStatus(t("Inteligencia de {lang} activada", { lang: LSP_SERVER_LABEL[server] }), 5000);
+      }
     } catch (e) { fail(s, String(e)); }
-  }).catch((e) => { if (current === generation) { builtIn(true); setLspState({ kind: "stopped", reason: String(e) }); setStatus(String(e).startsWith(t("No se pudo iniciar")) ? String(e) : t("No se pudo iniciar LSP: {error}", { error: String(e) }), 12000); } });
+  })().catch((e) => {
+    if (current !== generation) return;
+    failedServers.add(server);
+    if (server === "typescript") builtIn(true);
+    if (sessions.size === 0) setLspState({ kind: "stopped", reason: String(e) });
+    else syncLspStatus();
+    setStatus(String(e).startsWith(t("No se pudo iniciar")) || server !== "typescript"
+      ? String(e)
+      : t("No se pudo iniciar LSP: {error}", { error: String(e) }), 10000);
+  }).finally(() => {
+    if (startingServers.get(server) === job) startingServers.delete(server);
+  });
+  startingServers.set(server, job);
+  return job;
 }
 
-function active(model: monaco.editor.ITextModel) { return session?.ready && language(model) && session.models.has(uri(model)) ? session : null; }
+/** Cambiar de carpeta cierra los servidores anteriores y sincroniza los modelos ya abiertos. */
+export function setLspWorkspace(root: string | null) {
+  workspaceRoot = root;
+  const current = ++generation;
+  for (const prev of sessions.values()) clear(prev);
+  sessions.clear();
+  startingServers.clear();
+  failedServers.clear();
+  builtIn(true);
+  setLspState(root ? { kind: "starting" } : { kind: "off" });
+  transition = transition.catch(() => {}).then(async () => {
+    await invoke("lsp_stop");
+    if (!root || current !== generation) return;
+    await startServer("typescript", root, current);
+    if (current !== generation) return;
+    const extraServers = new Set<LspServerId>();
+    for (const model of monaco.editor.getModels()) {
+      const target = targetOf(model);
+      if (target && target.server !== "typescript") extraServers.add(target.server);
+    }
+    for (const srv of extraServers) void startServer(srv, root, current);
+  });
+}
+
+function active(model: monaco.editor.ITextModel): Session | null {
+  const target = targetOf(model);
+  if (!target) return null;
+  const s = sessions.get(target.server);
+  return s?.ready && s.models.has(uri(model)) ? s : null;
+}
 function params(model: monaco.editor.ITextModel, position: monaco.Position) { return { textDocument: { uri: uri(model) }, position: pos(position) }; }
 function safe<T>(p: Promise<T>, fallback: T): Promise<T> { return p.catch(() => fallback); }
 const completionKinds = [monaco.languages.CompletionItemKind.Text, monaco.languages.CompletionItemKind.Method, monaco.languages.CompletionItemKind.Function, monaco.languages.CompletionItemKind.Constructor, monaco.languages.CompletionItemKind.Field, monaco.languages.CompletionItemKind.Variable, monaco.languages.CompletionItemKind.Class, monaco.languages.CompletionItemKind.Interface, monaco.languages.CompletionItemKind.Module, monaco.languages.CompletionItemKind.Property, monaco.languages.CompletionItemKind.Unit, monaco.languages.CompletionItemKind.Value, monaco.languages.CompletionItemKind.Enum, monaco.languages.CompletionItemKind.Keyword, monaco.languages.CompletionItemKind.Snippet, monaco.languages.CompletionItemKind.Color, monaco.languages.CompletionItemKind.File, monaco.languages.CompletionItemKind.Reference, monaco.languages.CompletionItemKind.Folder, monaco.languages.CompletionItemKind.EnumMember, monaco.languages.CompletionItemKind.Constant, monaco.languages.CompletionItemKind.Struct, monaco.languages.CompletionItemKind.Event, monaco.languages.CompletionItemKind.Operator, monaco.languages.CompletionItemKind.TypeParameter];
@@ -305,9 +369,11 @@ function locations(value: Json): monaco.languages.LocationLink[] {
 /** Espera el arranque y comparte la consulta del subrayado con el clic posterior. */
 async function definition(model: monaco.editor.ITextModel, position: monaco.Position, indicate: boolean): Promise<monaco.languages.LocationLink[] | null> {
   const started = generation;
-  if (!active(model) && language(model) && workspaceRoot) {
+  const target = targetOf(model);
+  if (!active(model) && target && workspaceRoot) {
     if (indicate) setStatus(t("Iniciando inteligencia de código…"));
     await transition;
+    if (startingServers.has(target.server)) await startingServers.get(target.server);
   }
   if (started !== generation || model.isDisposed()) return null;
   const s = active(model);
@@ -322,7 +388,7 @@ async function definition(model: monaco.editor.ITextModel, position: monaco.Posi
       const cold = Date.now() - (s.openedAt.get(uri(model)) ?? 0) < 12_000;
       for (const delay of cold ? [0, 200, 400, 800, 1200, 1800] : [0]) {
         if (delay) await new Promise<void>((resolve) => window.setTimeout(resolve, delay));
-        if (session !== s || model.isDisposed()) return [];
+        if (sessions.get(s.server) !== s || model.isDisposed()) return [];
         found = locations(await request(s, "textDocument/definition", params(model, at)));
         const first = found[0];
         const selection = first?.targetSelectionRange ?? first?.range;
@@ -350,9 +416,9 @@ const lspRange = (r: monaco.IRange) => ({
 const lspSeverity = (s: number) => (s === 8 ? 1 : s === 4 ? 2 : s === 2 ? 3 : 4);
 const EXEC_CMD = "pulso.lsp.executeCommand";
 
-function bridgeCommand(cmd: Json): monaco.languages.Command | undefined {
+function bridgeCommand(cmd: Json, server?: LspServerId): monaco.languages.Command | undefined {
   if (!cmd || typeof cmd.command !== "string") return undefined;
-  return { id: EXEC_CMD, title: typeof cmd.title === "string" ? cmd.title : cmd.command, arguments: [cmd.command, Array.isArray(cmd.arguments) ? cmd.arguments : []] };
+  return { id: EXEC_CMD, title: typeof cmd.title === "string" ? cmd.title : cmd.command, arguments: [cmd.command, Array.isArray(cmd.arguments) ? cmd.arguments : [], server ?? "typescript"] };
 }
 
 function toMonacoWorkspaceEdit(edit: Json): monaco.languages.WorkspaceEdit {
@@ -459,9 +525,9 @@ function toDocumentSymbols(items: Json): monaco.languages.DocumentSymbol[] {
   return items.map(mapOne).filter((s): s is monaco.languages.DocumentSymbol => !!s);
 }
 
-function toCodeAction(raw: Json): monaco.languages.CodeAction & { _lsp?: Json } {
+function toCodeAction(raw: Json, server: LspServerId): monaco.languages.CodeAction & { _lsp?: Json; _server?: LspServerId } {
   if (raw && typeof raw.command === "string" && !raw.edit && !raw.kind) {
-    return { title: String(raw.title ?? raw.command), command: bridgeCommand(raw), _lsp: raw };
+    return { title: String(raw.title ?? raw.command), command: bridgeCommand(raw, server), _lsp: raw, _server: server };
   }
   return {
     title: String(raw?.title ?? t("Acción")),
@@ -469,17 +535,18 @@ function toCodeAction(raw: Json): monaco.languages.CodeAction & { _lsp?: Json } 
     isPreferred: raw?.isPreferred === true,
     disabled: typeof raw?.disabled?.reason === "string" ? raw.disabled.reason : undefined,
     edit: raw?.edit ? toMonacoWorkspaceEdit(raw.edit) : undefined,
-    command: raw?.command ? bridgeCommand(raw.command) : undefined,
+    command: raw?.command ? bridgeCommand(raw.command, server) : undefined,
     _lsp: raw,
+    _server: server,
   };
 }
 
-function toInlayHints(raw: Json): monaco.languages.InlayHint[] {
+function toInlayHints(raw: Json, server: LspServerId): monaco.languages.InlayHint[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter((h: Json) => h?.position).map((h: Json) => ({
     position: { lineNumber: h.position.line + 1, column: h.position.character + 1 },
     label: Array.isArray(h.label)
-      ? h.label.map((p: Json) => ({ label: String(p.value ?? p.label ?? ""), tooltip: p.tooltip ? { value: markdown(p.tooltip) } : undefined, command: p.command ? bridgeCommand(p.command) : undefined }))
+      ? h.label.map((p: Json) => ({ label: String(p.value ?? p.label ?? ""), tooltip: p.tooltip ? { value: markdown(p.tooltip) } : undefined, command: p.command ? bridgeCommand(p.command, server) : undefined }))
       : String(h.label ?? ""),
     kind: h.kind === 1 || h.kind === 2 ? h.kind : undefined,
     tooltip: h.tooltip ? { value: markdown(h.tooltip) } : undefined,
@@ -491,8 +558,8 @@ function toInlayHints(raw: Json): monaco.languages.InlayHint[] {
 export function initLsp() {
   if (!("__TAURI_INTERNALS__" in window)) return;
   if (!inlayRefresh && typeof monaco.Emitter === "function") inlayRefresh = new monaco.Emitter<void>();
-  monaco.editor.registerCommand?.(EXEC_CMD, (_accessor, command: string, args?: unknown[]) => {
-    const s = session;
+  monaco.editor.registerCommand?.(EXEC_CMD, (_accessor, command: string, args?: unknown[], server: LspServerId = "typescript") => {
+    const s = sessions.get(server) ?? sessions.get("typescript");
     if (!s?.ready || !command) return Promise.resolve();
     return safe(request(s, "workspace/executeCommand", { command, arguments: args ?? [] }), null);
   });
@@ -510,24 +577,34 @@ export function initLsp() {
     await openFile(target.uri.fsPath.replace(/\\/g, "/"), { line: selection.startLineNumber, col: selection.startColumn });
     return true;
   };
-  monaco.editor.onDidCreateModel((model) => { if (session) openModel(session, model); });
+  monaco.editor.onDidCreateModel((model) => {
+    const target = targetOf(model);
+    if (!target) return;
+    const s = sessions.get(target.server);
+    if (s) openModel(s, model);
+    else if (workspaceRoot && !failedServers.has(target.server)) void startServer(target.server, workspaceRoot, generation);
+  });
   // «Formatear al guardar»: si el texto cambió mientras el servidor respondía, las ediciones ya no encajan y se descartan.
   setBeforeSave(async (d) => {
-    const s = session;
-    if (!s || !active(d.model) || !s.caps.formatting) return;
+    const s = active(d.model);
+    if (!s || !s.caps.formatting) return;
     const version = d.model.getVersionId();
     const edits = await Promise.race([formatEdits(s, d.model), new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error(t("el servidor tardó demasiado"))), 4000))]);
     if (!edits.length || d.model.getVersionId() !== version) return;
     d.model.pushEditOperations([], edits, () => null);
   });
-  onDocSaved((path) => { const s = session, model = monaco.editor.getModel(monaco.Uri.file(path)); if (s && model && active(model)) notify(s, "textDocument/didSave", { textDocument: { uri: uri(model) } }); });
+  onDocSaved((path) => {
+    const model = monaco.editor.getModel(monaco.Uri.file(path));
+    const s = model ? active(model) : null;
+    if (s && model) notify(s, "textDocument/didSave", { textDocument: { uri: uri(model) } });
+  });
   monaco.editor.registerEditorOpener({ openCodeEditor: async (_source, resource, selection) => {
     if (resource.scheme !== "file") return false;
     const start = selection && ("startLineNumber" in selection ? { line: selection.startLineNumber, col: selection.startColumn } : { line: selection.lineNumber, col: selection.column });
     await openFile(resource.fsPath.replace(/\\/g, "/"), start || {});
     return true;
   } });
-  for (const lang of ["typescript", "javascript"]) {
+  for (const lang of LSP_MONACO_LANGUAGES) {
     monaco.languages.registerHoverProvider(lang, { provideHover: (model, position, token) => {
       const s = active(model); if (!s) return null;
       return safe(request(s, "textDocument/hover", params(model, position), token).then((v) => v ? { range: v.range ? range(v.range) : undefined, contents: [{ value: markdown(v.contents) }] } : null), null);
@@ -589,17 +666,18 @@ export function initLsp() {
         const ctx: Json = { diagnostics, triggerKind: context.trigger === 2 ? 2 : 1 };
         if (context.only) ctx.only = [context.only];
         return safe(request(s, "textDocument/codeAction", { textDocument: { uri: uri(model) }, range: lspRange(selRange), context: ctx }, token).then((v) => ({
-          actions: (Array.isArray(v) ? v : []).map(toCodeAction),
+          actions: (Array.isArray(v) ? v : []).map((a: Json) => toCodeAction(a, s.server)),
           dispose() {},
         })), { actions: [], dispose() {} });
       },
       resolveCodeAction: (action, token) => {
-        const s = session; const raw = (action as Json)._lsp;
+        const srv = ((action as Json)._server as LspServerId | undefined) ?? "typescript";
+        const s = sessions.get(srv); const raw = (action as Json)._lsp;
         if (!s?.ready || !s.caps.codeActionResolve || !raw) return action;
         return safe(request(s, "codeAction/resolve", raw, token).then((v) => ({
           ...action,
           edit: v?.edit ? toMonacoWorkspaceEdit(v.edit) : action.edit,
-          command: v?.command ? bridgeCommand(v.command) : action.command,
+          command: v?.command ? bridgeCommand(v.command, srv) : action.command,
         })), action);
       },
     }, { providedCodeActionKinds: ["quickfix", "refactor", "source", "source.organizeImports"] });
@@ -616,18 +694,19 @@ export function initLsp() {
       provideInlayHints: (model, hintRange, token) => {
         const s = active(model); if (!s || !s.caps.inlayHint) return { hints: [], dispose() {} };
         return safe(request(s, "textDocument/inlayHint", { textDocument: { uri: uri(model) }, range: lspRange(hintRange) }, token).then((v) => ({
-          hints: toInlayHints(v),
+          hints: toInlayHints(v, s.server),
           dispose() {},
         })), { hints: [], dispose() {} });
       },
     });
-    monaco.languages.registerCompletionItemProvider(lang, { triggerCharacters: [".", "\"", "'", "/", "@"], provideCompletionItems: (model, position, _context, token) => {
+    monaco.languages.registerCompletionItemProvider(lang, { triggerCharacters: [".", "\"", "'", "/", "@", ":", ">"], provideCompletionItems: (model, position, _context, token) => {
       const s = active(model); if (!s) return null;
       const word = model.getWordUntilPosition(position);
       const defaultRange = { startLineNumber: position.lineNumber, endLineNumber: position.lineNumber, startColumn: word.startColumn, endColumn: word.endColumn };
-      return safe(request(s, "textDocument/completion", params(model, position), token).then((v) => ({ suggestions: (Array.isArray(v) ? v : v?.items ?? []).map((item: Json) => ({ label: item.label, kind: completionKinds[(item.kind ?? 1) - 1] ?? monaco.languages.CompletionItemKind.Text, detail: item.detail, documentation: item.documentation ? { value: markdown(item.documentation) } : undefined, sortText: item.sortText, filterText: item.filterText, insertText: item.textEdit?.newText ?? item.insertText ?? item.label, insertTextRules: item.insertTextFormat === 2 ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet : undefined, range: item.textEdit?.range ? range(item.textEdit.range) : defaultRange, additionalTextEdits: item.additionalTextEdits?.map((e: Json) => ({ range: range(e.range), text: e.newText })), _lsp: item })), incomplete: !!v?.isIncomplete })), { suggestions: [] });
+      return safe(request(s, "textDocument/completion", params(model, position), token).then((v) => ({ suggestions: (Array.isArray(v) ? v : v?.items ?? []).map((item: Json) => ({ label: item.label, kind: completionKinds[(item.kind ?? 1) - 1] ?? monaco.languages.CompletionItemKind.Text, detail: item.detail, documentation: item.documentation ? { value: markdown(item.documentation) } : undefined, sortText: item.sortText, filterText: item.filterText, insertText: item.textEdit?.newText ?? item.insertText ?? item.label, insertTextRules: item.insertTextFormat === 2 ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet : undefined, range: item.textEdit?.range ? range(item.textEdit.range) : defaultRange, additionalTextEdits: item.additionalTextEdits?.map((e: Json) => ({ range: range(e.range), text: e.newText })), _lsp: item, _server: s.server })), incomplete: !!v?.isIncomplete })), { suggestions: [] });
     }, resolveCompletionItem: (item, token) => {
-      const s = session; const raw = (item as Json)._lsp; if (!s?.ready || !raw) return item;
+      const srv = ((item as Json)._server as LspServerId | undefined) ?? "typescript";
+      const s = sessions.get(srv); const raw = (item as Json)._lsp; if (!s?.ready || !raw) return item;
       return safe(request(s, "completionItem/resolve", raw, token).then((v) => ({ ...item, detail: v.detail ?? item.detail, documentation: v.documentation ? { value: markdown(v.documentation) } : item.documentation, additionalTextEdits: v.additionalTextEdits?.map((e: Json) => ({ range: range(e.range), text: e.newText })) ?? item.additionalTextEdits })), item);
     } });
   }

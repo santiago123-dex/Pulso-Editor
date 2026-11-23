@@ -71,7 +71,7 @@ function row(c: Change, staged: boolean): HTMLElement {
   el.title = `${c.path}${c.orig ? ` (antes ${c.orig})` : ""} — ${LABEL[c.status] ?? ""}`;
   el.onclick = () => {
     if (c.status === "!") { void openFile(`${changes!.top}/${c.path}`); return; }
-    void openDiff({ root: ws.root!, top: changes!.top, path: c.path, orig: c.orig, staged, status: c.status });
+    void openDiff({ root: ws.root!, top: changes!.top, path: c.path, orig: c.orig, staged, status: c.status }, () => refreshScm());
   };
   return el;
 }

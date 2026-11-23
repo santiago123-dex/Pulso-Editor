@@ -28,6 +28,10 @@ pub mod i18n;
 pub mod localai;
 mod updates;
 mod diag;
+mod project_check;
+mod test_runner;
+mod git_hunks;
+mod inline_ai;
 
 /// Los procesos auxiliares no deben abrir ventanas de consola en Windows.
 fn background_command(program: &str) -> Command {
@@ -984,8 +988,12 @@ fn parse_git_status(text: &str, top: &str) -> GitInfo {
 
 /// Estado de Git de la carpeta: rama, adelantos y archivos cambiados. None si no es un repositorio.
 #[tauri::command]
-async fn git_status(path: String) -> Option<GitInfo> {
-    tauri::async_runtime::spawn_blocking(move || git_status_sync(path)).await.ok().flatten()
+async fn git_status(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: String) -> Result<Option<GitInfo>, String> {
+    // Solo carpetas abiertas como espacio de trabajo; para el resto, lo mismo que una carpeta que no es repositorio.
+    if guard.ensure_dir(&path).is_err() {
+        return Ok(None);
+    }
+    Ok(tauri::async_runtime::spawn_blocking(move || git_status_sync(path)).await.ok().flatten())
 }
 
 fn git_status_sync(path: String) -> Option<GitInfo> {
@@ -996,7 +1004,9 @@ fn git_status_sync(path: String) -> Option<GitInfo> {
 
 /// Devuelve la URL del remoto `origin` del repo en `path`.
 #[tauri::command]
-async fn git_remote(path: String) -> Result<String, String> {
+async fn git_remote(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: String) -> Result<String, String> {
+    // La dirección del remoto puede llevar un token incrustado: solo se entrega la de una carpeta abierta.
+    guard.ensure_dir(&path)?;
     tauri::async_runtime::spawn_blocking(move || git_remote_sync(path)).await.map_err(|e| e.to_string())?
 }
 
@@ -1183,7 +1193,13 @@ pub fn run() {
             updates::update_install,
             diag::diag_log,
             diag::diag_collect,
-            i18n::i18n_set_lang
+            i18n::i18n_set_lang,
+            project_check::project_check,
+            test_runner::test_detect,
+            test_runner::test_run,
+            git_hunks::git_file_hunks,
+            git_hunks::git_apply_hunk,
+            inline_ai::ai_inline_complete
         ])
         .build(app_context())
         .expect("error al iniciar Pulso Editor")
