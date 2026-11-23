@@ -96,6 +96,10 @@
           <svg viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/></svg>
           <span id="problems-badge" class="act-badge" hidden></span>
         </button>
+        <button class="act" data-view="tests" title="Pruebas" aria-label="Pruebas">
+          <svg viewBox="0 0 24 24"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-9V3"/><path d="M8.5 14h7"/></svg>
+          <span id="tests-badge" class="act-badge" hidden></span>
+        </button>
         <div class="spacer"></div>
         <button class="act" data-view="settings" title="Configuración (Ctrl+,)" aria-label="Configuración">
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
@@ -183,10 +187,30 @@
         <section id="view-problems" class="view" hidden>
           <header>
             <span class="title">Problemas</span>
+            <button class="icon-btn" id="problems-scan" title="Analizar todo el proyecto" aria-label="Analizar todo el proyecto">
+              <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg>
+            </button>
             <button class="tgl" id="problems-only-errors" title="Mostrar solo errores" aria-label="Mostrar solo errores" aria-pressed="false">✖</button>
           </header>
+          <div class="seg" id="problems-scope" role="tablist" aria-label="Alcance de los problemas">
+            <button type="button" role="tab" data-v="open" aria-selected="true">Abiertos</button>
+            <button type="button" role="tab" data-v="project" aria-selected="false">Proyecto</button>
+          </div>
           <div id="problems-summary"></div>
           <div id="problems-list"></div>
+        </section>
+
+        <section id="view-tests" class="view" hidden>
+          <header>
+            <span class="title">Pruebas</span>
+            <button class="icon-btn" id="tests-run" title="Ejecutar todas las pruebas" aria-label="Ejecutar todas las pruebas">
+              <svg viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></svg>
+            </button>
+            <button class="tgl" id="tests-only-failed" title="Mostrar solo fallidas" aria-label="Mostrar solo fallidas" aria-pressed="false">✖</button>
+          </header>
+          <select id="tests-runner" hidden aria-label="Ejecutor de pruebas"></select>
+          <div id="tests-summary"></div>
+          <div id="tests-list"></div>
         </section>
 
         <section id="view-ai" class="view ai-docked" hidden></section>
