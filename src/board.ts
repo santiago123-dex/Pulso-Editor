@@ -5,6 +5,7 @@ import { isChatRoom } from "./chatModel";
 import { addLabel, createIssue, deleteIssue, fetchAllIssues, hasToken, isAuthProblem, removeLabel, setIssueState, updateIssue, type Issue } from "./github";
 import { bus } from "./core/events";
 import { currentRepo } from "./core/repo";
+import { readStorage, writeStorage } from "./core/storage";
 import { openExternal } from "./external";
 import { connectButton } from "./githubConnect";
 import { state } from "./settings";
@@ -30,8 +31,8 @@ const cacheKey = (r: Repo) => `${r.owner}/${r.repo}`.toLowerCase();
 /** Recarga automática: al volver a la ventana (si pasaron 5 s) y, con token, cada 15 s (las consultas sin cambios usan ETag y no gastan cuota). Ver `refreshDue`. */
 const MIN_GAP_MS = 5_000;
 const INTERVAL_MS = 15_000;
-const intervalMs = () => Number(localStorage.getItem("pulso.boardInterval")) || INTERVAL_MS;
-const minGap = () => Number(localStorage.getItem("pulso.boardMinGap")) || MIN_GAP_MS;
+const intervalMs = () => Number(readStorage("pulso.boardInterval")) || INTERVAL_MS;
+const minGap = () => Number(readStorage("pulso.boardMinGap")) || MIN_GAP_MS;
 
 const progressLabel = () => state.settings.boardProgressLabel;
 const confirmKey = (r: Repo) => `pulso.boardWriteOk:${r.owner}/${r.repo}`;
@@ -334,14 +335,14 @@ async function ensureCanWrite(): Promise<boolean> {
     });
     return false;
   }
-  if (localStorage.getItem(confirmKey(repo))) return true;
+  if (readStorage(confirmKey(repo))) return true;
   const r = await showDialog({
     title: t("El tablero modifica GitHub"),
     message: t("Crear o editar una issue, y mover tarjetas entre columnas, modifica {repo} con tu token. El tablero puede crear etiquetas para los estados si no existen.", { repo: `${repo.owner}/${repo.repo}` }),
     buttons: [{ label: t("Cancelar"), value: "cancel" }, { label: t("Entendido, continuar"), value: "ok", primary: true }],
   });
   if (r !== "ok") return false;
-  localStorage.setItem(confirmKey(repo), "1");
+  writeStorage(confirmKey(repo), "1");
   return true;
 }
 

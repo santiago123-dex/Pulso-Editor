@@ -1,4 +1,5 @@
 import * as monaco from "monaco-editor";
+import { readJsonStorage, writeJsonStorage } from "./core/storage";
 import { setIconMode } from "./icons";
 import { THEMES, tokenRules, type Theme } from "./themes";
 
@@ -84,7 +85,7 @@ const KEY = "pulso.settings";
 
 export function loadSettings(): Settings {
   try {
-    const saved = JSON.parse(localStorage.getItem(KEY) ?? "{}");
+    const saved = readJsonStorage<Record<string, unknown>>(KEY, {});
     if (saved.v !== DEFAULTS.v) {
       // Antes el tema y el acento eran independientes; ahora cada tema define su acento.
       delete saved.theme; delete saved.accent; delete saved.syntaxTheme;
@@ -93,15 +94,15 @@ export function loadSettings(): Settings {
     if ((saved.theme ?? DEFAULTS.theme) === "pulso-dark" && String(saved.accent).toLowerCase() === "#7c3aed") delete saved.accent;
     return {
       ...DEFAULTS, ...saved, v: DEFAULTS.v,
-      keybindings: { ...(saved.keybindings ?? {}) },
-      customThemes: { ...(saved.customThemes ?? {}) },
+      keybindings: { ...((saved.keybindings as Record<string, string>) ?? {}) },
+      customThemes: { ...((saved.customThemes as Record<string, Theme>) ?? {}) },
     };
   } catch {
     return { ...DEFAULTS, keybindings: {}, customThemes: {} };
   }
 }
 
-export const saveSettings = (s: Settings) => localStorage.setItem(KEY, JSON.stringify(s));
+export const saveSettings = (s: Settings) => { writeJsonStorage(KEY, s); };
 
 /** Estado compartido de la configuración actual. */
 export const state = { settings: loadSettings() };
@@ -174,7 +175,7 @@ export function applyTheme(s: Settings, previewId?: string) {
   };
   for (const [k, v] of Object.entries(vars)) root.setProperty(`--${k}`, v);
   // Se recuerdan para que la próxima vez la pantalla de carga ya salga con los colores del tema.
-  if (!previewId) { try { localStorage.setItem("pulso.themeVars", JSON.stringify(vars)); } catch { /* sin espacio */ } }
+  if (!previewId) writeJsonStorage("pulso.themeVars", vars);
   root.setProperty("--mono", s.fontFamily);
   root.colorScheme = light ? "light" : "dark";
   // El marco y la luz de las hojas cambian con el tono del tema (ver «Profundidad» en styles.css).

@@ -1,6 +1,7 @@
 import { lang, t as tr } from "./i18n";
 import { bus } from "./core/events";
 import { currentRepo } from "./core/repo";
+import { readStorage, writeStorage } from "./core/storage";
 import { ago, buildItems, insertMention, lastSpoke, MAX_MESSAGE, mentionAt, mentionsPerson, mergeComments, splitBody, suggestMembers, unreadCount, type ChatComment, type ChatUser } from "./chatModel";
 import { openExternal } from "./external";
 import { getAccount, hasToken, isAuthProblem } from "./github";
@@ -16,14 +17,14 @@ import "./repoChat.css";
 const POLL_MS = 4000;
 const FULL_RELOAD_MS = 5 * 60_000;
 const ROOM_CHECK_MS = 30_000;
-const roomCheckMs = () => Number(localStorage.getItem("pulso.chatRoomCheckMs")) || ROOM_CHECK_MS;
+const roomCheckMs = () => Number(readStorage("pulso.chatRoomCheckMs")) || ROOM_CHECK_MS;
 const BACKGROUND_MS = 45_000;
-const backgroundMs = () => Number(localStorage.getItem("pulso.chatBackgroundMs")) || BACKGROUND_MS;
+const backgroundMs = () => Number(readStorage("pulso.chatBackgroundMs")) || BACKGROUND_MS;
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const repoKey = (r: ChatRepo) => `${r.owner}/${r.repo}`.toLowerCase();
 const seenKey = (r: ChatRepo) => `pulso.chatSeen:${repoKey(r)}`;
-const readSeen = (r: ChatRepo) => Number(localStorage.getItem(seenKey(r))) || 0;
+const readSeen = (r: ChatRepo) => Number(readStorage(seenKey(r))) || 0;
 
 /** Solo se cargan imágenes del dominio oficial de avatares. */
 function avatar(user: { login: string; avatar_url?: string }, size = 28): HTMLElement {
@@ -79,7 +80,7 @@ let pollTimer = 0;
 let onFocusTick: (() => void) | null = null;
 let shown = false;
 const FULL_KEY = "pulso.chatFull";
-const isFull = () => localStorage.getItem(FULL_KEY) === "1";
+const isFull = () => readStorage(FULL_KEY) === "1";
 const isOpen = () => shown && !document.getElementById("app")!.classList.contains("no-sidebar");
 
 function applyMode() {
@@ -93,7 +94,7 @@ function applyMode() {
 }
 
 function setFull(full: boolean) {
-  localStorage.setItem(FULL_KEY, full ? "1" : "0");
+  writeStorage(FULL_KEY, full ? "1" : "0");
   if (full) bus.emit("overlay", "chat");
   applyMode();
 }
@@ -343,7 +344,7 @@ function mount(ui: { root: HTMLElement; head: HTMLElement; body: HTMLElement; to
   function markSeen() {
     if (!isOpen()) return;
     const last = st.comments.length ? st.comments[st.comments.length - 1].id : 0;
-    if (last > readSeen(repo)) localStorage.setItem(seenKey(repo), String(last));
+    if (last > readSeen(repo)) writeStorage(seenKey(repo), String(last));
     setBadge(0);
   }
 

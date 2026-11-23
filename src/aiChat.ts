@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { bus } from "./core/events";
 import { currentRepo } from "./core/repo";
-import { readStorage, removeStorage } from "./core/storage";
+import { readStorage, removeStorage, writeJsonStorage, writeStorage } from "./core/storage";
 import {
   EFFORTS, EXAMPLES, PROVIDERS, QUICK_PROMPTS,
   type AiModelInfo, type AiTool, type AllAiTools, type AntigravityBucket, type AntigravityUsage, type CodexQuota, type ExtraUsage, type ModelOption, type ProviderMeta, type WindowQuota,
@@ -79,12 +79,12 @@ let shown = false;
 let historyOpen = false;
 type AiMode = "read" | "edit" | "full";
 function savedMode(): AiMode {
-  const m = localStorage.getItem("pulso.ai.mode");
+  const m = readStorage("pulso.ai.mode");
   if (m === "full" || m === "edit") return m;
   return "read";
 }
-let model = localStorage.getItem(PROVIDERS[activeProvider].modelKey) ?? "";
-let effort = localStorage.getItem("pulso.ai.effort") ?? "";
+let model = readStorage(PROVIDERS[activeProvider].modelKey) ?? "";
+let effort = readStorage("pulso.ai.effort") ?? "";
 let mode: AiMode = savedMode();
 let useFile = true;
 let useSel = true;
@@ -102,8 +102,8 @@ let loginProvider: AiProvider = activeProvider;
 function switchProvider(next: AiProvider) {
   if (activeProvider === next && tool === tools[next]) return;
   activeProvider = next;
-  localStorage.setItem("pulso.ai.provider", next);
-  model = localStorage.getItem(PROVIDERS[next].modelKey) ?? "";
+  writeStorage("pulso.ai.provider", next);
+  model = readStorage(PROVIDERS[next].modelKey) ?? "";
   tool = tools[next];
   if (current) {
     if (!current.convo.messages.length) {
@@ -117,7 +117,7 @@ function switchProvider(next: AiProvider) {
   if (shown) renderBody();
 }
 
-const isFull = () => localStorage.getItem(FULL_KEY) === "1";
+const isFull = () => readStorage(FULL_KEY) === "1";
 /** Segundos con un decimal, con la coma o el punto que use el idioma elegido: «3,2» o «3.2». */
 const seconds = (ms: number) => (ms / 1000).toLocaleString(lang(), { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const viewEl = () => $("view-ai");
@@ -244,10 +244,8 @@ function saveRunningBeforeExit() {
     persist(l);
     if (l.convo.running && (!active || l === current)) active = l;
   }
-  try {
-    if (active) localStorage.setItem(INTERRUPTED_KEY, JSON.stringify({ id: active.id, cwd: active.cwd }));
-    else localStorage.removeItem(INTERRUPTED_KEY);
-  } catch { /* sin acceso */ }
+  if (active) writeJsonStorage(INTERRUPTED_KEY, { id: active.id, cwd: active.cwd });
+  else removeStorage(INTERRUPTED_KEY);
   flushHistoryNow();
 }
 
@@ -322,10 +320,8 @@ function saveUsage(u: Conversation["usage"]) {
   usageError = "";
   const claudeTool = tools.claude ?? tool;
   if (claudeTool?.version.includes("falso")) return; // la herramienta de pruebas nunca deja cifras guardadas
-  try {
-    localStorage.setItem(USAGE_KEY, JSON.stringify(usage));
-    if (claudeTool) localStorage.setItem(USAGE_SIG_KEY, `${claudeTool.auth_method}:${claudeTool.plan}`);
-  } catch { /* sin espacio */ }
+  writeJsonStorage(USAGE_KEY, usage);
+  if (claudeTool) writeStorage(USAGE_SIG_KEY, `${claudeTool.auth_method}:${claudeTool.plan}`);
 }
 
 /** Pide a Claude Code el uso real del plan (`/usage`): no gasta cuota ni toca credenciales. */
@@ -370,7 +366,7 @@ function apply(live: Live, ev: AiEvent) {
   if (ev.type === "result" || ev.type === "pulso_exit") {
     lastPersistAt = now;
     persist(live, true);
-    try { localStorage.removeItem(INTERRUPTED_KEY); } catch { /* sin acceso */ }
+    removeStorage(INTERRUPTED_KEY);
     if (live.convo.touched) refreshDisk();
     if (live.provider === "codex" || live.provider === "antigravity") void refreshExtraUsage();
   } else if (ev.type === "pulso_user" || ev.type === "system" || now - lastPersistAt >= 1200) {
@@ -944,7 +940,7 @@ function openModelPopover(anchor: HTMLElement) {
       row.append(left, h("span", "ai-pop-check", active ? "✓" : ""));
       row.onclick = () => {
         model = m.value;
-        localStorage.setItem(meta.modelKey, model);
+        writeStorage(meta.modelKey, model);
         dismissPopover();
         syncModelButton();
       };
@@ -974,7 +970,7 @@ function openModelPopover(anchor: HTMLElement) {
       const entered = await promptText({ title: tr("Identificador exacto del modelo"), value: model, placeholder: cat.models[1]?.value ?? "modelo" });
       if (!entered) return;
       model = entered.trim();
-      localStorage.setItem(meta.modelKey, model);
+      writeStorage(meta.modelKey, model);
       syncModelButton();
     };
     listBox.append(custom);
@@ -989,7 +985,7 @@ function openModelPopover(anchor: HTMLElement) {
         b.type = "button";
         b.onclick = () => {
           effort = e.value;
-          localStorage.setItem("pulso.ai.effort", effort);
+          writeStorage("pulso.ai.effort", effort);
           syncModelButton();
           render();
         };
@@ -1746,8 +1742,8 @@ function buildDenialCard(live: Live, denials: number, actions: readonly DeniedAc
   switchBtn.onclick = () => {
     dismissedDenials.add(dismissKey);
     mode = targetMode;
-    localStorage.setItem("pulso.ai.mode", mode);
-    localStorage.setItem(targetMode === "full" ? "pulso.ai.fullOk" : "pulso.ai.editOk", "1");
+    writeStorage("pulso.ai.mode", mode);
+    writeStorage(targetMode === "full" ? "pulso.ai.fullOk" : "pulso.ai.editOk", "1");
     build();
     const contPrompt = targetMode === "full"
       ? "El usuario activó el modo Agente completo (edición y comandos de terminal aprobados). Ejecuta lo que quedó pendiente y completa la tarea."
@@ -2089,11 +2085,11 @@ async function detect(force = false) {
       });
       const nextClaude = all.claude;
       const sig = `${nextClaude.auth_method}:${nextClaude.plan}`;
-      const prevSig = localStorage.getItem(USAGE_SIG_KEY);
+      const prevSig = readStorage(USAGE_SIG_KEY);
       if (!nextClaude.logged_in || prevSig !== sig) {
         usage = {};
         usageError = "";
-        localStorage.removeItem(USAGE_KEY);
+        removeStorage(USAGE_KEY);
       }
       tools.claude = nextClaude;
       tools.codex = all.codex;
@@ -2102,7 +2098,7 @@ async function detect(force = false) {
       tool = tools[activeProvider];
 
       if (nextClaude.logged_in) {
-        localStorage.setItem(USAGE_SIG_KEY, sig);
+        writeStorage(USAGE_SIG_KEY, sig);
         void refreshUsage();
       }
       if (all.codex?.logged_in || all.antigravity?.logged_in) {
@@ -2205,7 +2201,7 @@ function applyMode() {
 }
 
 function setFull(full: boolean) {
-  localStorage.setItem(FULL_KEY, full ? "1" : "0");
+  writeStorage(FULL_KEY, full ? "1" : "0");
   if (full) bus.emit("overlay", "ai");
   applyMode();
 }
@@ -2216,7 +2212,7 @@ function onKey(e: KeyboardEvent) {
 
 async function chooseMode(next: AiMode) {
   if (next === mode) return;
-  if (next === "edit" && localStorage.getItem("pulso.ai.editOk") !== "1") {
+  if (next === "edit" && readStorage("pulso.ai.editOk") !== "1") {
     const msg = tr("Con «Puede editar», {provider} podrá modificar y crear archivos en tu proyecto sin preguntar cada vez. Verás los cambios en el panel de Git y podrás descartarlos. Si necesita ejecutar un comando de terminal, Pulso te pedirá permiso.", { provider: PROVIDERS[activeProvider].title });
     const r = await showDialog({
       title: tr("Permitir que la IA edite archivos"),
@@ -2224,8 +2220,8 @@ async function chooseMode(next: AiMode) {
       buttons: [{ label: tr("Cancelar"), value: "cancel" }, { label: tr("Permitir editar"), value: "ok", primary: true }],
     });
     if (r !== "ok") { build(); return; }
-    localStorage.setItem("pulso.ai.editOk", "1");
-  } else if (next === "full" && localStorage.getItem("pulso.ai.fullOk") !== "1") {
+    writeStorage("pulso.ai.editOk", "1");
+  } else if (next === "full" && readStorage("pulso.ai.fullOk") !== "1") {
     const msg = tr("Con «Agente», {provider} podrá modificar archivos Y ejecutar comandos de terminal (pruebas, búsquedas, diagnósticos, git, etc.) dentro de tu proyecto sin pedir confirmación en cada paso. Actívalo solo en proyectos en los que confíes.", { provider: PROVIDERS[activeProvider].title });
     const r = await showDialog({
       title: tr("Activar modo Agente completo"),
@@ -2233,10 +2229,10 @@ async function chooseMode(next: AiMode) {
       buttons: [{ label: tr("Cancelar"), value: "cancel" }, { label: tr("Activar modo Agente"), value: "ok", primary: true }],
     });
     if (r !== "ok") { build(); return; }
-    localStorage.setItem("pulso.ai.fullOk", "1");
+    writeStorage("pulso.ai.fullOk", "1");
   }
   mode = next;
-  localStorage.setItem("pulso.ai.mode", mode);
+  writeStorage("pulso.ai.mode", mode);
   build();
 }
 
@@ -2465,9 +2461,9 @@ export function initAi() {
   // El historial vive en un archivo: se carga una vez, recupera si cerró ejecutando y repinta si corresponde.
   void initHistory().then(() => {
     try {
-      const raw = localStorage.getItem(INTERRUPTED_KEY);
+      const raw = readStorage(INTERRUPTED_KEY);
       if (raw) {
-        localStorage.removeItem(INTERRUPTED_KEY);
+        removeStorage(INTERRUPTED_KEY);
         const info = JSON.parse(raw) as { id?: string; cwd?: string };
         const saved = info.id ? loadChats().find((c) => c.id === info.id) : undefined;
         if (saved && (!ws.root || sameDir(saved.cwd, ws.root))) {

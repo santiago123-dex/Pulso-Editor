@@ -54,7 +54,7 @@ Puntos fuertes:
   | `src-tauri/src/gitops.rs` | 1124 |
   | `src-tauri/src/lib.rs` | 1044 |
 
-- [ ] **Almacenamiento repartido.** Diez módulos usan `localStorage` directamente, aunque existe `src/core/storage.ts`. Centralizarlo facilita las migraciones, los límites de tamaño y las pruebas.
+- [x] **Almacenamiento repartido.** Todos los módulos de interfaz usan ahora la capa segura `src/core/storage.ts` en lugar de acceder a `localStorage` directamente.
 - [x] **Interfaz en inglés.** Ya hay capa de traducciones (`src/i18n.ts`, `src/locales/en.ts`) y selector de idioma.
   - Primera tanda traducida: menús, paleta, barra de estado, inicio, diálogos, actualizaciones, configuración e `index.html`, unos 400 textos.
   - Segunda tanda traducida, unos 260 textos:
