@@ -289,6 +289,11 @@ const EN: &[(&str, &str)] = &[
     ("Conversación nueva iniciada.", "New conversation started."),
     ("Modo edición activado para esta carpeta.", "Editing mode turned on for this folder."),
     ("Proveedor cambiado a {provider} (conversación nueva).", "Provider changed to {provider} (new conversation)."),
+    ("Formato de imagen no soportado. Usa PNG, JPG, WEBP o GIF.", "Unsupported image format. Use PNG, JPG, WEBP or GIF."),
+    ("No se pudo leer la imagen adjunta.", "Couldn't read the attached image."),
+    ("La imagen está vacía.", "The image is empty."),
+    ("La imagen supera el límite de 10 MB.", "The image exceeds the 10 MB limit."),
+    ("No se encontró la imagen adjunta.", "The attached image wasn't found."),
 ];
 
 #[cfg(test)]

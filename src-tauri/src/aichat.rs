@@ -1078,6 +1078,73 @@ struct AiLine { id: String, line: String }
 #[derive(Serialize, Clone)]
 struct AiExit { id: String, code: Option<i32>, stderr: String }
 
+#[derive(Serialize, Debug, Clone)]
+pub struct SavedImage {
+    pub path: String,
+    pub name: String,
+}
+
+const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
+static IMG_SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+
+fn ext_for_image_mime(mime: &str) -> Option<&'static str> {
+    match mime.trim().to_ascii_lowercase().as_str() {
+        "image/png" => Some("png"),
+        "image/jpeg" | "image/jpg" => Some("jpg"),
+        "image/webp" => Some("webp"),
+        "image/gif" => Some("gif"),
+        _ => None,
+    }
+}
+
+/// Guarda una imagen adjunta al chat de IA dentro de los datos de la aplicación y devuelve su ruta en disco.
+#[tauri::command]
+pub fn ai_save_image(app: AppHandle, name: Option<String>, mime: String, data_base64: String) -> Result<SavedImage, String> {
+    use base64::Engine;
+    let ext = ext_for_image_mime(&mime)
+        .ok_or_else(|| tr("Formato de imagen no soportado. Usa PNG, JPG, WEBP o GIF.").to_string())?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data_base64.trim())
+        .map_err(|_| tr("No se pudo leer la imagen adjunta.").to_string())?;
+    if bytes.is_empty() {
+        return Err(tr("La imagen está vacía.").into());
+    }
+    if bytes.len() > MAX_IMAGE_BYTES {
+        return Err(tr("La imagen supera el límite de 10 MB.").into());
+    }
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("ai-images");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let seq = IMG_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let file_name = format!("img_{ms}_{seq}.{ext}");
+    let full = dir.join(&file_name);
+    std::fs::write(&full, &bytes).map_err(|e| e.to_string())?;
+    let display = name
+        .map(|n| n.trim().to_string())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| file_name.clone());
+    Ok(SavedImage {
+        path: full.to_string_lossy().replace('\\', "/"),
+        name: display,
+    })
+}
+
+fn validate_images(images: Option<Vec<String>>) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    for raw in images.unwrap_or_default().into_iter().take(5) {
+        let p = raw.trim();
+        if p.is_empty() { continue; }
+        let meta = std::fs::metadata(p).map_err(|_| tr("No se encontró la imagen adjunta.").to_string())?;
+        if !meta.is_file() { return Err(tr("No se encontró la imagen adjunta.").into()); }
+        if meta.len() as usize > MAX_IMAGE_BYTES { return Err(tr("La imagen supera el límite de 10 MB.").into()); }
+        out.push(p.to_string());
+    }
+    Ok(out)
+}
+
 #[tauri::command]
 pub async fn ai_send(
     app: AppHandle,
@@ -1091,6 +1158,7 @@ pub async fn ai_send(
     mode: String,
     provider: Option<String>,
     history: Option<Vec<crate::localai::HistoryMsg>>,
+    images: Option<Vec<String>>,
 ) -> Result<(), String> {
     if !safe_token(&id) { return Err(tr("Identificador de conversación no válido").into()); }
     if !std::path::Path::new(&cwd).is_dir() { return Err(tr("Abre una carpeta de proyecto para hablar con la IA.").into()); }
@@ -1098,6 +1166,7 @@ pub async fn ai_send(
         return Err(trf("No se permite lanzar la IA en esa carpeta ({reason}). Abre una carpeta de proyecto concreta.", &[("reason", &reason)]));
     }
     if prompt.trim().is_empty() { return Err(tr("El mensaje está vacío.").into()); }
+    let image_paths = validate_images(images)?;
 
     // Reservar el slot ANTES de spawnear elimina carreras de doble envío y PIDs obsoletos.
     {
@@ -1109,7 +1178,7 @@ pub async fn ai_send(
     }
 
     if provider.as_deref() == Some("local") {
-        return start_local(app, &state, id, cwd, prompt, model, history.unwrap_or_default());
+        return start_local(app, &state, id, cwd, prompt, model, history.unwrap_or_default(), image_paths);
     }
 
     let opts = ChatOptions { session, model, effort, mode };
@@ -1121,11 +1190,32 @@ pub async fn ai_send(
             "claude" => {
                 let (prog, mut prefix) = resolve_cli("claude", "PULSO_CLAUDE_BIN", Some("@anthropic-ai/claude-code"));
                 prefix.extend(build_claude_args(&opts)?);
+                let mut seen_dirs = std::collections::HashSet::new();
+                for img in &image_paths {
+                    if let Some(parent) = Path::new(img).parent() {
+                        let dir = parent.to_string_lossy().into_owned();
+                        if !dir.is_empty() && seen_dirs.insert(dir.clone()) {
+                            prefix.push("--add-dir".into());
+                            prefix.push(dir);
+                        }
+                    }
+                }
                 (prog, prefix)
             }
             "codex" => {
                 let (prog, mut prefix) = resolve_cli("codex", "PULSO_CODEX_BIN", Some("@openai/codex"));
-                prefix.extend(build_codex_args(&opts)?);
+                let mut codex_args = build_codex_args(&opts)?;
+                if opts.session.is_none() && !image_paths.is_empty() {
+                    // Insertar `--image <ruta>` justo antes del `-` final de stdin.
+                    let insert_at = codex_args.len().saturating_sub(1);
+                    let mut extra = Vec::with_capacity(image_paths.len() * 2);
+                    for img in &image_paths {
+                        extra.push("--image".into());
+                        extra.push(img.clone());
+                    }
+                    codex_args.splice(insert_at..insert_at, extra);
+                }
+                prefix.extend(codex_args);
                 (prog, prefix)
             }
             "antigravity" | "gemini" => {
@@ -1185,6 +1275,7 @@ fn start_local(
     prompt: String,
     model: Option<String>,
     history: Vec<crate::localai::HistoryMsg>,
+    images: Vec<String>,
 ) -> Result<(), String> {
     let model = model.map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).ok_or_else(|| tr("Elige un modelo de Ollama para conversar.").to_string())?;
     let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1194,7 +1285,7 @@ fn start_local(
         let _ = emitter.emit("ai-line", AiLine { id: id_line.clone(), line });
     });
     tauri::async_runtime::spawn(async move {
-        let outcome = crate::localai::run(crate::localai::base_url(), model, PathBuf::from(&cwd), id.clone(), history, prompt, cancel.clone(), emit).await;
+        let outcome = crate::localai::run(crate::localai::base_url(), model, PathBuf::from(&cwd), id.clone(), history, prompt, images, cancel.clone(), emit).await;
         if let Some(st) = app.try_state::<AiState>() {
             if let Ok(mut m) = st.running.lock() {
                 m.remove(&id);

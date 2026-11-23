@@ -28,6 +28,10 @@ describe("buildPrompt", () => {
     const p = buildPrompt("revisa", { file: "src/a.ts", extraFiles: ["src/a.ts", "src/b.ts"] });
     expect(p).toBe("Contexto del editor de Pulso (lo ve la persona):\n- Archivo abierto: src/a.ts\n- Archivo adjunto: src/b.ts\n\nMensaje:\nrevisa");
   });
+  it("incluye imágenes adjuntas con su nombre y ruta", () => {
+    const p = buildPrompt("¿qué ves?", { images: [{ path: "C:/data/ai-images/img_1.png", name: "captura.png" }] });
+    expect(p).toBe("Contexto del editor de Pulso (lo ve la persona):\n- Imagen adjunta (captura.png): C:/data/ai-images/img_1.png\n\nMensaje:\n¿qué ves?");
+  });
 });
 
 describe("chipLabels", () => {

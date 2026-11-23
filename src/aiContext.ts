@@ -6,6 +6,8 @@ export interface EditorContext {
   selection?: { text: string; startLine: number; endLine: number };
   /** Archivos extra adjuntados manualmente por la persona. */
   extraFiles?: string[];
+  /** Imágenes adjuntadas al mensaje (guardadas en disco para que la IA pueda leerlas). */
+  images?: { path: string; name: string }[];
 }
 
 export const MAX_SELECTION = 20_000;
@@ -23,6 +25,9 @@ export function buildPrompt(text: string, ctx: EditorContext): string {
   if (ctx.file) parts.push(`- Archivo abierto: ${ctx.file}`);
   for (const extra of ctx.extraFiles ?? []) {
     if (extra && extra !== ctx.file) parts.push(`- Archivo adjunto: ${extra}`);
+  }
+  for (const img of ctx.images ?? []) {
+    if (img.path) parts.push(`- Imagen adjunta (${img.name || img.path}): ${img.path}`);
   }
   if (ctx.selection && ctx.selection.text.trim()) {
     const { startLine, endLine } = ctx.selection;

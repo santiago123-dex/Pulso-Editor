@@ -346,9 +346,11 @@ pub async fn run(
     conversation: String,
     history: Vec<HistoryMsg>,
     prompt: String,
+    images: Vec<String>,
     cancel: Arc<AtomicBool>,
     emit: Arc<dyn Fn(String) + Send + Sync>,
 ) -> Result<(), String> {
+    use base64::Engine;
     let started = Instant::now();
     let send = |v: Value| emit(v.to_string());
     send(json!({ "type": "system", "subtype": "init", "session_id": conversation, "model": model }));
@@ -356,7 +358,16 @@ pub async fn run(
     for m in history.iter().filter(|m| (m.role == "user" || m.role == "assistant") && !m.content.trim().is_empty()) {
         messages.push(json!({ "role": m.role, "content": m.content }));
     }
-    messages.push(json!({ "role": "user", "content": prompt }));
+    let encoded_images: Vec<String> = images
+        .iter()
+        .filter_map(|p| std::fs::read(p).ok())
+        .map(|b| base64::engine::general_purpose::STANDARD.encode(&b))
+        .collect();
+    if encoded_images.is_empty() {
+        messages.push(json!({ "role": "user", "content": prompt }));
+    } else {
+        messages.push(json!({ "role": "user", "content": prompt, "images": encoded_images }));
+    }
     let c = client(None);
     let stamp = started.elapsed().as_nanos() ^ (std::process::id() as u128) << 64;
     let mut final_text = String::new();
@@ -498,6 +509,7 @@ mod tests {
             "c1".into(),
             vec![HistoryMsg { role: "user".into(), content: "hola".into() }, HistoryMsg { role: "assistant".into(), content: "¿En qué ayudo?".into() }],
             "¿Qué hace sumar?".into(),
+            vec![],
             Arc::new(AtomicBool::new(false)),
             emit,
         ))

@@ -17,9 +17,11 @@ function message(text: string) {
 }
 
 let lastLoad = 0;
+let seq = 0;
 
 /** `silent`: actualizar sin vaciar la lista ni mostrar «Cargando…» (al volver a la ventana o tras un cambio). */
 export async function loadIssues(silent = false) {
+  const id = ++seq;
   const list = $("issues");
   const label = $("repo-label");
   if (!silent) list.replaceChildren();
@@ -29,6 +31,7 @@ export async function loadIssues(silent = false) {
     return;
   }
   const repo = await currentRepo();
+  if (id !== seq) return;
   if (!repo) {
     label.textContent = "";
     list.replaceChildren(message(t("Esta carpeta no tiene un remoto de GitHub.")));
@@ -38,10 +41,11 @@ export async function loadIssues(silent = false) {
   if (!silent) list.append(message(t("Cargando…")));
   try {
     const found = await fetchIssues(repo.owner, repo.repo, sel("issue-state").value);
+    if (id !== seq) return;
     lastLoad = Date.now();
     render(found.filter((i) => !isChatRoom(i)));
   } catch (err) {
-    if (silent) return;
+    if (id !== seq || silent) return;
     const text = err instanceof Error ? err.message : String(err);
     list.replaceChildren(message(text));
     if (isAuthProblem(err)) {
@@ -66,7 +70,7 @@ function render(issues: Issue[]) {
       if (/^[0-9a-f]{6}$/i.test(l.color)) s.style.setProperty("--label-color", `#${l.color}`);
       meta.append(s);
     }
-    meta.append(`${i.user.login} · ${i.comments} comentarios`);
+    meta.append(`${i.user.login} · ${t("{count} comentarios", { count: i.comments })}`);
     li.append(title, meta);
     li.title = t("Editar en el tablero");
     li.onclick = () => void editIssueNumber(i.number);

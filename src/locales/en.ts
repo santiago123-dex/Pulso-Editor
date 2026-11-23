@@ -1271,4 +1271,13 @@ export const en: Record<string, string> = {
   "Pulso Claro": "Pulso Light",
   "GitHub Claro": "GitHub Light",
   "Solarized Claro": "Solarized Light",
+  "{count} comentarios": "{count} comments",
+  "Adjuntar imagen (o pega con Ctrl+V)": "Attach image (or paste with Ctrl+V)",
+  "Imagen adjunta: {name}": "Attached image: {name}",
+  "Puedes adjuntar como máximo {max} imágenes por mensaje": "You can attach at most {max} images per message",
+  "Formato no soportado ({name}). Usa PNG, JPG, WEBP o GIF.": "Unsupported format ({name}). Use PNG, JPG, WEBP or GIF.",
+  "La imagen {name} supera el límite de 10 MB": "Image {name} exceeds the 10 MB limit",
+  "No se pudo adjuntar la imagen: {error}": "Couldn't attach the image: {error}",
+  "Analiza la imagen adjunta.": "Analyze the attached image.",
+  "Analiza las imágenes adjuntas.": "Analyze the attached images.",
 };

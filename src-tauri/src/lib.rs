@@ -1065,6 +1065,7 @@ pub fn run() {
             aichat::ai_extra_usage,
             aichat::ai_send,
             aichat::ai_stop,
+            aichat::ai_save_image,
             updates::update_check,
             updates::update_install,
             i18n::i18n_set_lang

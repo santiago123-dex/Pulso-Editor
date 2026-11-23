@@ -12,6 +12,7 @@ const EMERGENCY_KEY = "pulso.ai.emergency";
 export const MAX_CHATS = 30;
 export const MAX_BYTES = 1_500_000;
 const SAVED_RESULT = 600;
+const SAVED_IMAGE_PREVIEW = 40_000;
 
 const isList = (text: string | null | undefined): text is string => {
   if (!text) return false;
@@ -91,7 +92,7 @@ export function titleFrom(messages: readonly Turn[]): string {
   return text ? (text.length > 60 ? `${text.slice(0, 57)}…` : text) : t("Conversación nueva");
 }
 
-const sameDir = (a: string, b: string) => a.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase() === b.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+export const sameDir = (a: string, b: string) => a.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase() === b.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 
 export const chatsFor = (chats: readonly SavedChat[], cwd: string): SavedChat[] => chats.filter((c) => sameDir(c.cwd, cwd));
 
@@ -112,7 +113,11 @@ function compact(chat: SavedChat): SavedChat {
     messages: chat.messages.map((m) => ({
       ...m,
       done: true,
-      blocks: m.blocks.map((b) => (b.kind === "tool" ? { ...b, json: "", result: b.result && b.result.length > SAVED_RESULT ? `${b.result.slice(0, SAVED_RESULT)}…` : b.result } : b)),
+      blocks: m.blocks.map((b) => {
+        if (b.kind === "tool") return { ...b, json: "", result: b.result && b.result.length > SAVED_RESULT ? `${b.result.slice(0, SAVED_RESULT)}…` : b.result };
+        if (b.kind === "image" && b.preview && b.preview.length > SAVED_IMAGE_PREVIEW) return { kind: "image", path: b.path, name: b.name };
+        return b;
+      }),
     })),
   };
 }

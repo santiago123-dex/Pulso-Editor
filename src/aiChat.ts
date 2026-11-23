@@ -14,9 +14,9 @@ import { buildPrompt, chipLabels, type EditorContext } from "./aiContext";
 import {
   activitySummary, createProviderNormalizer, elapsedLabel, emptyConversation, exitEvent, mergeAssistantRuns, formatModelName, isAuthError, needsCommandPermission, parseUsageText, planLabel, pruneUsage,
   reduce, remainingPercent, remainingRatio, resetClockText, resetCountdown, resetIn, resetTimeFromIso, splitAssistantTurn, toolSummary, touchedFiles,
-  userEvent, type AiEvent, type AiProvider, type Block, type Conversation, type DeniedAction, type Turn, type UsageWindow,
+  userEvent, type AiEvent, type AiProvider, type Block, type Conversation, type DeniedAction, type Turn, type UsageWindow, type UserImage,
 } from "./aiModel";
-import { chatsFor, deleteChat, flushHistoryNow, initHistory, loadChats, newChatId, saveChat, titleFrom, type SavedChat } from "./aiStore";
+import { chatsFor, deleteChat, flushHistoryNow, initHistory, loadChats, newChatId, sameDir, saveChat, titleFrom, type SavedChat } from "./aiStore";
 import { checkExternal } from "./docs";
 import { refreshTree } from "./explorer";
 import { activePath, focusedEditor, openFile } from "./groups";
@@ -85,6 +85,7 @@ let mode: AiMode = savedMode();
 let useFile = true;
 let useSel = true;
 let extraFiles: string[] = [];
+let attachedImages: UserImage[] = [];
 let lastFile = "";
 let usage: Conversation["usage"] = readStoredUsage();
 let closePopover: (() => void) | null = null;
@@ -122,6 +123,7 @@ const ICON_PLUS = '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>';
 const ICON_CLOCK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2"/></svg>';
 const ICON_SEND = '<svg viewBox="0 0 24 24"><path d="M12 19V6M6 11l6-6 6 6"/></svg>';
 const ICON_STOP = '<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>';
+const ICON_IMAGE = '<svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.4"/><path d="M4.5 17l4.5-4.5 3.5 3.5 2.5-2.5 4.5 4.5"/></svg>';
 
 const iconBtn = (svg: string, title: string, cls = ""): HTMLButtonElement => {
   const b = h("button", `icon-btn ${cls}`.trim());
@@ -378,6 +380,7 @@ function editorContext(): EditorContext {
   const p = activePath();
   if (p && useFile) ctx.file = (ws.root && relativeToTop(norm(p), ws.root)) || norm(p);
   if (extraFiles.length) ctx.extraFiles = [...extraFiles];
+  if (attachedImages.length) ctx.images = attachedImages.map((i) => ({ path: i.path, name: i.name }));
   const ed = focusedEditor();
   const sel = ed?.getSelection();
   const edModel = ed?.getModel();
@@ -407,6 +410,23 @@ function renderChips() {
   for (const extra of extraFiles) {
     if (extra === ctx.file) continue;
     nodes.push(chip(baseName(extra), tr("Archivo adjunto: {file}", { file: extra }), () => { extraFiles = extraFiles.filter((f) => f !== extra); }));
+  }
+  for (const img of attachedImages) {
+    const c = h("span", "ai-chip ai-chip-img");
+    c.title = tr("Imagen adjunta: {name}", { name: img.name });
+    if (img.preview) {
+      const thumb = document.createElement("img");
+      thumb.className = "ai-chip-thumb";
+      thumb.src = img.preview;
+      thumb.alt = img.name;
+      c.append(thumb);
+    }
+    c.append(h("span", "", img.name));
+    const x = h("button", "ai-chip-x", "×");
+    x.type = "button"; x.title = tr("No adjuntar esto"); x.setAttribute("aria-label", tr("Quitar {item}", { item: img.name }));
+    x.onclick = () => { attachedImages = attachedImages.filter((i) => i !== img); renderChips(); };
+    c.append(x);
+    nodes.push(c);
   }
   if (labels.selection) nodes.push(chip(labels.selection, tr("Tu selección se envía a la IA con el mensaje"), () => { useSel = false; }));
   box.replaceChildren(...nodes);
@@ -562,6 +582,7 @@ function activityItem(b: Block): HTMLElement {
     th.append(h("div", "ai-act-thought", b.text));
     return th;
   }
+  if (b.kind === "image") return h("div", "ai-act-item note", b.name);
   const note = h("div", "ai-act-item note");
   note.append(...markdown(b.text));
   return note;
@@ -623,7 +644,26 @@ function activityCard(turnId: string, items: Block[], running: boolean): HTMLEle
 function turnNodes(t: Turn, _userNum = 0, isRunningTurn = false): HTMLElement[] {
   if (t.role === "user") {
     const u = h("div", "ai-user");
-    u.append(h("div", "ai-user-text", t.blocks[0]?.kind === "text" ? t.blocks[0].text : ""));
+    const imgs = t.blocks.filter((b): b is Extract<Block, { kind: "image" }> => b.kind === "image");
+    if (imgs.length) {
+      const strip = h("div", "ai-user-images");
+      for (const img of imgs) {
+        const card = h("div", "ai-user-img");
+        card.title = img.name;
+        if (img.preview) {
+          const el = document.createElement("img");
+          el.src = img.preview;
+          el.alt = img.name;
+          el.draggable = false;
+          card.append(el);
+        }
+        card.append(h("span", "ai-user-img-name", img.name));
+        strip.append(card);
+      }
+      u.append(strip);
+    }
+    const textBlock = t.blocks.find((b): b is Extract<Block, { kind: "text" }> => b.kind === "text");
+    if (textBlock?.text) u.append(h("div", "ai-user-text", textBlock.text));
     return [u];
   }
   const { activity, final } = splitAssistantTurn(t.blocks);
@@ -1223,6 +1263,79 @@ function openQuickPromptsPopover(anchor: HTMLElement) {
   openPopover(anchor, pop, "above");
 }
 
+const MAX_IMAGES = 5;
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const ALLOWED_IMAGE_MIME = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"]);
+
+function readAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(typeof fr.result === "string" ? fr.result : "");
+    fr.onerror = () => reject(fr.error ?? new Error("read failed"));
+    fr.readAsDataURL(file);
+  });
+}
+
+function makeThumbnail(dataUrl: string): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const maxDim = 320;
+      const scale = Math.min(1, maxDim / Math.max(img.width || 1, img.height || 1));
+      const w = Math.max(1, Math.round(img.width * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { resolve(dataUrl.length <= 35_000 ? dataUrl : ""); return; }
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", 0.78));
+      } catch {
+        resolve(dataUrl.length <= 35_000 ? dataUrl : "");
+      }
+    };
+    img.onerror = () => resolve("");
+    img.src = dataUrl;
+  });
+}
+
+async function addImageFiles(files: Iterable<File>) {
+  if (!ws.root) { setStatus(tr("Abre una carpeta primero")); return; }
+  for (const file of files) {
+    if (attachedImages.length >= MAX_IMAGES) {
+      setStatus(tr("Puedes adjuntar como máximo {max} imágenes por mensaje", { max: MAX_IMAGES }), 4000);
+      break;
+    }
+    const mime = file.type.toLowerCase();
+    if (!ALLOWED_IMAGE_MIME.has(mime)) {
+      setStatus(tr("Formato no soportado ({name}). Usa PNG, JPG, WEBP o GIF.", { name: file.name || mime || "archivo" }), 4500);
+      continue;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      setStatus(tr("La imagen {name} supera el límite de 10 MB", { name: file.name || "imagen" }), 4500);
+      continue;
+    }
+    try {
+      const dataUrl = await readAsDataUrl(file);
+      const comma = dataUrl.indexOf(",");
+      if (comma < 0) continue;
+      const base64 = dataUrl.slice(comma + 1);
+      const saved = await invoke<{ path: string; name: string }>("ai_save_image", {
+        name: file.name || null,
+        mime,
+        dataBase64: base64,
+      });
+      const preview = await makeThumbnail(dataUrl);
+      attachedImages.push({ path: saved.path, name: saved.name, ...(preview ? { preview } : {}) });
+      renderChips();
+    } catch (e) {
+      setStatus(tr("No se pudo adjuntar la imagen: {error}", { error: String(e) }), 5000);
+    }
+  }
+  q<HTMLTextAreaElement>(".ai-input")?.focus();
+}
+
 function attachProjectFile() {
   if (!ws.root) { setStatus(tr("Abre una carpeta primero")); return; }
   quickPick({
@@ -1619,6 +1732,12 @@ function renderBody() {
   if (!ws.root) { resetTurnCache(); body.replaceChildren(setupMessage(tr("Abre un proyecto"), tr("Abre una carpeta de proyecto para que el asistente pueda leer tu código y ayudarte dentro de ella."))); return; }
   if (historyOpen) { resetTurnCache(); renderHistory(body); return; }
 
+  if (current && !sameDir(current.cwd, ws.root)) {
+    if (current.convo.messages.length) persist(current, true);
+    else lives.delete(current.id);
+    current = null;
+    resetTurnCache();
+  }
   const live = current ?? (current = newLive());
   const c = live.convo;
   syncModelButton();
@@ -1758,7 +1877,7 @@ function renderBody() {
 function renderHistory(body: HTMLElement) {
   const saved = chatsFor(loadChats(), ws.root ?? "");
   const rows: { id: string; title: string; when: number; running: boolean }[] = [];
-  for (const l of lives.values()) if (l.convo.messages.length && l.cwd === ws.root) rows.push({ id: l.id, title: titleFrom(l.convo.messages), when: Date.now(), running: l.convo.running });
+  for (const l of lives.values()) if (l.convo.messages.length && ws.root && sameDir(l.cwd, ws.root)) rows.push({ id: l.id, title: titleFrom(l.convo.messages), when: Date.now(), running: l.convo.running });
   for (const c of saved) if (!rows.some((r) => r.id === c.id)) rows.push({ id: c.id, title: c.title, when: c.updatedAt, running: false });
   rows.sort((a, b) => b.when - a.when);
   const nodes: HTMLElement[] = [h("div", "ai-hist-title", tr("Conversaciones de este proyecto"))];
@@ -1850,7 +1969,7 @@ function localHistory(live: Live): { role: string; content: string }[] {
   })).filter((m) => m.content.trim()).slice(-30);
 }
 
-async function dispatchPrompt(live: Live, displayText: string, prompt: string, effectiveMode: AiMode) {
+async function dispatchPrompt(live: Live, displayText: string, prompt: string, effectiveMode: AiMode, images: readonly UserImage[] = []) {
   if (!ws.root || live.convo.running) return;
   live.cwd = ws.root;
   live.stopping = false;
@@ -1861,12 +1980,13 @@ async function dispatchPrompt(live: Live, displayText: string, prompt: string, e
   const useEffort = PROVIDERS[live.provider].supportsEffort && !(live.provider === "antigravity" && model)
     ? effort || null
     : null;
-  apply(live, userEvent(displayText));
+  apply(live, userEvent(displayText, images));
   try {
     // El agente local no guarda sesiones: recibe la conversación anterior (solo el texto) desde aquí.
     const sendModel = live.provider === "local" ? model || tools.local?.models?.[0]?.id || null : model || null;
     const history = live.provider === "local" ? localHistory(live) : null;
-    await invoke("ai_send", { id: live.id, cwd: ws.root, prompt, session: live.convo.sessionId || null, model: sendModel, effort: useEffort, mode: effectiveMode, provider: live.provider, history });
+    const imagePaths = images.length ? images.map((i) => i.path) : null;
+    await invoke("ai_send", { id: live.id, cwd: ws.root, prompt, session: live.convo.sessionId || null, model: sendModel, effort: useEffort, mode: effectiveMode, provider: live.provider, history, images: imagePaths });
   } catch (e) {
     apply(live, exitEvent(1, String(e)));
   }
@@ -1878,10 +1998,14 @@ async function send() {
   if (!live || !input || !ws.root) return;
   if (live.convo.running) { live.stopping = true; await invoke("ai_stop", { id: live.id }).catch(() => {}); return; }
   const text = input.value.trim();
-  if (!text) return;
-  const prompt = buildPrompt(text, editorContext());
+  if (!text && !attachedImages.length) return;
+  const imgs = [...attachedImages];
+  const promptText = text || (imgs.length === 1 ? tr("Analiza la imagen adjunta.") : tr("Analiza las imágenes adjuntas."));
+  const prompt = buildPrompt(promptText, editorContext());
   input.value = ""; autosize();
-  await dispatchPrompt(live, text, prompt, mode);
+  attachedImages = [];
+  renderChips();
+  await dispatchPrompt(live, text, prompt, mode, imgs);
 }
 
 function newConversation() {
@@ -1889,6 +2013,7 @@ function newConversation() {
   if (current && !current.convo.messages.length) { historyOpen = false; renderBody(); return; }
   current = newLive();
   extraFiles = [];
+  attachedImages = [];
   historyOpen = false;
   renderBody();
   q<HTMLTextAreaElement>(".ai-input")?.focus();
@@ -1986,6 +2111,17 @@ function build() {
   const leftBar = h("div", "ai-dock-left");
   const attachBtn = iconBtn(ICON_PLUS, tr("Adjuntar archivo del proyecto"), "ai-compose-act");
   attachBtn.onclick = attachProjectFile;
+  const imgInput = document.createElement("input");
+  imgInput.type = "file";
+  imgInput.accept = "image/png,image/jpeg,image/webp,image/gif";
+  imgInput.multiple = true;
+  imgInput.hidden = true;
+  imgInput.onchange = () => {
+    if (imgInput.files?.length) void addImageFiles(Array.from(imgInput.files));
+    imgInput.value = "";
+  };
+  const imgBtn = iconBtn(ICON_IMAGE, tr("Adjuntar imagen (o pega con Ctrl+V)"), "ai-compose-act");
+  imgBtn.onclick = () => imgInput.click();
   const quickBtn = iconBtn('<svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>', tr("Acciones rápidas"), "ai-compose-act");
   quickBtn.onclick = () => openQuickPromptsPopover(quickBtn);
 
@@ -2009,7 +2145,7 @@ function build() {
     b.onclick = () => void chooseMode(value);
     seg.append(b);
   }
-  leftBar.append(attachBtn, quickBtn, modelBtn, seg);
+  leftBar.append(attachBtn, imgBtn, imgInput, quickBtn, modelBtn, seg);
 
   const rightBar = h("div", "ai-dock-right");
   const sendBtn = h("button", "ai-send"); sendBtn.type = "submit"; sendBtn.innerHTML = ICON_SEND; sendBtn.title = tr("Enviar (Enter)"); sendBtn.setAttribute("aria-label", tr("Enviar"));
@@ -2021,6 +2157,38 @@ function build() {
   compose.onsubmit = (e) => { e.preventDefault(); void send(); };
   input.oninput = autosize;
   input.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); void send(); } };
+  input.onpaste = (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const files: File[] = [];
+    for (const item of Array.from(items)) {
+      if (item.kind === "file" && item.type.startsWith("image/")) {
+        const f = item.getAsFile();
+        if (f) files.push(f);
+      }
+    }
+    if (files.length) {
+      e.preventDefault();
+      void addImageFiles(files);
+    }
+  };
+  dock.ondragover = (e) => {
+    if (Array.from(e.dataTransfer?.items ?? []).some((it) => it.kind === "file" && it.type.startsWith("image/"))) {
+      e.preventDefault();
+      dock.classList.add("drag-over");
+    }
+  };
+  dock.ondragleave = (e) => {
+    if (!dock.contains(e.relatedTarget as Node | null)) dock.classList.remove("drag-over");
+  };
+  dock.ondrop = (e) => {
+    dock.classList.remove("drag-over");
+    const files = Array.from(e.dataTransfer?.files ?? []).filter((f) => f.type.startsWith("image/"));
+    if (files.length) {
+      e.preventDefault();
+      void addImageFiles(files);
+    }
+  };
   const issueBanner = h("div", "ai-issue-banner");
   issueBanner.hidden = true;
   const foot = h("div", "ai-foot");
@@ -2054,7 +2222,7 @@ export function initAi() {
         localStorage.removeItem(INTERRUPTED_KEY);
         const info = JSON.parse(raw) as { id?: string; cwd?: string };
         const saved = info.id ? loadChats().find((c) => c.id === info.id) : undefined;
-        if (saved && (!ws.root || saved.cwd.replace(/\\/g, "/").toLowerCase() === ws.root.replace(/\\/g, "/").toLowerCase())) {
+        if (saved && (!ws.root || sameDir(saved.cwd, ws.root))) {
           const l = fromSaved(saved);
           lives.set(l.id, l);
           switchProvider(l.provider);
@@ -2105,6 +2273,30 @@ export function initAi() {
       inp.focus();
     }
   });
+}
+
+/** Al cambiar o cerrar carpeta se descarta la conversación activa del proyecto anterior y se actualiza la vista para el nuevo. */
+export function resetAi() {
+  dismissPopover();
+  extraFiles = [];
+  attachedImages = [];
+  lastFile = "";
+  useFile = true;
+  useSel = true;
+  historyOpen = false;
+  const keepCurrent = !!(ws.root && current && current.convo.messages.length && sameDir(current.cwd, ws.root));
+  if (!keepCurrent && current) {
+    if (current.convo.messages.length) persist(current, true);
+    else lives.delete(current.id);
+    current = null;
+    resetTurnCache();
+  }
+  const input = q<HTMLTextAreaElement>(".ai-input");
+  if (input) {
+    input.value = "";
+    autosize();
+  }
+  if (shown) renderBody();
 }
 
 /** «IA: Nueva conversación» desde la paleta. */

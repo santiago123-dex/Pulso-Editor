@@ -20,26 +20,27 @@ import { autoConnect, initToken } from "./github";
 import { gitInfo, onGitChange, type GitInfo } from "./git";
 import { collapseAll, highlight, initExplorer, newEntry, refreshGitDecorations, refreshTree, resetExplorer, revealInTree } from "./explorer";
 import {
-  activePath, applySettingsToEditors, closeActive, closeAllInGroup, closeAllTabs, closeGroup, closeOthers, config,
+  activePath, applySettingsToEditors, clearClosedTabs, closeActive, closeAllInGroup, closeAllTabs, closeGroup, closeOthers, config,
   focusGroup, focusedEditor, getFocused, initGroups, moveToNextGroup, nextTab, onGroupsChange, openFile,
   reopenClosed, rerenderEmpty, rerenderGroups, restore, saveActive, saveAll, serialize, splitGroup, toggleDirection, togglePin,
   type Layout,
 } from "./groups";
 import { fileIcon, loadIconManifest } from "./icons";
-import { openBoard } from "./board";
+import { closeBoard, openBoard } from "./board";
+import { closeDiff } from "./diffView";
 import { initIssues, loadIssues } from "./issues";
 import { initProblems, setProblemsVisible } from "./problems";
 import { pickScript } from "./scripts";
 import { initHistory, openHistoryTab, resetHistory, showFileHistory } from "./history";
 import { initBlame, toggleBlame } from "./blame";
 import { initPrs, newPull, resetPrs, setPrsVisible } from "./prs";
-import { initAi, setAiVisible, startNewConversation } from "./aiChat";
+import { initAi, resetAi, setAiVisible, startNewConversation } from "./aiChat";
 import { customizeActivityBar, initActivityBar, resetActivityBar } from "./activityBar";
 import { resetRepoChat, setChatVisible } from "./repoChat";
 import { initLsp, setLspWorkspace } from "./lsp";
 import { getLspState, lspDetail, lspLabel, onLspState } from "./lspState";
-import { commitStaged, initScm, pickBranch, pullChanges, pushChanges, refreshScm, stage, unstage } from "./scm";
-import { focusSearch, initSearch, searchInFolder } from "./search";
+import { commitStaged, initScm, pickBranch, pullChanges, pushChanges, refreshScm, resetScm, stage, unstage } from "./scm";
+import { focusSearch, initSearch, resetSearch, searchInFolder } from "./search";
 import { allThemes, applyTheme, commit, onSettingsChange, setTheme, state, syntaxOptionsFor } from "./settings";
 import { adaptToMyTerminal, applyTerminalSettings, clearTerminal, initTerminal, killActiveTerminal, newTerminal, runInTerminal, toggleTerminal } from "./terminal";
 import { openThemeGallery } from "./themeGallery";
@@ -156,9 +157,16 @@ async function openWorkspace(raw: string, layout?: Layout | null): Promise<boole
   addRecent(path);
   resetExplorer();
   if (changedWorkspace) {
+    resetSearch();
+    resetScm();
     resetHistory();
     resetPrs();
     resetRepoChat();
+    resetAi();
+    closeBoard();
+    closeDiff();
+    nav.reset();
+    clearClosedTabs();
   }
   $("tree-empty").hidden = true;
   const fn = $("folder-name");
@@ -196,9 +204,16 @@ async function closeWorkspace() {
     await invoke("set_workspace_root", { path: null }).catch(() => {});
   }
   resetExplorer();
+  resetSearch();
+  resetScm();
   resetHistory();
   resetPrs();
   resetRepoChat();
+  resetAi();
+  closeBoard();
+  closeDiff();
+  nav.reset();
+  clearClosedTabs();
   await refreshTree();
   setDefaultStatus(t("Listo"));
   setStatus(t("Carpeta cerrada"));

@@ -65,6 +65,12 @@ export function createNav(open: (loc: Loc) => Promise<void>, opts: NavOptions = 
       idx = current && current.path !== path ? stack.indexOf(current) : Math.min(idx, stack.length - 1);
       emit();
     },
+    /** Vacía el historial completo (al cambiar o cerrar carpeta). */
+    reset() {
+      stack = [];
+      idx = -1;
+      emit();
+    },
     onChange(f: () => void) { subs.add(f); },
     /** Para pruebas y depuración. */
     snapshot: () => ({ stack: stack.map((l) => ({ ...l })), idx }),
