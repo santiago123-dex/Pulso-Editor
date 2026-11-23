@@ -1,11 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
+import { t } from "./i18n";
 import { setStatus, showDialog } from "./ui";
 
 export interface UpdateInfo { version: string; current: string; notes?: string | null }
 
 /** Texto del aviso: versión actual y nueva, y las notas de la release recortadas a unas líneas. */
 export function updateMessage(u: UpdateInfo, maxLines = 8, maxChars = 600): string {
-  const head = `Tienes la ${u.current} y está disponible la ${u.version}. Pulso se cerrará, instalará la versión nueva y volverá a abrirse.`;
+  const head = t("Tienes la {current} y está disponible la {version}. Pulso se cerrará, instalará la versión nueva y volverá a abrirse.", { current: u.current, version: u.version });
   const notes = (u.notes ?? "").trim();
   if (!notes) return head;
   let lines = notes.split(/\r?\n/).filter((l, i, all) => l.trim() || (i > 0 && all[i - 1].trim()));
@@ -13,7 +14,7 @@ export function updateMessage(u: UpdateInfo, maxLines = 8, maxChars = 600): stri
   lines = lines.slice(0, maxLines);
   let text = lines.join("\n");
   if (text.length > maxChars) { text = text.slice(0, maxChars).trimEnd(); cut = true; }
-  return `${head}\n\nNovedades:\n${text}${cut ? "\n…" : ""}`;
+  return `${head}\n\n${t("Novedades:")}\n${text}${cut ? "\n…" : ""}`;
 }
 
 let busy = false;
@@ -31,33 +32,33 @@ export async function checkForUpdates(manual: boolean) {
   if (busy) return;
   busy = true;
   try {
-    if (manual) setStatus("Buscando actualizaciones…", 15000);
+    if (manual) setStatus(t("Buscando actualizaciones…"), 15000);
     let info: UpdateInfo | null;
     try {
       info = await invoke<UpdateInfo | null>("update_check");
     } catch (e) {
-      if (manual) await showDialog({ title: "No se pudo buscar actualizaciones", message: String(e), buttons: [{ label: "Aceptar", value: "ok", primary: true }] });
+      if (manual) await showDialog({ title: t("No se pudo buscar actualizaciones"), message: String(e), buttons: [{ label: t("Aceptar"), value: "ok", primary: true }] });
       return;
     }
     if (!info) {
-      if (manual) setStatus("Pulso está al día.", 5000);
+      if (manual) setStatus(t("Pulso está al día."), 5000);
       return;
     }
     const r = await showDialog({
-      title: `Hay una versión nueva de Pulso (${info.version})`,
+      title: t("Hay una versión nueva de Pulso ({version})", { version: info.version }),
       message: updateMessage(info),
       buttons: [
-        { label: "Más tarde", value: "later" },
-        { label: "Instalar y reiniciar", value: "install", primary: true },
+        { label: t("Más tarde"), value: "later" },
+        { label: t("Instalar y reiniciar"), value: "install", primary: true },
       ],
     });
     if (r !== "install" || !(await beforeInstall())) return;
-    setStatus(`Descargando Pulso ${info.version}…`, 120000);
+    setStatus(t("Descargando Pulso {version}…", { version: info.version }), 120000);
     try {
       await invoke("update_install");
     } catch (e) {
-      setStatus("La actualización no se instaló.", 5000);
-      await showDialog({ title: "No se pudo actualizar", message: String(e), buttons: [{ label: "Aceptar", value: "ok", primary: true }] });
+      setStatus(t("La actualización no se instaló."), 5000);
+      await showDialog({ title: t("No se pudo actualizar"), message: String(e), buttons: [{ label: t("Aceptar"), value: "ok", primary: true }] });
     }
   } finally {
     busy = false;

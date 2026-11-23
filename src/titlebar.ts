@@ -1,5 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { commands, keyOf } from "./commands";
+import { t } from "./i18n";
 import { $, h } from "./util";
 
 /** Entrada de un menú: un comando registrado, una acción propia o un separador. */
@@ -139,7 +140,7 @@ export function initTitlebar(opts: {
     try {
       const max = await win.isMaximized();
       $("win-max").classList.toggle("restored", max);
-      $("win-max").title = max ? "Restaurar" : "Maximizar";
+      $("win-max").title = max ? t("Restaurar") : t("Maximizar");
     } catch { /* sin permiso o sin ventana */ }
   };
   $("win-min").onclick = () => void win.minimize();

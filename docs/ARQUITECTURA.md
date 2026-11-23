@@ -50,6 +50,15 @@ Git se consulta mediante el comando del sistema `git` y se interpreta `status --
 
 Las consultas Git y del registro de Windows se ejecutan sin ventanas de consola. La lectura de directorios y archivos, las búsquedas, el guardado y las copias se ejecutan en trabajo en segundo plano. El explorador no espera a Git para mostrar los archivos, agrupa consultas Git simultáneas y descarta resultados obsoletos. Al guardar solo actualiza las marcas Git después de una breve pausa, sin reconstruir todo el árbol. Las solicitudes de apertura también se invalidan al cambiar de archivo o carpeta, para que una lectura tardía no sustituya la selección más reciente.
 
+## Idiomas de la interfaz
+
+Los textos se escriben en español dentro de `t("…")` (`src/i18n.ts`). El texto en español es la clave, y la traducción inglesa está en `src/locales/en.ts`. Lo que no se ha marcado o no tiene traducción se muestra en español, así que se puede traducir por partes.
+- **Valores variables:** van como `{nombre}`: `t("Conectado como {login}", { login })`.
+- **Cuándo se decide el idioma:** al cargar `i18n.ts`, a partir del ajuste `language` y del idioma del sistema, antes de que se construyan menús y comandos. Por eso cambiarlo recarga la ventana.
+- **HTML estático:** `translateStatic` traduce los textos y los atributos `title`, `placeholder` y `aria-label` de `index.html` al arrancar.
+- **Pruebas:** `src/i18n.test.ts`, con `scripts/i18n-keys.mjs`, comprueba que cada `t("…")` del código y cada texto fijo del HTML tengan traducción con los mismos `{valores}`, y que no sobren entradas.
+- **Para traducir una pantalla nueva:** envolver sus textos en `t()`, ejecutar `node scripts/i18n-keys.mjs --missing` y añadir lo que liste a `en.ts`.
+
 ## Compilación y pruebas
 
 `npm run build` ejecuta TypeScript y Vite. `npm run tauri -- build` construye la aplicación nativa y sus paquetes; los recursos LSP se declaran en `src-tauri/tauri.conf.json`. `npm test` ejecuta Vitest; `npm run test:rust` usa Cargo; `npm run test:lsp` inicia el servidor real sobre un proyecto temporal. `npm run test:lsp:ui` inicia una instancia Windows aislada y prueba hover, diagnósticos, Ctrl+clic y reapertura de la definición. `scripts/e2e.mjs` prueba la aplicación abierta mediante el puerto de depuración de WebView2 y tiene requisitos descritos en su encabezado.
