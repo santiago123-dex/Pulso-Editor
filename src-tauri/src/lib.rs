@@ -24,7 +24,9 @@ pub mod termui;
 pub mod fsguard;
 pub mod procguard;
 pub mod i18n;
+pub mod localai;
 mod updates;
+mod diag;
 
 /// Los procesos auxiliares no deben abrir ventanas de consola en Windows.
 fn background_command(program: &str) -> Command {
@@ -65,11 +67,46 @@ const MAX_THEME_FILE_BYTES: u64 = 2 * 1024 * 1024;
 
 #[tauri::command]
 async fn set_workspace_root(
+    window: tauri::WebviewWindow,
     guard: tauri::State<'_, fsguard::WorkspaceGuard>,
     path: Option<String>,
 ) -> Result<Option<String>, String> {
-    let resolved = guard.set_root(path.as_deref())?;
+    let resolved = guard.set_root_for(window.label(), path.as_deref())?;
     Ok(resolved.map(|p| norm(&p)))
+}
+
+fn encode_query_value(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    for b in raw.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+static WIN_SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+
+/// Abre una nueva ventana de Pulso Editor, opcionalmente apuntando directamente a una carpeta.
+#[tauri::command]
+async fn open_new_window(app: tauri::AppHandle, path: Option<String>) -> Result<(), String> {
+    let n = WIN_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let label = format!("win-{n}");
+    let url = match path.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(p) => format!("index.html?folder={}", encode_query_value(p)),
+        None => "index.html".to_string(),
+    };
+    tauri::WebviewWindowBuilder::new(&app, label, tauri::WebviewUrl::App(PathBuf::from(url)))
+        .title("Pulso Editor")
+        .inner_size(1280.0, 800.0)
+        .min_inner_size(800.0, 500.0)
+        .decorations(false)
+        .shadow(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -992,8 +1029,15 @@ pub fn run() {
         .manage(aichat::AiState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                window.state::<fsguard::WorkspaceGuard>().remove_window(window.label());
+                window.state::<lsp::LspState>().stop_window(window.label());
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             set_workspace_root,
+            open_new_window,
             list_dir,
             cli_startup_targets,
             install_cli_command,
@@ -1064,8 +1108,13 @@ pub fn run() {
             aichat::ai_extra_usage,
             aichat::ai_send,
             aichat::ai_stop,
+            aichat::ai_save_image,
+            aichat::ai_read_image_data_url,
+            aichat::ai_prune_images,
             updates::update_check,
             updates::update_install,
+            diag::diag_log,
+            diag::diag_collect,
             i18n::i18n_set_lang
         ])
         .build(app_context())

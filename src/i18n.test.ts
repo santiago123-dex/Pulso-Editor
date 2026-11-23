@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 // @ts-expect-error: módulo .mjs de Node sin tipos, compartido con la herramienta de línea de comandos.
-import { codeKeys, htmlKeys } from "../scripts/i18n-keys.mjs";
+import { codeKeys, htmlKeys, misplacedCalls } from "../scripts/i18n-keys.mjs";
 import { fill, resolveLang, setLangForTests, t } from "./i18n";
 import { en } from "./locales/en";
 
@@ -39,6 +39,10 @@ describe("traducciones al inglés", () => {
 
   it("las traducciones usan los mismos {valores} que el original", () => {
     expect(Object.entries(en).filter(([k, v]) => placeholders(k).join() !== placeholders(v).join())).toEqual([]);
+  });
+
+  it("ningún t() quedó dentro de otra cadena (un selector o un texto), donde no se ejecuta", () => {
+    expect(misplacedCalls()).toEqual([]);
   });
 
   it("no quedan traducciones sin uso", () => {

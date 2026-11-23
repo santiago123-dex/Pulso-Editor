@@ -384,3 +384,37 @@ describe("turnos seguidos del asistente", () => {
     expect(v[0]!.turn).toBe(u);
   });
 });
+
+describe("agente local (Ollama)", () => {
+  // Misma secuencia que emite src-tauri/src/localai.rs: una vuelta con herramienta y otra con la respuesta.
+  it("el panel entiende los eventos del agente local", () => {
+    const normalize = createProviderNormalizer("local");
+    const events: AiEvent[] = [
+      { type: "system", subtype: "init", session_id: "c1", model: "qwen2.5-coder:7b" },
+      msgStart("local_1_0"),
+      se({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }),
+      se({ type: "content_block_stop", index: 0 }),
+      { type: "assistant", message: { id: "local_1_0", content: [{ type: "text", text: "" }, { type: "tool_use", id: "local_1_0_t0", name: "Read", input: { file_path: "src/main.ts" } }] } },
+      se({ type: "message_stop" }),
+      { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "local_1_0_t0", content: "    1  export function sumar() {}", is_error: false }] } },
+      msgStart("local_1_1"),
+      se({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }),
+      delta(0, { type: "text_delta", text: "sumar " }),
+      delta(0, { type: "text_delta", text: "suma." }),
+      se({ type: "content_block_stop", index: 0 }),
+      { type: "assistant", message: { id: "local_1_1", content: [{ type: "text", text: "sumar suma." }] } },
+      se({ type: "message_stop" }),
+      { type: "result", subtype: "success", is_error: false, session_id: "c1", duration_ms: 1200, total_cost_usd: 0, result: "sumar suma." },
+    ];
+    expect(events.flatMap(normalize)).toEqual(events);
+    const c = run([userEvent("¿Qué hace sumar?"), ...events]);
+    expect(c.running).toBe(false);
+    expect(c.model).toBe("qwen2.5-coder:7b");
+    const tool = c.messages.flatMap((m) => m.blocks).find((b) => b.kind === "tool") as Extract<Block, { kind: "tool" }>;
+    expect(toolSummary(tool)).toBe("Leyó main.ts");
+    expect(tool.result).toContain("export function sumar");
+    const last = c.messages[c.messages.length - 1];
+    expect(last.blocks[0]).toMatchObject({ kind: "text", text: "sumar suma." });
+    expect(c.outcome).toMatchObject({ ok: true, durationMs: 1200 });
+  });
+});

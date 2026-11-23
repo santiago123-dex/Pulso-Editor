@@ -10,13 +10,13 @@ import {
 } from "./ai/catalog";
 import { applyAiAppearance, buildAppearancePopover } from "./ai/appearance";
 import { linkTarget, parseInline, parseMarkdown } from "./aiMarkdown";
-import { buildPrompt, chipLabels, type EditorContext } from "./aiContext";
+import { buildPrompt, chipLabels, fileMentionAt, filterProjectFiles, type EditorContext } from "./aiContext";
 import {
   activitySummary, createProviderNormalizer, elapsedLabel, emptyConversation, exitEvent, mergeAssistantRuns, formatModelName, isAuthError, needsCommandPermission, parseUsageText, planLabel, pruneUsage,
   reduce, remainingPercent, remainingRatio, resetClockText, resetCountdown, resetIn, resetTimeFromIso, splitAssistantTurn, toolSummary, touchedFiles,
-  userEvent, type AiEvent, type AiProvider, type Block, type Conversation, type DeniedAction, type Turn, type UsageWindow,
+  userEvent, type AiEvent, type AiProvider, type Block, type Conversation, type DeniedAction, type Turn, type UsageWindow, type UserImage,
 } from "./aiModel";
-import { chatsFor, deleteChat, flushHistoryNow, initHistory, loadChats, newChatId, saveChat, titleFrom, type SavedChat } from "./aiStore";
+import { chatsFor, deleteChat, flushHistoryNow, initHistory, loadChats, newChatId, sameDir, saveChat, titleFrom, type SavedChat } from "./aiStore";
 import { checkExternal } from "./docs";
 import { refreshTree } from "./explorer";
 import { activePath, focusedEditor, openFile } from "./groups";
@@ -57,13 +57,14 @@ function savedProvider(): AiProvider {
   const p = readStorage("pulso.ai.provider");
   if (p === "codex") return "codex";
   if (p === "antigravity" || p === "gemini") return "antigravity";
+  if (p === "local") return "local";
   return "claude";
 }
 
 const lives = new Map<string, Live>();
 let activeProvider: AiProvider = savedProvider();
 let current: Live | null = null;
-const tools: Record<AiProvider, AiTool | null> = { claude: null, codex: null, antigravity: null };
+const tools: Record<AiProvider, AiTool | null> = { claude: null, codex: null, antigravity: null, local: null };
 let tool: AiTool | null = null;
 let toolAt = 0;
 let detectInFlight: Promise<void> | null = null;
@@ -84,6 +85,8 @@ let mode: AiMode = savedMode();
 let useFile = true;
 let useSel = true;
 let extraFiles: string[] = [];
+let attachedImages: UserImage[] = [];
+let mentionFiles: { root: string; list: string[] } | null = null;
 let lastFile = "";
 let usage: Conversation["usage"] = readStoredUsage();
 let closePopover: (() => void) | null = null;
@@ -121,6 +124,7 @@ const ICON_PLUS = '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>';
 const ICON_CLOCK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2"/></svg>';
 const ICON_SEND = '<svg viewBox="0 0 24 24"><path d="M12 19V6M6 11l6-6 6 6"/></svg>';
 const ICON_STOP = '<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>';
+const ICON_IMAGE = '<svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.4"/><path d="M4.5 17l4.5-4.5 3.5 3.5 2.5-2.5 4.5 4.5"/></svg>';
 
 const iconBtn = (svg: string, title: string, cls = ""): HTMLButtonElement => {
   const b = h("button", `icon-btn ${cls}`.trim());
@@ -209,7 +213,7 @@ function syncModelButton() {
 // ---------- Conversaciones ----------
 function fromSaved(c: SavedChat): Live {
   const rawProv = c.provider as string | undefined;
-  const prov: AiProvider = rawProv === "codex" ? "codex" : rawProv === "antigravity" || rawProv === "gemini" ? "antigravity" : "claude";
+  const prov: AiProvider = rawProv === "codex" ? "codex" : rawProv === "antigravity" || rawProv === "gemini" ? "antigravity" : rawProv === "local" ? "local" : "claude";
   return { id: c.id, provider: prov, normalize: createProviderNormalizer(prov, c.model || ""), cwd: c.cwd, title: c.title, convo: { ...emptyConversation(), messages: c.messages, sessionId: c.sessionId, model: c.model, usage: prov === "claude" ? usage : {} } };
 }
 
@@ -304,6 +308,7 @@ function refreshExtraUsage(): Promise<boolean> {
 function providerUsage(prov: AiProvider = activeProvider): Conversation["usage"] {
   if (prov === "claude") { usage = pruneUsage(usage); return usage; }
   if (prov === "codex") { codexUsage = pruneUsage(codexUsage); return codexUsage; }
+  if (prov === "local") return {};
   return agyPrimaryUsage();
 }
 
@@ -362,7 +367,7 @@ function apply(live: Live, ev: AiEvent) {
     persist(live, true);
     try { localStorage.removeItem(INTERRUPTED_KEY); } catch { /* sin acceso */ }
     if (live.convo.touched) refreshDisk();
-    if (live.provider !== "claude") void refreshExtraUsage();
+    if (live.provider === "codex" || live.provider === "antigravity") void refreshExtraUsage();
   } else if (ev.type === "pulso_user" || ev.type === "system" || now - lastPersistAt >= 1200) {
     lastPersistAt = now;
     persist(live);
@@ -376,6 +381,7 @@ function editorContext(): EditorContext {
   const p = activePath();
   if (p && useFile) ctx.file = (ws.root && relativeToTop(norm(p), ws.root)) || norm(p);
   if (extraFiles.length) ctx.extraFiles = [...extraFiles];
+  if (attachedImages.length) ctx.images = attachedImages.map((i) => ({ path: i.path, name: i.name }));
   const ed = focusedEditor();
   const sel = ed?.getSelection();
   const edModel = ed?.getModel();
@@ -405,6 +411,24 @@ function renderChips() {
   for (const extra of extraFiles) {
     if (extra === ctx.file) continue;
     nodes.push(chip(baseName(extra), tr("Archivo adjunto: {file}", { file: extra }), () => { extraFiles = extraFiles.filter((f) => f !== extra); }));
+  }
+  for (const img of attachedImages) {
+    const c = h("span", "ai-chip ai-chip-img");
+    c.title = tr("Imagen adjunta: {name}", { name: img.name });
+    if (img.preview) {
+      const thumb = document.createElement("img");
+      thumb.className = "ai-chip-thumb";
+      thumb.src = img.preview;
+      thumb.alt = img.name;
+      thumb.onclick = (e) => { e.stopPropagation(); void openImageLightbox(img); };
+      c.append(thumb);
+    }
+    c.append(h("span", "", img.name));
+    const x = h("button", "ai-chip-x", "×");
+    x.type = "button"; x.title = tr("No adjuntar esto"); x.setAttribute("aria-label", tr("Quitar {item}", { item: img.name }));
+    x.onclick = () => { attachedImages = attachedImages.filter((i) => i !== img); renderChips(); };
+    c.append(x);
+    nodes.push(c);
   }
   if (labels.selection) nodes.push(chip(labels.selection, tr("Tu selección se envía a la IA con el mensaje"), () => { useSel = false; }));
   box.replaceChildren(...nodes);
@@ -560,6 +584,7 @@ function activityItem(b: Block): HTMLElement {
     th.append(h("div", "ai-act-thought", b.text));
     return th;
   }
+  if (b.kind === "image") return h("div", "ai-act-item note", b.name);
   const note = h("div", "ai-act-item note");
   note.append(...markdown(b.text));
   return note;
@@ -621,7 +646,27 @@ function activityCard(turnId: string, items: Block[], running: boolean): HTMLEle
 function turnNodes(t: Turn, _userNum = 0, isRunningTurn = false): HTMLElement[] {
   if (t.role === "user") {
     const u = h("div", "ai-user");
-    u.append(h("div", "ai-user-text", t.blocks[0]?.kind === "text" ? t.blocks[0].text : ""));
+    const imgs = t.blocks.filter((b): b is Extract<Block, { kind: "image" }> => b.kind === "image");
+    if (imgs.length) {
+      const strip = h("div", "ai-user-images");
+      for (const img of imgs) {
+        const card = h("div", "ai-user-img");
+        card.title = `${img.name} — ${tr("Clic para ampliar")}`;
+        card.onclick = () => void openImageLightbox(img);
+        if (img.preview) {
+          const el = document.createElement("img");
+          el.src = img.preview;
+          el.alt = img.name;
+          el.draggable = false;
+          card.append(el);
+        }
+        card.append(h("span", "ai-user-img-name", img.name));
+        strip.append(card);
+      }
+      u.append(strip);
+    }
+    const textBlock = t.blocks.find((b): b is Extract<Block, { kind: "text" }> => b.kind === "text");
+    if (textBlock?.text) u.append(h("div", "ai-user-text", textBlock.text));
     return [u];
   }
   const { activity, final } = splitAssistantTurn(t.blocks);
@@ -686,7 +731,7 @@ function openPopover(anchor: HTMLElement, pop: HTMLElement, placement: "below" |
 
 function buildProviderTabs(onPick?: (p: AiProvider) => void): HTMLElement {
   const bar = h("div", "ai-prov-tabs");
-  for (const id of ["claude", "codex", "antigravity"] as const) {
+  for (const id of ["claude", "codex", "antigravity", "local"] as const) {
     const t = tools[id];
     const dotCls = t?.logged_in ? "on" : t?.installed ? "wait" : "off";
     const btn = h("button", `ai-prov-tab${activeProvider === id ? " active" : ""}`);
@@ -727,7 +772,10 @@ async function installAndConnect(prov: AiProvider, onDone?: () => void) {
     cmd = ps ? (meta.installCmdPs ?? meta.installCmdSh ?? "") : (meta.installCmdSh ?? meta.installCmdPs ?? "");
     if (cmd && meta.loginCmd) {
       cmd = ps
-        ? `${cmd}; if ($?) { $agy = "$env:LOCALAPPDATA\\agy\\bin\\agy.exe"; if (Test-Path $agy) { & $agy acp --login } }`
+        ? prov === "local"
+          // Tras instalar, la terminal abierta aún no tiene Ollama en el PATH: se usa su ruta.
+          ? `${cmd}; if ($?) { & "$env:LOCALAPPDATA\\Programs\\Ollama\\ollama.exe" pull qwen2.5-coder:7b }`
+          : `${cmd}; if ($?) { $agy = "$env:LOCALAPPDATA\\agy\\bin\\agy.exe"; if (Test-Path $agy) { & $agy acp --login } }`
         : `${cmd} && ${meta.loginCmd}`;
     }
   } else if (meta.npmPkg) {
@@ -750,7 +798,7 @@ async function installAndConnect(prov: AiProvider, onDone?: () => void) {
 
 function buildAccountsList(onClose?: () => void): HTMLElement {
   const list = h("div", "ai-acct-list");
-  for (const id of ["claude", "codex", "antigravity"] as const) {
+  for (const id of ["claude", "codex", "antigravity", "local"] as const) {
     const meta = PROVIDERS[id];
     const t = tools[id];
     const isCurrent = activeProvider === id;
@@ -1125,7 +1173,7 @@ function populateUsageContainer(pop: HTMLElement, onRefreshDone: () => void) {
   head.append(syncBtn);
   pop.append(head);
 
-  const order: AiProvider[] = [prov, ...(["claude", "codex", "antigravity"] as const).filter((p) => p !== prov && !!tools[p]?.logged_in)];
+  const order: AiProvider[] = [prov, ...(["claude", "codex", "antigravity", "local"] as const).filter((p) => p !== prov && !!tools[p]?.logged_in)];
   for (const id of order) {
     const t = tools[id] ?? (id === prov ? tool : null);
     if (id === "antigravity") {
@@ -1146,6 +1194,12 @@ function populateUsageContainer(pop: HTMLElement, onRefreshDone: () => void) {
       continue;
     }
     const sec = h("div", "ai-usage-section");
+    if (id === "local") {
+      // Un modelo local no tiene cuotas ni límites de plan.
+      sec.append(h("div", "ai-usage-sec-title", "Ollama (local)"), h("div", "ai-usage-note", tr("Se ejecuta en este equipo: sin límites de uso.")));
+      pop.append(sec);
+      continue;
+    }
     if (id === "claude") {
       const cur = providerUsage("claude");
       const title = t?.plan ? "Claude Code · " + tr("Plan {plan}", { plan: planLabel(t.plan) }) : "Claude Code";
@@ -1210,6 +1264,139 @@ function openQuickPromptsPopover(anchor: HTMLElement) {
     pop.append(row);
   }
   openPopover(anchor, pop, "above");
+}
+
+const MAX_IMAGES = 5;
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const ALLOWED_IMAGE_MIME = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"]);
+
+function readAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(typeof fr.result === "string" ? fr.result : "");
+    fr.onerror = () => reject(fr.error ?? new Error("read failed"));
+    fr.readAsDataURL(file);
+  });
+}
+
+function makeThumbnail(dataUrl: string): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const maxDim = 320;
+      const scale = Math.min(1, maxDim / Math.max(img.width || 1, img.height || 1));
+      const w = Math.max(1, Math.round(img.width * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { resolve(dataUrl.length <= 35_000 ? dataUrl : ""); return; }
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", 0.78));
+      } catch {
+        resolve(dataUrl.length <= 35_000 ? dataUrl : "");
+      }
+    };
+    img.onerror = () => resolve("");
+    img.src = dataUrl;
+  });
+}
+
+async function openImageLightbox(img: UserImage) {
+  document.querySelector(".ai-lightbox")?.remove();
+  const backdrop = h("div", "ai-lightbox");
+  backdrop.setAttribute("role", "dialog");
+  backdrop.setAttribute("aria-modal", "true");
+  backdrop.setAttribute("aria-label", img.name);
+  const frame = h("div", "ai-lightbox-frame");
+  const head = h("div", "ai-lightbox-head");
+  head.append(h("span", "ai-lightbox-name", img.name));
+  const closeBtn = h("button", "icon-btn ai-lightbox-close", "×");
+  closeBtn.type = "button";
+  closeBtn.title = tr("Cerrar (Esc)");
+  closeBtn.setAttribute("aria-label", tr("Cerrar"));
+  const close = () => {
+    window.removeEventListener("keydown", onEsc, true);
+    backdrop.remove();
+  };
+  const onEsc = (e: KeyboardEvent) => {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); }
+  };
+  closeBtn.onclick = close;
+  backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
+  window.addEventListener("keydown", onEsc, true);
+  head.append(closeBtn);
+  const pic = document.createElement("img");
+  pic.className = "ai-lightbox-img";
+  pic.alt = img.name;
+  pic.draggable = false;
+  if (img.preview) pic.src = img.preview;
+  frame.append(head, pic);
+  backdrop.append(frame);
+  document.body.append(backdrop);
+  if (img.path && "__TAURI_INTERNALS__" in window) {
+    try {
+      const full = await invoke<string>("ai_read_image_data_url", { path: img.path });
+      if (document.body.contains(pic)) pic.src = full;
+    } catch { /* se queda la miniatura */ }
+  }
+}
+
+function collectReferencedImagePaths(): string[] {
+  const paths = new Set<string>();
+  const scanTurns = (turns: readonly Turn[]) => {
+    for (const turn of turns) {
+      for (const b of turn.blocks) {
+        if (b.kind === "image" && b.path) paths.add(b.path);
+      }
+    }
+  };
+  for (const c of loadChats()) scanTurns(c.messages);
+  for (const l of lives.values()) scanTurns(l.convo.messages);
+  for (const img of attachedImages) if (img.path) paths.add(img.path);
+  return Array.from(paths);
+}
+
+function pruneUnusedImages() {
+  if (!("__TAURI_INTERNALS__" in window)) return;
+  void invoke("ai_prune_images", { keepPaths: collectReferencedImagePaths() }).catch(() => {});
+}
+
+async function addImageFiles(files: Iterable<File>) {
+  if (!ws.root) { setStatus(tr("Abre una carpeta primero")); return; }
+  for (const file of files) {
+    if (attachedImages.length >= MAX_IMAGES) {
+      setStatus(tr("Puedes adjuntar como máximo {max} imágenes por mensaje", { max: MAX_IMAGES }), 4000);
+      break;
+    }
+    const mime = file.type.toLowerCase();
+    if (!ALLOWED_IMAGE_MIME.has(mime)) {
+      setStatus(tr("Formato no soportado ({name}). Usa PNG, JPG, WEBP o GIF.", { name: file.name || mime || "archivo" }), 4500);
+      continue;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      setStatus(tr("La imagen {name} supera el límite de 10 MB", { name: file.name || "imagen" }), 4500);
+      continue;
+    }
+    try {
+      const dataUrl = await readAsDataUrl(file);
+      const comma = dataUrl.indexOf(",");
+      if (comma < 0) continue;
+      const base64 = dataUrl.slice(comma + 1);
+      const saved = await invoke<{ path: string; name: string }>("ai_save_image", {
+        name: file.name || null,
+        mime,
+        dataBase64: base64,
+      });
+      const preview = await makeThumbnail(dataUrl);
+      attachedImages.push({ path: saved.path, name: saved.name, ...(preview ? { preview } : {}) });
+      renderChips();
+    } catch (e) {
+      setStatus(tr("No se pudo adjuntar la imagen: {error}", { error: String(e) }), 5000);
+    }
+  }
+  q<HTMLTextAreaElement>(".ai-input")?.focus();
 }
 
 function attachProjectFile() {
@@ -1520,7 +1707,13 @@ function renderIssueBanner() {
 }
 
 /** Caché incremental de nodos renderizados por turno: evita reconstruir toda la conversación en cada token (O(1) por frame). */
-interface TurnCacheEntry { parts: Turn[]; active: boolean; slot: HTMLElement }
+interface TurnCacheEntry { parts: Turn[]; active: boolean; activitySig: string; slot: HTMLElement }
+
+const activitySignature = (t: Turn, active: boolean): string => {
+  if (t.role !== "assistant") return "";
+  const { activity } = splitAssistantTurn(t.blocks);
+  return `${active ? "1" : "0"}:${activity.length}:${activity.map((b) => (b.kind === "tool" ? `${b.id}:${b.result?.length ?? 0}:${b.error ? 1 : 0}` : b.kind === "image" ? b.name : `${b.kind}:${b.text.length}`)).join(",")}`;
+};
 
 /** ¿Son los mismos turnos originales, en el mismo orden? (si sí, el nodo ya pintado sirve) */
 const sameParts = (a: Turn[], b: Turn[]) => a.length === b.length && a.every((t, i) => t === b[i]);
@@ -1561,9 +1754,9 @@ function renderBody() {
       ? (curTool?.plan ? tr("Plan {plan}", { plan: planLabel(curTool.plan) }) : tr("Conectado"))
       : prov === "codex"
         ? (curTool?.auth_method === "api_key" ? "Codex API" : curTool?.plan && curTool.plan !== "ChatGPT" ? `ChatGPT ${planLabel(curTool.plan)}` : "ChatGPT")
-        : (curTool?.plan || "Antigravity");
+        : prov === "local" ? "Ollama" : (curTool?.plan || "Antigravity");
   }
-  const histBtn = q<HTMLButtonElement>('.ai-tools button[title=tr("Conversaciones anteriores")]');
+  const histBtn = q<HTMLButtonElement>(`.ai-tools button[title="${CSS.escape(tr("Conversaciones anteriores"))}"]`);
   if (histBtn) { histBtn.classList.toggle("active", historyOpen); histBtn.setAttribute("aria-pressed", String(historyOpen)); }
   renderIssueBanner();
   renderFoot();
@@ -1589,10 +1782,13 @@ function renderBody() {
     resetTurnCache();
     const login = h("button", "foot-btn ai-btn-primary", meta.loginBtn); login.type = "button";
     login.onclick = () => startLoginFlow(prov);
-    const again = h("button", "foot-btn foot-btn-line", tr("Ya inicié sesión: volver a comprobar")); again.type = "button"; again.onclick = recheck;
+    const again = h("button", "foot-btn foot-btn-line", prov === "local" ? tr("Volver a comprobar") : tr("Ya inicié sesión: volver a comprobar")); again.type = "button"; again.onclick = recheck;
     const extraBtns: HTMLElement[] = [login, again];
-    const title = prov === "claude" ? tr("Inicia sesión para cargar tu plan") : tr("Inicia sesión en {provider}", { provider: meta.title });
-    const desc = prov === "claude"
+    // Para Ollama «sin sesión» significa que no hay ningún modelo descargado.
+    const title = prov === "claude" ? tr("Inicia sesión para cargar tu plan") : prov === "local" ? tr("Descarga un modelo para Ollama") : tr("Inicia sesión en {provider}", { provider: meta.title });
+    const desc = prov === "local"
+      ? tr("Ollama está en marcha pero no tiene ningún modelo. «Descargar un modelo» baja qwen2.5-coder:7b (unos 4,7 GB) en la terminal integrada; también puedes descargar otro con «ollama pull <modelo>».")
+      : prov === "claude"
       ? tr("Claude Code está instalado pero no hay una sesión iniciada. Se abrirá el inicio de sesión y tu plan se cargará al instante.")
       : tr("{provider} está instalado pero no hay una sesión iniciada. Se abrirá el inicio de sesión en la terminal integrada.", { provider: meta.title });
     if (prov !== "claude") {
@@ -1605,6 +1801,12 @@ function renderBody() {
   if (!ws.root) { resetTurnCache(); body.replaceChildren(setupMessage(tr("Abre un proyecto"), tr("Abre una carpeta de proyecto para que el asistente pueda leer tu código y ayudarte dentro de ella."))); return; }
   if (historyOpen) { resetTurnCache(); renderHistory(body); return; }
 
+  if (current && !sameDir(current.cwd, ws.root)) {
+    if (current.convo.messages.length) persist(current, true);
+    else lives.delete(current.id);
+    current = null;
+    resetTurnCache();
+  }
   const live = current ?? (current = newLive());
   const c = live.convo;
   syncModelButton();
@@ -1641,8 +1843,21 @@ function renderBody() {
       if (!existing) {
         turnsHost!.append(slot);
       }
-      slot.replaceChildren(...turnNodes(t, userNum, activeTurn));
-      renderedTurns[idx] = { parts: [...parts], active: activeTurn, slot };
+      const nextActSig = activitySignature(t, activeTurn);
+      if (existing && t.role === "assistant" && existing.activitySig === nextActSig) {
+        // Solo cambió el texto en curso: conservar la tarjeta de actividad para no reiniciar su pulso ni provocar saltos.
+        const { final } = splitAssistantTurn(t.blocks);
+        let wrap = slot.querySelector<HTMLElement>(":scope > .ai-assistant");
+        if (final.trim()) {
+          if (!wrap) { wrap = h("div", "ai-assistant"); slot.append(wrap); }
+          wrap.replaceChildren(...markdown(final));
+        } else {
+          wrap?.remove();
+        }
+      } else {
+        slot.replaceChildren(...turnNodes(t, userNum, activeTurn));
+      }
+      renderedTurns[idx] = { parts: [...parts], active: activeTurn, activitySig: nextActSig, slot };
     });
 
     const tailNodes: HTMLElement[] = [];
@@ -1744,7 +1959,7 @@ function renderBody() {
 function renderHistory(body: HTMLElement) {
   const saved = chatsFor(loadChats(), ws.root ?? "");
   const rows: { id: string; title: string; when: number; running: boolean }[] = [];
-  for (const l of lives.values()) if (l.convo.messages.length && l.cwd === ws.root) rows.push({ id: l.id, title: titleFrom(l.convo.messages), when: Date.now(), running: l.convo.running });
+  for (const l of lives.values()) if (l.convo.messages.length && ws.root && sameDir(l.cwd, ws.root)) rows.push({ id: l.id, title: titleFrom(l.convo.messages), when: Date.now(), running: l.convo.running });
   for (const c of saved) if (!rows.some((r) => r.id === c.id)) rows.push({ id: c.id, title: c.title, when: c.updatedAt, running: false });
   rows.sort((a, b) => b.when - a.when);
   const nodes: HTMLElement[] = [h("div", "ai-hist-title", tr("Conversaciones de este proyecto"))];
@@ -1760,7 +1975,7 @@ function renderHistory(body: HTMLElement) {
       historyOpen = false; renderBody();
     };
     const del = iconBtn('<svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/></svg>', tr("Eliminar esta conversación"), "ai-hist-del");
-    del.onclick = () => { deleteChat(r.id); if (lives.get(r.id)?.convo.running) { void invoke("ai_stop", { id: r.id }); } lives.delete(r.id); if (current?.id === r.id) current = null; renderBody(); };
+    del.onclick = () => { deleteChat(r.id); if (lives.get(r.id)?.convo.running) { void invoke("ai_stop", { id: r.id }); } lives.delete(r.id); if (current?.id === r.id) current = null; pruneUnusedImages(); renderBody(); };
     row.append(open, del);
     nodes.push(row);
   }
@@ -1790,6 +2005,7 @@ async function detect(force = false) {
       tools.claude = nextClaude;
       tools.codex = all.codex;
       tools.antigravity = all.antigravity;
+      tools.local = ("local" in all ? all.local : null) ?? null;
       tool = tools[activeProvider];
 
       if (nextClaude.logged_in) {
@@ -1827,7 +2043,15 @@ function autosize() {
   if (t) { t.style.height = "auto"; t.style.height = `${Math.min(t.scrollHeight, 160)}px`; }
 }
 
-async function dispatchPrompt(live: Live, displayText: string, prompt: string, effectiveMode: AiMode) {
+/** Mensajes anteriores en texto para el agente local (sin el último, que es el que se envía ahora). */
+function localHistory(live: Live): { role: string; content: string }[] {
+  return live.convo.messages.slice(0, -1).map((m) => ({
+    role: m.role,
+    content: m.role === "assistant" ? splitAssistantTurn(m.blocks).final : m.blocks.filter((b) => b.kind === "text").map((b) => b.text).join("\n"),
+  })).filter((m) => m.content.trim()).slice(-30);
+}
+
+async function dispatchPrompt(live: Live, displayText: string, prompt: string, effectiveMode: AiMode, images: readonly UserImage[] = []) {
   if (!ws.root || live.convo.running) return;
   live.cwd = ws.root;
   live.stopping = false;
@@ -1838,9 +2062,13 @@ async function dispatchPrompt(live: Live, displayText: string, prompt: string, e
   const useEffort = PROVIDERS[live.provider].supportsEffort && !(live.provider === "antigravity" && model)
     ? effort || null
     : null;
-  apply(live, userEvent(displayText));
+  apply(live, userEvent(displayText, images));
   try {
-    await invoke("ai_send", { id: live.id, cwd: ws.root, prompt, session: live.convo.sessionId || null, model: model || null, effort: useEffort, mode: effectiveMode, provider: live.provider });
+    // El agente local no guarda sesiones: recibe la conversación anterior (solo el texto) desde aquí.
+    const sendModel = live.provider === "local" ? model || tools.local?.models?.[0]?.id || null : model || null;
+    const history = live.provider === "local" ? localHistory(live) : null;
+    const imagePaths = images.length ? images.map((i) => i.path) : null;
+    await invoke("ai_send", { id: live.id, cwd: ws.root, prompt, session: live.convo.sessionId || null, model: sendModel, effort: useEffort, mode: effectiveMode, provider: live.provider, history, images: imagePaths });
   } catch (e) {
     apply(live, exitEvent(1, String(e)));
   }
@@ -1852,10 +2080,14 @@ async function send() {
   if (!live || !input || !ws.root) return;
   if (live.convo.running) { live.stopping = true; await invoke("ai_stop", { id: live.id }).catch(() => {}); return; }
   const text = input.value.trim();
-  if (!text) return;
-  const prompt = buildPrompt(text, editorContext());
+  if (!text && !attachedImages.length) return;
+  const imgs = [...attachedImages];
+  const promptText = text || (imgs.length === 1 ? tr("Analiza la imagen adjunta.") : tr("Analiza las imágenes adjuntas."));
+  const prompt = buildPrompt(promptText, editorContext());
   input.value = ""; autosize();
-  await dispatchPrompt(live, text, prompt, mode);
+  attachedImages = [];
+  renderChips();
+  await dispatchPrompt(live, text, prompt, mode, imgs);
 }
 
 function newConversation() {
@@ -1863,6 +2095,7 @@ function newConversation() {
   if (current && !current.convo.messages.length) { historyOpen = false; renderBody(); return; }
   current = newLive();
   extraFiles = [];
+  attachedImages = [];
   historyOpen = false;
   renderBody();
   q<HTMLTextAreaElement>(".ai-input")?.focus();
@@ -1946,6 +2179,10 @@ function build() {
   body.setAttribute("aria-label", tr("Conversación con la IA"));
 
   const compose = h("form", "ai-compose");
+  const mentionBox = h("div", "ai-mention");
+  mentionBox.hidden = true;
+  mentionBox.setAttribute("role", "listbox");
+  mentionBox.setAttribute("aria-label", tr("Mencionar archivo del proyecto"));
   const dock = h("div", "ai-dock");
   const dockCtx = h("div", "ai-dock-ctx"); dockCtx.hidden = true;
   const chips = h("div", "ai-chips"); chips.hidden = true;
@@ -1960,6 +2197,17 @@ function build() {
   const leftBar = h("div", "ai-dock-left");
   const attachBtn = iconBtn(ICON_PLUS, tr("Adjuntar archivo del proyecto"), "ai-compose-act");
   attachBtn.onclick = attachProjectFile;
+  const imgInput = document.createElement("input");
+  imgInput.type = "file";
+  imgInput.accept = "image/png,image/jpeg,image/webp,image/gif";
+  imgInput.multiple = true;
+  imgInput.hidden = true;
+  imgInput.onchange = () => {
+    if (imgInput.files?.length) void addImageFiles(Array.from(imgInput.files));
+    imgInput.value = "";
+  };
+  const imgBtn = iconBtn(ICON_IMAGE, tr("Adjuntar imagen (o pega con Ctrl+V)"), "ai-compose-act");
+  imgBtn.onclick = () => imgInput.click();
   const quickBtn = iconBtn('<svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>', tr("Acciones rápidas"), "ai-compose-act");
   quickBtn.onclick = () => openQuickPromptsPopover(quickBtn);
 
@@ -1983,18 +2231,117 @@ function build() {
     b.onclick = () => void chooseMode(value);
     seg.append(b);
   }
-  leftBar.append(attachBtn, quickBtn, modelBtn, seg);
+  leftBar.append(attachBtn, imgBtn, imgInput, quickBtn, modelBtn, seg);
 
   const rightBar = h("div", "ai-dock-right");
   const sendBtn = h("button", "ai-send"); sendBtn.type = "submit"; sendBtn.innerHTML = ICON_SEND; sendBtn.title = tr("Enviar (Enter)"); sendBtn.setAttribute("aria-label", tr("Enviar"));
   rightBar.append(h("span", "ai-send-hint", "Enter ↵"), sendBtn);
   dockBar.append(leftBar, rightBar);
   dock.append(dockCtx, inputWrap, dockBar);
-  compose.append(dock);
+  compose.append(mentionBox, dock);
 
-  compose.onsubmit = (e) => { e.preventDefault(); void send(); };
-  input.oninput = autosize;
-  input.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); void send(); } };
+  let mentionItems: string[] = [];
+  let mentionIdx = 0;
+  let mentionStart = -1;
+  let mentionQuery = "";
+  const closeMention = () => { mentionBox.hidden = true; mentionItems = []; mentionStart = -1; };
+  const pickMention = (file: string) => {
+    if (mentionStart < 0) return;
+    const end = input.selectionStart ?? input.value.length;
+    const before = input.value.slice(0, mentionStart);
+    const after = input.value.slice(end);
+    const inserted = `@${file} `;
+    input.value = `${before}${inserted}${after}`;
+    input.selectionStart = input.selectionEnd = before.length + inserted.length;
+    if (!extraFiles.includes(file)) extraFiles.push(file);
+    closeMention();
+    renderChips();
+    autosize();
+    input.focus();
+  };
+  const paintMention = () => {
+    if (!mentionItems.length) { closeMention(); return; }
+    mentionBox.replaceChildren(...mentionItems.map((file, i) => {
+      const row = h("button", `ai-mention-item${i === mentionIdx ? " active" : ""}`);
+      row.type = "button";
+      row.setAttribute("role", "option");
+      row.setAttribute("aria-selected", String(i === mentionIdx));
+      row.append(h("span", "ai-mention-name", baseName(file)));
+      const dir = dirName(file);
+      if (dir) row.append(h("span", "ai-mention-dir", dir));
+      row.onmousedown = (e) => { e.preventDefault(); pickMention(file); };
+      return row;
+    }));
+    mentionBox.hidden = false;
+  };
+  const updateMention = async () => {
+    if (!ws.root) { closeMention(); return; }
+    const hit = fileMentionAt(input.value, input.selectionStart ?? input.value.length);
+    if (!hit) { closeMention(); return; }
+    mentionStart = hit.start;
+    mentionQuery = hit.query;
+    const root = ws.root;
+    if (!mentionFiles || mentionFiles.root !== root) {
+      try {
+        const raw = await invoke<string[]>("list_files", { path: root });
+        mentionFiles = { root, list: raw.map((p) => rel(p)).sort((a, b) => a.localeCompare(b)) };
+      } catch {
+        closeMention();
+        return;
+      }
+    }
+    if (ws.root !== root || mentionStart < 0) return;
+    const again = fileMentionAt(input.value, input.selectionStart ?? input.value.length);
+    if (!again || again.query !== mentionQuery) return;
+    mentionItems = filterProjectFiles(mentionFiles.list, again.query, 8);
+    mentionIdx = 0;
+    paintMention();
+  };
+
+  compose.onsubmit = (e) => { e.preventDefault(); closeMention(); void send(); };
+  input.oninput = () => { autosize(); void updateMention(); };
+  input.onblur = () => { window.setTimeout(closeMention, 120); };
+  input.onkeydown = (e) => {
+    if (!mentionBox.hidden && mentionItems.length) {
+      if (e.key === "ArrowDown") { e.preventDefault(); mentionIdx = (mentionIdx + 1) % mentionItems.length; paintMention(); return; }
+      if (e.key === "ArrowUp") { e.preventDefault(); mentionIdx = (mentionIdx - 1 + mentionItems.length) % mentionItems.length; paintMention(); return; }
+      if ((e.key === "Enter" || e.key === "Tab") && !e.isComposing) { e.preventDefault(); pickMention(mentionItems[mentionIdx]); return; }
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeMention(); return; }
+    }
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); void send(); }
+  };
+  input.onpaste = (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const files: File[] = [];
+    for (const item of Array.from(items)) {
+      if (item.kind === "file" && item.type.startsWith("image/")) {
+        const f = item.getAsFile();
+        if (f) files.push(f);
+      }
+    }
+    if (files.length) {
+      e.preventDefault();
+      void addImageFiles(files);
+    }
+  };
+  dock.ondragover = (e) => {
+    if (Array.from(e.dataTransfer?.items ?? []).some((it) => it.kind === "file" && it.type.startsWith("image/"))) {
+      e.preventDefault();
+      dock.classList.add("drag-over");
+    }
+  };
+  dock.ondragleave = (e) => {
+    if (!dock.contains(e.relatedTarget as Node | null)) dock.classList.remove("drag-over");
+  };
+  dock.ondrop = (e) => {
+    dock.classList.remove("drag-over");
+    const files = Array.from(e.dataTransfer?.files ?? []).filter((f) => f.type.startsWith("image/"));
+    if (files.length) {
+      e.preventDefault();
+      void addImageFiles(files);
+    }
+  };
   const issueBanner = h("div", "ai-issue-banner");
   issueBanner.hidden = true;
   const foot = h("div", "ai-foot");
@@ -2028,7 +2375,7 @@ export function initAi() {
         localStorage.removeItem(INTERRUPTED_KEY);
         const info = JSON.parse(raw) as { id?: string; cwd?: string };
         const saved = info.id ? loadChats().find((c) => c.id === info.id) : undefined;
-        if (saved && (!ws.root || saved.cwd.replace(/\\/g, "/").toLowerCase() === ws.root.replace(/\\/g, "/").toLowerCase())) {
+        if (saved && (!ws.root || sameDir(saved.cwd, ws.root))) {
           const l = fromSaved(saved);
           lives.set(l.id, l);
           switchProvider(l.provider);
@@ -2036,6 +2383,7 @@ export function initAi() {
         }
       }
     } catch { /* nada que hacer */ }
+    pruneUnusedImages();
     if (shown) renderBody();
   });
   window.addEventListener("beforeunload", saveRunningBeforeExit);
@@ -2079,6 +2427,53 @@ export function initAi() {
       inp.focus();
     }
   });
+}
+
+/** ¿Hay alguna conversación de IA respondiendo actualmente en la carpeta indicada? */
+export function hasRunningAiForWorkspace(root: string | null): boolean {
+  if (!root) return false;
+  for (const l of lives.values()) {
+    if (l.convo.running && sameDir(l.cwd, root)) return true;
+  }
+  return false;
+}
+
+/** Detiene todas las conversaciones de IA en curso de la carpeta indicada. */
+export async function stopRunningAiForWorkspace(root: string | null): Promise<void> {
+  if (!root) return;
+  const targets: Live[] = [];
+  for (const l of lives.values()) {
+    if (l.convo.running && sameDir(l.cwd, root)) targets.push(l);
+  }
+  for (const l of targets) {
+    l.stopping = true;
+    await invoke("ai_stop", { id: l.id }).catch(() => {});
+  }
+}
+
+/** Al cambiar o cerrar carpeta se descarta la conversación activa del proyecto anterior y se actualiza la vista para el nuevo. */
+export function resetAi() {
+  dismissPopover();
+  extraFiles = [];
+  attachedImages = [];
+  mentionFiles = null;
+  lastFile = "";
+  useFile = true;
+  useSel = true;
+  historyOpen = false;
+  const keepCurrent = !!(ws.root && current && current.convo.messages.length && sameDir(current.cwd, ws.root));
+  if (!keepCurrent && current) {
+    if (current.convo.messages.length) persist(current, true);
+    else lives.delete(current.id);
+    current = null;
+    resetTurnCache();
+  }
+  const input = q<HTMLTextAreaElement>(".ai-input");
+  if (input) {
+    input.value = "";
+    autosize();
+  }
+  if (shown) renderBody();
 }
 
 /** «IA: Nueva conversación» desde la paleta. */

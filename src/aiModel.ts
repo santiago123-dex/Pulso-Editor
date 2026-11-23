@@ -3,10 +3,13 @@ import { lang, t, t as tr } from "./i18n";
  * Modelo de una conversación con Claude Code a partir de su salida `stream-json`: una función pura que va
  * convirtiendo cada evento en mensajes, bloques de herramientas, uso del plan y resultado. Sin DOM ni procesos.
  */
-export type AiProvider = "claude" | "codex" | "antigravity";
+export type AiProvider = "claude" | "codex" | "antigravity" | "local";
+
+export interface UserImage { path: string; name: string; preview?: string }
 
 export type Block =
   | { kind: "text"; text: string }
+  | { kind: "image"; path: string; name: string; preview?: string }
   | { kind: "thinking"; text: string }
   | { kind: "tool"; id: string; name: string; input: Record<string, unknown>; json: string; result?: string; error?: boolean };
 
@@ -41,8 +44,12 @@ export type AiEvent = { type: string; [k: string]: unknown };
 const obj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" ? (v as Record<string, unknown>) : {});
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
-/** Evento propio: la persona envió este mensaje. */
-export const userEvent = (text: string): AiEvent => ({ type: "pulso_user", text });
+/** Evento propio: la persona envió este mensaje (con texto y opcionalmente imágenes adjuntas). */
+export const userEvent = (text: string, images?: readonly UserImage[]): AiEvent => ({
+  type: "pulso_user",
+  text,
+  ...(images?.length ? { images: images.map((i) => ({ path: i.path, name: i.name, ...(i.preview ? { preview: i.preview } : {}) })) } : {}),
+});
 /** Evento propio: el proceso terminó. */
 /** Traduce los errores conocidos de las herramientas a algo accionable; el resto se deja tal cual. */
 export function friendlyToolError(stderr: string): string {
@@ -136,15 +143,28 @@ export function needsCommandPermission(actions: readonly DeniedAction[] | undefi
 /** Aplica un evento usando structural sharing (O(1) por token en lugar de clonar toda la conversación). */
 export function reduce(prev: Conversation, ev: AiEvent): Conversation {
   switch (ev.type) {
-    case "pulso_user":
+    case "pulso_user": {
+      const blocks: Block[] = [{ kind: "text", text: str(ev.text) }];
+      if (Array.isArray(ev.images)) {
+        for (const raw of ev.images) {
+          const img = obj(raw);
+          const path = str(img.path);
+          const name = str(img.name);
+          if (path || name) {
+            const preview = str(img.preview);
+            blocks.push({ kind: "image", path, name: name || path.split("/").pop() || "imagen", ...(preview ? { preview } : {}) });
+          }
+        }
+      }
       return {
         ...prev,
-        messages: [...prev.messages, { id: `u${prev.messages.length}`, role: "user", blocks: [{ kind: "text", text: str(ev.text) }], done: true }],
+        messages: [...prev.messages, { id: `u${prev.messages.length}`, role: "user", blocks, done: true }],
         running: true,
         outcome: null,
         error: "",
         touched: 0,
       };
+    }
     case "system": {
       if (ev.subtype !== "init") return prev;
       const sessionId = str(ev.session_id) || prev.sessionId;
@@ -324,7 +344,8 @@ function mapAgyToolName(raw: string): string {
  * Para Claude Code devuelve el evento original sin cambios.
  */
 export function createProviderNormalizer(provider: AiProvider, fallbackModel = ""): (raw: AiEvent) => AiEvent[] {
-  if (provider === "claude") return (raw) => [raw];
+  // El agente local (Ollama) ya emite el formato de Claude Code desde Rust.
+  if (provider === "claude" || provider === "local") return (raw) => [raw];
 
   let turnStart = Date.now();
   let agySeq = 0;
@@ -732,7 +753,7 @@ export function splitAssistantTurn(blocks: Block[]): { activity: Block[]; final:
     if (b.kind === "thinking" && !b.text.trim()) continue;
     break;
   }
-  const activity = blocks.filter((b, i) => i !== finalIdx && (b.kind === "tool" || b.text.trim() !== ""));
+  const activity = blocks.filter((b, i) => i !== finalIdx && (b.kind === "tool" || (b.kind !== "image" && b.text.trim() !== "")));
   const fb = finalIdx >= 0 ? blocks[finalIdx] : undefined;
   return { activity, final: fb && fb.kind === "text" ? fb.text : "" };
 }

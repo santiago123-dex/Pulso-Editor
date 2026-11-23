@@ -7,6 +7,38 @@ export const rel = (p: string) =>
 
 const RECENT = "pulso.recent";
 const SESSION = "pulso.session";
+const PROJECT_LAYOUTS = "pulso.projectLayouts";
+const MAX_PROJECT_LAYOUTS = 20;
+
+const layoutKey = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+
+interface ProjectLayoutEntry { layout: unknown; at: number }
+
+function readProjectLayouts(): Record<string, ProjectLayoutEntry> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PROJECT_LAYOUTS) ?? "{}");
+    return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Guarda la disposición de pestañas asociada a una carpeta concreta (conserva los últimos 20 proyectos). */
+export function saveProjectLayout(root: string, layout: unknown) {
+  if (!root) return;
+  const key = layoutKey(root);
+  const map = readProjectLayouts();
+  map[key] = { layout, at: Date.now() };
+  const entries = Object.entries(map).sort((a, b) => (b[1]?.at ?? 0) - (a[1]?.at ?? 0)).slice(0, MAX_PROJECT_LAYOUTS);
+  try { localStorage.setItem(PROJECT_LAYOUTS, JSON.stringify(Object.fromEntries(entries))); } catch { /* sin espacio */ }
+}
+
+/** Recupera la última disposición de pestañas guardada para una carpeta, o null si no hay ninguna. */
+export function loadProjectLayout(root: string): unknown | null {
+  if (!root) return null;
+  const entry = readProjectLayouts()[layoutKey(root)];
+  return entry ? entry.layout ?? null : null;
+}
 
 export function getRecent(): string[] {
   try {

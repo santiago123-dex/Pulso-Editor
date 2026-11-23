@@ -229,6 +229,21 @@ const EN: &[(&str, &str)] = &[
     ("Ya no hay ninguna versión nueva pendiente.", "There's no pending new version anymore."),
     ("No se pudo descargar la actualización: {e}", "Couldn't download the update: {e}"),
     ("No se pudo instalar la actualización: {e}", "Couldn't install the update: {e}"),
+    // ---------- Asistente local (Ollama) ----------
+    ("Ollama no está en marcha en este equipo (http://127.0.0.1:11434).", "Ollama isn't running on this computer (http://127.0.0.1:11434)."),
+    ("Ollama no tiene ningún modelo descargado. Descarga uno con «ollama pull qwen2.5-coder:7b».", "Ollama has no models downloaded. Download one with “ollama pull qwen2.5-coder:7b”."),
+    ("Solo se pueden leer rutas dentro de la carpeta del proyecto.", "Only paths inside the project folder can be read."),
+    ("No existe: {path}", "Doesn't exist: {path}"),
+    ("El archivo es demasiado grande para leerlo entero ({size} KB). Lee un rango con start_line y max_lines.", "The file is too large to read whole ({size} KB). Read a range with start_line and max_lines."),
+    ("Es un archivo binario: no se puede leer como texto.", "It's a binary file: it can't be read as text."),
+    ("Herramienta desconocida: {name}", "Unknown tool: {name}"),
+    ("No se pudo contactar con Ollama: {e}", "Couldn't reach Ollama: {e}"),
+    ("Ollama respondió {status}: {error}", "Ollama responded {status}: {error}"),
+    ("Ollama cortó la respuesta: {e}", "Ollama cut the response short: {e}"),
+    ("Ollama respondió con un error: {error}", "Ollama responded with an error: {error}"),
+    ("El modelo siguió pidiendo herramientas sin terminar de responder; se detuvo tras 12 vueltas.", "The model kept asking for tools without finishing its answer; it was stopped after 12 rounds."),
+    ("Elige un modelo de Ollama para conversar.", "Choose an Ollama model to chat."),
+    ("La conversación se detuvo.", "The conversation was stopped."),
     // ---------- Herramienta de línea de comandos `pulso` ----------
     (crate::termchat::HELP, HELP_EN),
     ("Falta el valor de {name}.", "Missing value for {name}."),
@@ -274,6 +289,11 @@ const EN: &[(&str, &str)] = &[
     ("Conversación nueva iniciada.", "New conversation started."),
     ("Modo edición activado para esta carpeta.", "Editing mode turned on for this folder."),
     ("Proveedor cambiado a {provider} (conversación nueva).", "Provider changed to {provider} (new conversation)."),
+    ("Formato de imagen no soportado. Usa PNG, JPG, WEBP o GIF.", "Unsupported image format. Use PNG, JPG, WEBP or GIF."),
+    ("No se pudo leer la imagen adjunta.", "Couldn't read the attached image."),
+    ("La imagen está vacía.", "The image is empty."),
+    ("La imagen supera el límite de 10 MB.", "The image exceeds the 10 MB limit."),
+    ("No se encontró la imagen adjunta.", "The attached image wasn't found."),
 ];
 
 #[cfg(test)]
@@ -287,6 +307,7 @@ mod tests {
         ("githubdevice.rs", include_str!("githubdevice.rs")),
         ("gitops.rs", include_str!("gitops.rs")),
         ("lib.rs", include_str!("lib.rs")),
+        ("localai.rs", include_str!("localai.rs")),
         ("lsp.rs", include_str!("lsp.rs")),
         ("term.rs", include_str!("term.rs")),
         ("termchat.rs", include_str!("termchat.rs")),

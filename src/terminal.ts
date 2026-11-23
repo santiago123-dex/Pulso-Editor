@@ -16,6 +16,7 @@ export type { ShellInfo };
 interface Term {
   id: number;
   label: string;
+  cwd: string;
   xterm: Terminal;
   fit: FitAddon;
   el: HTMLElement;
@@ -92,7 +93,7 @@ function syncMeta() {
   if (!meta) return;
   panel.classList.toggle("term-err", !!active?.exited);
   if (!active) { meta.hidden = true; return; }
-  const dir = ws.root ? ws.root.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? "" : "";
+  const dir = active.cwd ? active.cwd.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? "" : "";
   meta.textContent = `${dir ? `${dir} · ` : ""}${active.xterm.cols}×${active.xterm.rows}`;
   meta.hidden = false;
 }
@@ -243,11 +244,12 @@ export async function newTerminal(opts: { shell?: ShellInfo; cwd?: string } = {}
   xterm.open(el);
   fit.fit();
 
+  const cwd = opts.cwd ?? ws.root ?? "";
   let id: number;
   try {
     id = await invoke<number>("term_spawn", {
       shellId: shell.id,
-      cwd: opts.cwd ?? ws.root ?? null,
+      cwd: cwd || null,
       cols: xterm.cols,
       rows: xterm.rows,
     });
@@ -259,7 +261,7 @@ export async function newTerminal(opts: { shell?: ShellInfo; cwd?: string } = {}
     return false;
   }
 
-  const t: Term = { id, label: `${shell.label} ${++counter}`, xterm, fit, el, exited: false };
+  const t: Term = { id, label: `${shell.label} ${++counter}`, cwd, xterm, fit, el, exited: false };
   byId.set(id, t);
   order.push(t);
 

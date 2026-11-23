@@ -23,6 +23,16 @@ const LABEL: Record<string, string> = { M: t("Modificado"), A: t("Añadido"), D:
 
 const msgBox = () => $("scm-msg") as HTMLTextAreaElement;
 
+/** Al cambiar o cerrar carpeta se limpia el estado y el borrador de commit del proyecto anterior. */
+export function resetScm() {
+  seq++;
+  changes = null;
+  problem = "";
+  msgBox().value = "";
+  paint();
+  void refreshScm();
+}
+
 export async function refreshScm() {
   const id = ++seq;
   if (!ws.root) { changes = null; problem = t("Abre una carpeta para ver sus cambios."); paint(); return; }

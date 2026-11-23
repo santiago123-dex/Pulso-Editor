@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Turn } from "./aiModel";
-import { chatsFor, deleteChat, loadChats, MAX_BYTES, MAX_CHATS, mergeChats, newChatId, pickHistory, saveChat, titleFrom, type SavedChat, type Store } from "./aiStore";
+import { chatsFor, deleteChat, loadChats, MAX_BYTES, MAX_CHATS, mergeChats, newChatId, pickHistory, sameDir, saveChat, titleFrom, type SavedChat, type Store } from "./aiStore";
 
 const memory = (): Store & { data: Map<string, string> } => {
   const data = new Map<string, string>();
@@ -83,6 +83,11 @@ describe("chatsFor", () => {
     const list = [chat("a", 1, { cwd: "C:/Proyecto/" }), chat("b", 2, { cwd: "C:/otro" })];
     expect(chatsFor(list, "c:\\proyecto").map((c) => c.id)).toEqual(["a"]);
     expect(chatsFor(list, "D:/x")).toEqual([]);
+  });
+  it("sameDir distingue proyectos distintos y normaliza barras/mayúsculas", () => {
+    expect(sameDir("C:\\Proyecto\\A\\", "c:/proyecto/a")).toBe(true);
+    expect(sameDir("C:/Proyecto/A", "C:/Proyecto/B")).toBe(false);
+    expect(sameDir("", "C:/Proyecto/A")).toBe(false);
   });
 });
 

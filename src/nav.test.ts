@@ -137,4 +137,18 @@ describe("historial de navegación", () => {
     await n.forward();
     expect(opened).toEqual([{ path: "b.ts", line: 1 }]);
   });
+
+  it("reset vacía el historial completo y notifica el cambio", () => {
+    const n = nav();
+    const f = vi.fn();
+    n.onChange(f);
+    n.record({ path: "a.ts", line: 1 });
+    n.record({ path: "b.ts", line: 1 });
+    expect(n.canBack()).toBe(true);
+    n.reset();
+    expect(n.canBack()).toBe(false);
+    expect(n.canForward()).toBe(false);
+    expect(n.snapshot()).toEqual({ stack: [], idx: -1 });
+    expect(f).toHaveBeenCalled();
+  });
 });

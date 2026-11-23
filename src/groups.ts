@@ -477,6 +477,11 @@ export async function reopenClosed() {
   if (p) await openFile(p);
 }
 
+/** Vacía la pila de pestañas cerradas (al cambiar o cerrar carpeta). */
+export function clearClosedTabs() {
+  closedStack.length = 0;
+}
+
 export function closeActive() {
   const g = focusedGroup;
   if (g?.active && !g.pinned.has(g.active)) return closeTab(g, g.active);

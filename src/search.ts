@@ -204,6 +204,20 @@ export function initSearch() {
   };
 }
 
+/** Al cambiar o cerrar carpeta se limpian resultados, filtros y búsquedas en curso del proyecto anterior. */
+export function resetSearch() {
+  seq++;
+  clearTimeout(timer);
+  results = new Map();
+  truncated = false;
+  collapsed.clear();
+  inp("sq").value = "";
+  inp("sr").value = "";
+  inp("sinc").value = "";
+  $("search-results").replaceChildren();
+  $("search-summary").textContent = "";
+}
+
 /** Limita la búsqueda a una carpeta (desde el menú del explorador). */
 export function searchInFolder(path: string) {
   inp("sinc").value = rel(path);

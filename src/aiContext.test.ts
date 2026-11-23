@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPrompt, chipLabels, fenceFor, MAX_SELECTION } from "./aiContext";
+import { buildPrompt, chipLabels, fenceFor, fileMentionAt, filterProjectFiles, MAX_SELECTION } from "./aiContext";
 
 describe("buildPrompt", () => {
   it("sin contexto envía solo el mensaje", () => {
@@ -28,6 +28,10 @@ describe("buildPrompt", () => {
     const p = buildPrompt("revisa", { file: "src/a.ts", extraFiles: ["src/a.ts", "src/b.ts"] });
     expect(p).toBe("Contexto del editor de Pulso (lo ve la persona):\n- Archivo abierto: src/a.ts\n- Archivo adjunto: src/b.ts\n\nMensaje:\nrevisa");
   });
+  it("incluye imágenes adjuntas con su nombre y ruta", () => {
+    const p = buildPrompt("¿qué ves?", { images: [{ path: "C:/data/ai-images/img_1.png", name: "captura.png" }] });
+    expect(p).toBe("Contexto del editor de Pulso (lo ve la persona):\n- Imagen adjunta (captura.png): C:/data/ai-images/img_1.png\n\nMensaje:\n¿qué ves?");
+  });
 });
 
 describe("chipLabels", () => {
@@ -35,5 +39,21 @@ describe("chipLabels", () => {
     expect(chipLabels({ file: "src/dir/a.ts", selection: { text: "x", startLine: 2, endLine: 2 } })).toEqual({ file: "a.ts", selection: "Selección · 1 línea" });
     expect(chipLabels({ selection: { text: "x", startLine: 2, endLine: 5 } }).selection).toBe("Selección · 4 líneas");
     expect(chipLabels({})).toEqual({ file: undefined, selection: undefined });
+  });
+});
+
+describe("menciones @archivo", () => {
+  it("detecta @consulta al principio o tras espacio, pero no en medio de un correo", () => {
+    expect(fileMentionAt("@main", 5)).toEqual({ start: 0, query: "main" });
+    expect(fileMentionAt("revisa @src/ai", 14)).toEqual({ start: 7, query: "src/ai" });
+    expect(fileMentionAt("hola @", 6)).toEqual({ start: 5, query: "" });
+    expect(fileMentionAt("correo@dominio.com", 18)).toBeNull();
+    expect(fileMentionAt("revisa @a.ts ahora", 18)).toBeNull();
+  });
+
+  it("prioriza coincidencias al inicio del nombre de archivo", () => {
+    const files = ["src/other/chat.ts", "src/aiChat.ts", "docs/ai.md", "src/main.ts"];
+    expect(filterProjectFiles(files, "ai")).toEqual(["docs/ai.md", "src/aiChat.ts", "src/main.ts"]);
+    expect(filterProjectFiles(files, "chat")).toEqual(["src/other/chat.ts", "src/aiChat.ts"]);
   });
 });
