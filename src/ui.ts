@@ -90,14 +90,18 @@ function openModal(box: HTMLElement, onCancel: () => void): () => void {
 }
 
 /** Diálogo con botones; resuelve con el `value` del botón o "cancel" con Esc. */
-export function showDialog(o: { title: string; message?: string; buttons: DialogButton[] }): Promise<string> {
+/** `extra` se pinta entre el mensaje y los botones; si `closeWhen` se resuelve, el diálogo se cierra con ese valor. */
+export function showDialog(o: { title: string; message?: string; buttons: DialogButton[]; extra?: HTMLElement; closeWhen?: Promise<string> }): Promise<string> {
   return new Promise((resolve) => {
     const box = h("div", "modal");
     box.append(h("div", "modal-title", o.title));
     if (o.message) box.append(h("div", "modal-msg", o.message));
+    if (o.extra) box.append(o.extra);
     const row = h("div", "modal-btns");
     let close = () => {};
-    const done = (v: string) => { close(); resolve(v); };
+    let finished = false;
+    const done = (v: string) => { if (finished) return; finished = true; close(); resolve(v); };
+    void o.closeWhen?.then(done, () => done("cancel"));
     for (const b of o.buttons) {
       const btn = h("button", "mbtn" + (b.primary ? " primary" : "") + (b.danger ? " danger" : ""), b.label);
       btn.onclick = () => done(b.value);

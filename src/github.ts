@@ -224,6 +224,36 @@ export async function connectGithub(interactive: boolean): Promise<string> {
   return login;
 }
 
+/** Código que da GitHub para iniciar sesión desde Pulso (OAuth device flow). */
+export interface DeviceCode { device_code: string; user_code: string; verification_uri: string; expires_in: number; interval: number }
+
+/** Dirección web de GitHub; en desarrollo las pruebas la apuntan a un servidor simulado. */
+function customWebBase(): string | null {
+  const raw = localStorage.getItem("pulso.githubWeb")?.trim();
+  return raw ? raw.replace(/\/+$/, "") : null;
+}
+
+/** El inicio de sesión por código solo está disponible si la compilación tiene el identificador de la aplicación OAuth. */
+export async function deviceLoginAvailable(): Promise<boolean> {
+  return inTauri() && invoke<boolean>("github_device_available").catch(() => false);
+}
+
+export const deviceLoginStart = () => invoke<DeviceCode>("github_device_start", { webBase: customWebBase() });
+
+/** Espera a que se autorice el código en GitHub; deja el token guardado en Rust y devuelve el usuario. */
+export async function deviceLoginFinish(code: DeviceCode): Promise<string> {
+  const login = await invoke<string>("github_device_poll", {
+    deviceCode: code.device_code, interval: code.interval, expiresIn: code.expires_in,
+    webBase: customWebBase(), apiBase: customApiBase(),
+  });
+  etagCache.clear();
+  connected = true;
+  account = login;
+  return login;
+}
+
+export const deviceLoginCancel = () => invoke("github_device_cancel").catch(() => {});
+
 /** Al iniciar, si no hay token, adopta en silencio la sesión de GitHub que Git ya tiene. Devuelve el usuario o null. */
 export async function autoConnect(): Promise<string | null> {
   // `pulso.noAutoConnect` lo fijan las pruebas para que no adopten la sesión real de quien las ejecuta.

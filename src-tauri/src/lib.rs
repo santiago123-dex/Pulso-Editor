@@ -16,6 +16,7 @@ mod userconf;
 mod lsp;
 mod gitops;
 mod githubauth;
+mod githubdevice;
 pub mod aichat;
 mod cli;
 pub mod termchat;
@@ -1052,6 +1053,10 @@ pub fn run() {
             githubauth::github_disconnect,
             githubauth::github_api,
             githubauth::open_external,
+            githubdevice::github_device_available,
+            githubdevice::github_device_start,
+            githubdevice::github_device_poll,
+            githubdevice::github_device_cancel,
             aichat::ai_detect,
             aichat::ai_detect_provider,
             aichat::ai_detect_all,

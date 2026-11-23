@@ -33,8 +33,8 @@ impl fmt::Debug for Credential {
 }
 
 pub struct GithubState {
-    token: Mutex<Option<String>>,
-    client: reqwest::Client,
+    pub(crate) token: Mutex<Option<String>>,
+    pub(crate) client: reqwest::Client,
 }
 
 impl Default for GithubState {
@@ -56,7 +56,7 @@ impl GithubState {
         self.token.lock().ok().and_then(|g| g.clone()).filter(|t| !t.is_empty())
     }
 
-    fn set_memory_token(&self, value: Option<String>) {
+    pub(crate) fn set_memory_token(&self, value: Option<String>) {
         if let Ok(mut g) = self.token.lock() {
             *g = value.filter(|t| !t.is_empty());
         }
@@ -72,7 +72,7 @@ fn keyring_get_github() -> Result<Option<String>, String> {
     }
 }
 
-fn keyring_set_github(value: &str) -> Result<(), String> {
+pub(crate) fn keyring_set_github(value: &str) -> Result<(), String> {
     if value.is_empty() {
         return match keyring::Entry::new(SECRET_SERVICE, GITHUB_SECRET_KEY)
             .and_then(|e| e.delete_credential())
@@ -212,7 +212,7 @@ pub struct GithubApiResponse {
     pub link: Option<String>,
 }
 
-async fn send_github_request(
+pub(crate) async fn send_github_request(
     client: &reqwest::Client,
     token: Option<&str>,
     method: &str,
