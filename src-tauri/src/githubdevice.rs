@@ -16,11 +16,11 @@ use std::time::{Duration, Instant};
 use tauri::State;
 
 /// Identificador público (Client ID) de la aplicación OAuth «Pulso Editor» registrada en GitHub, con
-/// «Device Flow» activado. Se puede sustituir al compilar con la variable `PULSO_GITHUB_CLIENT_ID`.
-/// Vacío: el inicio de sesión por código no está disponible y se usa la conexión por Git.
+/// «Device Flow» activado y tokens sin caducidad. No es un secreto. Se puede sustituir al compilar con
+/// la variable `PULSO_GITHUB_CLIENT_ID` (vacía: se desactiva y se usa la conexión por Git).
 const CLIENT_ID: &str = match option_env!("PULSO_GITHUB_CLIENT_ID") {
     Some(id) => id,
-    None => "",
+    None => "Ov23ctd2I0EnevVSgO2p",
 };
 /// Permisos: `repo` para issues, pull requests y repositorios privados; `read:user` para saber quién es.
 const SCOPES: &str = "repo read:user";

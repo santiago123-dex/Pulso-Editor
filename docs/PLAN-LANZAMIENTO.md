@@ -119,7 +119,7 @@ Puntos fuertes:
 2. **Beta pública:**
    - traducciones;
    - ~~incluir Node o adoptar `tsgo`~~ hecho: TypeScript 7 nativo incluido;
-   - [x] inicio de sesión OAuth propio (por código de dispositivo; falta registrar la aplicación OAuth y poner su identificador, ver [Distribución](DISTRIBUCION.md));
+   - [x] inicio de sesión OAuth propio (por código de dispositivo, con la aplicación OAuth «Pulso Editor» registrada; ver [Distribución](DISTRIBUCION.md));
    - agente propio con modelos locales;
    - diferencias antes de aplicar los cambios de la IA;
    - asistente de bienvenida.

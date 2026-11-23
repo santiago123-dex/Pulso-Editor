@@ -63,7 +63,7 @@ Para registrarla:
 3. Marca **Enable Device Flow**.
 4. Copia el *Client ID*.
 
-El identificador va en `CLIENT_ID` de `src-tauri/src/githubdevice.rs`, o en la variable `PULSO_GITHUB_CLIENT_ID` al compilar. Sin él, «Conectar con GitHub» usa la sesión de Git del equipo.
+La aplicación está registrada en la cuenta de santiago123-dex con *Device Flow* activado y **sin** «Expire user access tokens», porque Pulso aún no renueva tokens que caducan. Su identificador (`Ov23ctd2I0EnevVSgO2p`) está en `CLIENT_ID` de `src-tauri/src/githubdevice.rs`. Se puede cambiar al compilar con la variable `PULSO_GITHUB_CLIENT_ID`; si la variable está vacía, «Conectar con GitHub» usa la sesión de Git del equipo.
 
 Las organizaciones con restricciones para aplicaciones OAuth tendrán que aprobar «Pulso Editor» para que vea sus repositorios.
 
