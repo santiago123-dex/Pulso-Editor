@@ -5,7 +5,8 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const T_CALL = /\bt\(\s*"((?:[^"\\]|\\.)*)"/g;
+// `tr` es el mismo t importado con otro nombre en archivos que ya tienen una variable `t`.
+const T_CALL = /\b(?:t|tr)\(\s*"((?:[^"\\]|\\.)*)"/g;
 
 function sourceFiles(dir) {
   return readdirSync(dir).flatMap((name) => {

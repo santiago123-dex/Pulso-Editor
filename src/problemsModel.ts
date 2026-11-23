@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 /** Lógica pura del panel de problemas (sin Monaco ni DOM) para poder probarla. */
 
 export type Severity = "error" | "warning" | "info";
@@ -53,15 +54,15 @@ export function groupProblems(list: readonly Problem[], onlyErrors = false): Fil
   return out.sort((a, b) => b.counts.error - a.counts.error || b.counts.warning - a.counts.warning || a.path.localeCompare(b.path));
 }
 
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+const plural = (n: number, one: string, many: string) => (n === 1 ? one : many.replace("{n}", String(n)));
 
 /** «2 errores, 1 aviso» o «Sin problemas». */
 export function summaryText(c: Counts): string {
   const parts: string[] = [];
-  if (c.error) parts.push(plural(c.error, "error", "errores"));
-  if (c.warning) parts.push(plural(c.warning, "aviso", "avisos"));
-  if (c.info) parts.push(plural(c.info, "información", "informaciones"));
-  return parts.length ? parts.join(", ") : "Sin problemas";
+  if (c.error) parts.push(plural(c.error, t("1 error"), t("{n} errores")));
+  if (c.warning) parts.push(plural(c.warning, t("1 aviso"), t("{n} avisos")));
+  if (c.info) parts.push(plural(c.info, t("1 información"), t("{n} informaciones")));
+  return parts.length ? parts.join(", ") : t("Sin problemas");
 }
 
 /** Texto corto de la barra de estado: «✖ 2  ⚠ 1». Vacío si no hay errores ni avisos. */

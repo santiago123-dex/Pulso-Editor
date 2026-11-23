@@ -1,3 +1,4 @@
+import { t as tr } from "./i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { openDiffRequest } from "./diffView";
 import { openExternal } from "./external";
@@ -47,10 +48,10 @@ function fail(e: unknown) {
 export async function loadPulls(silent = false) {
   if (detail && silent) return;
   const mine = ++seq;
-  if (!ws.root) { body().replaceChildren(message("Abre una carpeta para ver las pull requests de su repositorio.")); return; }
-  if (!(await resolveRepo())) { body().replaceChildren(message("Esta carpeta no tiene un remoto de GitHub.")); return; }
+  if (!ws.root) { body().replaceChildren(message(tr("Abre una carpeta para ver las pull requests de su repositorio."))); return; }
+  if (!(await resolveRepo())) { body().replaceChildren(message(tr("Esta carpeta no tiene un remoto de GitHub."))); return; }
   if (mine !== seq) return;
-  if (!silent) body().replaceChildren(message("Cargando…"));
+  if (!silent) body().replaceChildren(message(tr("Cargando…")));
   try {
     const found = await listPulls(repo!.owner, repo!.repo, filter);
     if (mine !== seq) return;
@@ -68,12 +69,12 @@ function dot(state: ReturnType<typeof prState>) { return h("span", `pr-dot ${sta
 function paintList() {
   detail = null;
   const nodes: HTMLElement[] = [];
-  if (!list.length) nodes.push(message(filter === "open" ? "No hay pull requests abiertas." : "No hay pull requests con este filtro."));
+  if (!list.length) nodes.push(message(filter === "open" ? tr("No hay pull requests abiertas.") : tr("No hay pull requests con este filtro.")));
   for (const pr of list) {
     const state = prState(pr);
     const row = h("button", "pr-row");
     row.type = "button";
-    row.title = `${PR_STATE_LABEL[state]} · abrir el detalle`;
+    row.title = tr("{state} · abrir el detalle", { state: PR_STATE_LABEL[state] });
     const top = h("span", "pr-row-title");
     top.append(dot(state), h("span", "pr-row-text", pr.title));
     const meta = h("span", "pr-row-meta");
@@ -88,7 +89,7 @@ function paintList() {
 async function openDetail(summary: PullSummary) {
   if (!repo) return;
   const mine = ++seq;
-  body().replaceChildren(message("Cargando la pull request…"));
+  body().replaceChildren(message(tr("Cargando la pull request…")));
   try {
     const [pr, files] = await Promise.all([getPull(repo.owner, repo.repo, summary.number), pullFiles(repo.owner, repo.repo, summary.number)]);
     if (mine !== seq) return;
@@ -109,7 +110,7 @@ function paintDetail() {
   const back = h("button", "pr-back");
   back.type = "button";
   back.innerHTML = '<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>';
-  back.append("Pull requests");
+  back.append(tr("Pull requests"));
   back.onclick = () => { seq++; paintList(); void loadPulls(true); };
   const head = h("div", "pr-title");
   head.append(dot(state), h("span", "pr-title-text", pr.title));
@@ -119,18 +120,18 @@ function paintDetail() {
   const branch = h("div", "pr-branch", branchLabel(pr));
   const stats = h("div", "pr-stats");
   stats.append(`${files.length} archivo${files.length === 1 ? "" : "s"} · `, h("span", "pr-add", `+${t.additions}`), " ", h("span", "pr-del", `−${t.deletions}`));
-  const text = h("div", "pr-body", pr.body?.trim() ? pr.body : "Sin descripción.");
+  const text = h("div", "pr-body", pr.body?.trim() ? pr.body : tr("Sin descripción."));
   const gh = h("button", "foot-btn foot-btn-line");
   gh.type = "button";
   gh.innerHTML = '<svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5H5V6h5"/></svg>';
-  gh.append("Ver en GitHub");
+  gh.append(tr("Ver en GitHub"));
   gh.onclick = () => void openExternal(pr.html_url);
   const fileBox = h("div", "pr-files");
-  if (!files.length) fileBox.append(h("div", "hist-note", "Sin archivos cambiados."));
+  if (!files.length) fileBox.append(h("div", "hist-note", tr("Sin archivos cambiados.")));
   for (const f of files) {
     const b = h("button", "hist-file");
     b.type = "button";
-    b.title = f.previous_filename ? `Antes: ${f.previous_filename}` : f.filename;
+    b.title = f.previous_filename ? tr("Antes: {path}", { path: f.previous_filename }) : f.filename;
     b.append(h("span", `hist-st st-${fileLetter(f.status)}`, fileLetter(f.status)), h("span", "hist-path", f.filename));
     const counts = h("span", "pr-counts");
     counts.append(h("span", "pr-add", `+${f.additions}`), " ", h("span", "pr-del", `−${f.deletions}`));
@@ -144,16 +145,16 @@ function paintDetail() {
     });
     fileBox.append(b);
   }
-  wrap.append(back, head, chip, meta, branch, stats, text, gh, h("div", "pr-files-title", "Archivos cambiados"), fileBox);
+  wrap.append(back, head, chip, meta, branch, stats, text, gh, h("div", "pr-files-title", tr("Archivos cambiados")), fileBox);
   body().replaceChildren(wrap);
 }
 
 /** «Nueva pull request»: la rama actual contra la rama principal (o la que se indique). */
 export async function newPull(prefill?: { title?: string; body?: string; issueNumber?: number }): Promise<PullSummary | null> {
-  if (!ws.root) { setStatus("Abre una carpeta para crear una pull request"); return null; }
+  if (!ws.root) { setStatus(tr("Abre una carpeta para crear una pull request")); return null; }
   const found = await resolveRepo();
-  if (!found) { await showDialog({ title: "Sin repositorio de GitHub", message: "Esta carpeta no tiene un remoto de GitHub.", buttons: [{ label: "Entendido", value: "ok" }] }); return null; }
-  if (!hasToken()) { body().replaceChildren(message("Conecta tu cuenta de GitHub para crear pull requests.", connectButton(() => void loadPulls()))); return null; }
+  if (!found) { await showDialog({ title: tr("Sin repositorio de GitHub"), message: tr("Esta carpeta no tiene un remoto de GitHub."), buttons: [{ label: tr("Entendido"), value: "ok" }] }); return null; }
+  if (!hasToken()) { body().replaceChildren(message(tr("Conecta tu cuenta de GitHub para crear pull requests."), connectButton(() => void loadPulls()))); return null; }
   try {
     const [branches, base, log] = await Promise.all([
       invoke<{ name: string; current: boolean; upstream: string | null }[]>("git_branches", { root: ws.root }),
@@ -162,31 +163,31 @@ export async function newPull(prefill?: { title?: string; body?: string; issueNu
     ]);
     const current = branches.find((b) => b.current);
     const problem = newPullProblem({ title: "x", head: current?.name ?? "", base, hasUpstream: !!current?.upstream });
-    if (problem) { await showDialog({ title: "Aún no se puede crear", message: problem, buttons: [{ label: "Entendido", value: "ok" }] }); return null; }
+    if (problem) { await showDialog({ title: tr("Aún no se puede crear"), message: problem, buttons: [{ label: tr("Entendido"), value: "ok" }] }); return null; }
     const values = await showForm({
-      title: prefill?.issueNumber ? `Nueva pull request para #${prefill.issueNumber}` : "Nueva pull request",
-      submitLabel: "Crear",
+      title: prefill?.issueNumber ? tr("Nueva pull request para #{number}", { number: prefill.issueNumber }) : tr("Nueva pull request"),
+      submitLabel: tr("Crear"),
       fields: [
-        { key: "title", label: "Título", value: prefill?.title ?? suggestTitle(log[0]?.subject ?? null, current!.name), required: true },
-        { key: "body", label: "Descripción (opcional)", value: prefill?.body ?? "", multiline: true },
-        { key: "base", label: "Rama de destino", value: base, required: true },
+        { key: "title", label: tr("Título"), value: prefill?.title ?? suggestTitle(log[0]?.subject ?? null, current!.name), required: true },
+        { key: "body", label: tr("Descripción (opcional)"), value: prefill?.body ?? "", multiline: true },
+        { key: "base", label: tr("Rama de destino"), value: base, required: true },
       ],
-      hint: `Se propondrán los cambios de «${current!.name}» hacia la rama de destino. Se crea en GitHub, en ${found.owner}/${found.repo}.`,
+      hint: tr("Se propondrán los cambios de «{branch}» hacia la rama de destino. Se crea en GitHub, en {repo}.", { branch: current!.name, repo: `${found.owner}/${found.repo}` }),
     });
     if (!values) return null;
     const finalProblem = newPullProblem({ title: values.title, head: current!.name, base: values.base, hasUpstream: true });
-    if (finalProblem) { await showDialog({ title: "Aún no se puede crear", message: finalProblem, buttons: [{ label: "Entendido", value: "ok" }] }); return null; }
-    setStatus("Creando la pull request en GitHub…", 30000);
+    if (finalProblem) { await showDialog({ title: tr("Aún no se puede crear"), message: finalProblem, buttons: [{ label: tr("Entendido"), value: "ok" }] }); return null; }
+    setStatus(tr("Creando la pull request en GitHub…"), 30000);
     const made = await createPull(found.owner, found.repo, { title: values.title, head: current!.name, base: values.base, body: values.body });
-    setStatus(`Pull request #${made.number} creada`);
+    setStatus(tr("Pull request #{number} creada", { number: made.number }));
     filter = "open";
     syncFilter();
     await loadPulls();
     await openDetail(made);
     return made;
   } catch (e) {
-    setStatus("No se pudo crear la pull request", 4000);
-    await showDialog({ title: "No se pudo crear la pull request", message: e instanceof Error ? e.message : String(e), buttons: [{ label: "Entendido", value: "ok" }] });
+    setStatus(tr("No se pudo crear la pull request"), 4000);
+    await showDialog({ title: tr("No se pudo crear la pull request"), message: e instanceof Error ? e.message : String(e), buttons: [{ label: tr("Entendido"), value: "ok" }] });
     return null;
   }
 }

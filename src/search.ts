@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
 import { dirtyDocs, docs, isDirty, reloadDoc } from "./docs";
@@ -42,9 +43,9 @@ async function run() {
   const o = opts();
   const summary = $("search-summary");
   const box = $("search-results");
-  if (!ws.root) { summary.textContent = "Abre una carpeta para buscar."; box.replaceChildren(); return; }
+  if (!ws.root) { summary.textContent = t("Abre una carpeta para buscar."); box.replaceChildren(); return; }
   if (!o.query) { summary.textContent = ""; box.replaceChildren(); results = new Map(); return; }
-  summary.textContent = "Buscando…";
+  summary.textContent = t("Buscando…");
   try {
     const found = await invoke<Match[]>("search_files", {
       root: ws.root,
@@ -66,7 +67,7 @@ async function run() {
     const files = results.size;
     summary.textContent = found.length
       ? `${found.length} resultado(s) en ${files} archivo(s)${found.length >= 5000 ? " (se muestran los primeros 5000)" : ""}`
-      : "Sin resultados";
+      : t("Sin resultados");
     paint();
   } catch (e) {
     if (id !== seq) return;
@@ -84,12 +85,12 @@ function paint() {
     const head = h("div", "sfile" + (isCollapsed ? " closed" : ""));
     head.append(h("span", "chev"), fileIcon(baseName(path)), h("span", "name", baseName(path)));
     const open = docs.get(path);
-    if (open && isDirty(open)) head.append(h("span", "sdir", "sin guardar"));
+    if (open && isDirty(open)) head.append(h("span", "sdir", t("sin guardar")));
     const dir = rel(dirName(path));
     if (dir) head.append(h("span", "sdir", dir));
     head.append(h("span", "scount", String(list.length)));
     const rep = h("button", "icon-btn sfile-rep");
-    rep.title = "Reemplazar en este archivo";
+    rep.title = t("Reemplazar en este archivo");
     rep.innerHTML = '<svg viewBox="0 0 24 24"><path d="M4 7h12l-3-3M20 17H8l3 3"/></svg>';
     rep.onclick = (e) => { e.stopPropagation(); void replaceIn([path]); };
     head.append(rep);
@@ -109,7 +110,7 @@ function paint() {
       } else {
         row.textContent = text;
       }
-      row.title = `Línea ${m.line}`;
+      row.title = t("Línea {line}", { line: m.line });
       row.onclick = () => void openFile(m.path, { line: m.line, col: m.col, len: m.len });
       box.append(row);
     }
@@ -125,19 +126,19 @@ async function replaceIn(paths: string[]) {
   const MAX_LIST = 12;
   const lines = paths.slice(0, MAX_LIST).map((p) => {
     const d = docs.get(p);
-    const mark = d && isDirty(d) ? " (en editor, sin guardar)" : "";
+    const mark = d && isDirty(d) ? " " + t("(en editor, sin guardar)") : "";
     return `  ${rel(p)} — ${results.get(p)?.length ?? 0}${mark}`;
   });
-  if (paths.length > MAX_LIST) lines.push(`  … y ${paths.length - MAX_LIST} archivo(s) más`);
+  if (paths.length > MAX_LIST) lines.push("  " + t("… y {count} archivo(s) más", { count: paths.length - MAX_LIST }));
   const diskOnly = paths.length > dirty.length;
   const r = await showDialog({
-    title: "Reemplazar",
-    message: `«${o.query}» → «${replacement}»\n\n${total} coincidencia(s) en ${paths.length} archivo(s):\n${lines.join("\n")}` +
-      (dirty.length ? "\n\nLos archivos abiertos sin guardar se editarán en el editor (puedes deshacer con Ctrl+Z)." : "") +
-      (diskOnly ? "\nLos demás archivos se modifican en disco y esa parte no se puede deshacer desde Pulso." : ""),
+    title: t("Reemplazar"),
+    message: `«${o.query}» → «${replacement}»\n\n${t("{total} coincidencia(s) en {files} archivo(s):", { total, files: paths.length })}\n${lines.join("\n")}` +
+      (dirty.length ? t("\n\nLos archivos abiertos sin guardar se editarán en el editor (puedes deshacer con Ctrl+Z).") : "") +
+      (diskOnly ? t("\nLos demás archivos se modifican en disco y esa parte no se puede deshacer desde Pulso.") : ""),
     buttons: [
-      { label: "Cancelar", value: "cancel" },
-      { label: "Reemplazar", value: "ok", danger: true },
+      { label: t("Cancelar"), value: "cancel" },
+      { label: t("Reemplazar"), value: "ok", danger: true },
     ],
   });
   if (r !== "ok") return;
@@ -171,18 +172,18 @@ async function replaceIn(paths: string[]) {
       done++;
       if (docs.has(path)) await reloadDoc(path);
     } catch (e) {
-      failed.push(`  ${rel(path)}: ${String(e).replace(/^CONFLICT$/, "el archivo cambió en disco")}`);
+      failed.push(`  ${rel(path)}: ${String(e).replace(/^CONFLICT$/, t("el archivo cambió en disco"))}`);
     }
   }
   await run();
   if (failed.length) {
     await showDialog({
-      title: "Reemplazo incompleto",
-      message: `${changed} coincidencia(s) reemplazadas en ${done} archivo(s).\n\nNo se modificaron:\n${failed.join("\n")}\n\nLa búsqueda se actualizó; revisa y repite si hace falta.`,
-      buttons: [{ label: "Entendido", value: "ok" }],
+      title: t("Reemplazo incompleto"),
+      message: t("{changed} coincidencia(s) reemplazadas en {done} archivo(s).", { changed, done }) + "\n\n" + t("No se modificaron:") + "\n" + failed.join("\n") + "\n\n" + t("La búsqueda se actualizó; revisa y repite si hace falta."),
+      buttons: [{ label: t("Entendido"), value: "ok" }],
     });
   } else {
-    setStatus(`${changed} coincidencia(s) reemplazadas en ${done} archivo(s)`);
+    setStatus(t("{changed} coincidencia(s) reemplazadas en {done} archivo(s)", { changed, done }));
   }
 }
 

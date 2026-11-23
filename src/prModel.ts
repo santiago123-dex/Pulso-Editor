@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 /** Lógica pura de las pull requests (sin red ni DOM). */
 export interface PullSummary {
   number: number;
@@ -34,7 +35,7 @@ export function prState(pr: Pick<PullSummary, "state" | "draft" | "merged_at">):
   return pr.draft ? "draft" : "open";
 }
 
-export const PR_STATE_LABEL: Record<PrState, string> = { open: "Abierta", draft: "Borrador", merged: "Fusionada", closed: "Cerrada" };
+export const PR_STATE_LABEL: Record<PrState, string> = { open: t("Abierta"), draft: t("Borrador"), merged: t("Fusionada"), closed: t("Cerrada") };
 
 export const branchLabel = (pr: Pick<PullSummary, "head" | "base">) => `${pr.head.ref} → ${pr.base.ref}`;
 
@@ -64,10 +65,10 @@ export interface NewPullInput { title: string; head: string; base: string; hasUp
 
 /** Por qué no se puede crear aún la pull request, en lenguaje de persona; null si todo está bien. */
 export function newPullProblem(i: NewPullInput): string | null {
-  if (!i.head.trim()) return "No hay una rama activa. Crea o elige una rama para abrir una pull request.";
-  if (i.head === i.base) return `Estás en «${i.base}», la rama a la que irían los cambios. Crea otra rama con tu trabajo y vuelve a intentarlo.`;
-  if (!i.hasUpstream) return `La rama «${i.head}» todavía no está en GitHub. Súbela primero (botón de subir en Control de código) y vuelve a intentarlo.`;
-  if (!i.title.trim()) return "Escribe un título.";
+  if (!i.head.trim()) return t("No hay una rama activa. Crea o elige una rama para abrir una pull request.");
+  if (i.head === i.base) return t("Estás en «{branch}», la rama a la que irían los cambios. Crea otra rama con tu trabajo y vuelve a intentarlo.", { branch: i.base });
+  if (!i.hasUpstream) return t("La rama «{branch}» todavía no está en GitHub. Súbela primero (botón de subir en Control de código) y vuelve a intentarlo.", { branch: i.head });
+  if (!i.title.trim()) return t("Escribe un título.");
   return null;
 }
 
@@ -75,10 +76,10 @@ export function newPullProblem(i: NewPullInput): string | null {
 export function explainCreateError(status: number, body: { message?: string; errors?: { message?: string; code?: string }[] } | null): string {
   const msgs = (body?.errors ?? []).map((e) => e.message).filter(Boolean) as string[];
   const joined = msgs.join(" ");
-  if (/already exists/i.test(joined)) return "Ya hay una pull request abierta para esta rama.";
-  if (/no commits between/i.test(joined)) return "La rama no tiene commits nuevos respecto a la rama de destino: no hay nada que proponer.";
-  if (status === 404) return "GitHub no encontró el repositorio o la rama. Comprueba que la rama esté subida y que tu cuenta tenga acceso.";
-  if (status === 403) return "GitHub no permitió crear la pull request: tu cuenta necesita permiso de escritura en el repositorio.";
-  if (msgs.length) return `GitHub rechazó la pull request: ${joined}`;
-  return body?.message ? `GitHub rechazó la pull request: ${body.message}` : `GitHub respondió ${status}`;
+  if (/already exists/i.test(joined)) return t("Ya hay una pull request abierta para esta rama.");
+  if (/no commits between/i.test(joined)) return t("La rama no tiene commits nuevos respecto a la rama de destino: no hay nada que proponer.");
+  if (status === 404) return t("GitHub no encontró el repositorio o la rama. Comprueba que la rama esté subida y que tu cuenta tenga acceso.");
+  if (status === 403) return t("GitHub no permitió crear la pull request: tu cuenta necesita permiso de escritura en el repositorio.");
+  if (msgs.length) return t("GitHub rechazó la pull request: {reason}", { reason: joined });
+  return body?.message ? t("GitHub rechazó la pull request: {reason}", { reason: body.message }) : t("GitHub respondió {status}", { status });
 }
