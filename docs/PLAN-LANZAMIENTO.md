@@ -26,7 +26,7 @@ Puntos fuertes:
 - [ ] **Actualizaciones automáticas** con `tauri-plugin-updater`, usando GitHub Releases y un par de claves de firma de actualizaciones. La clave privada se guarda como secreto del repositorio y nunca se sube. Sin esto, cada persona se queda en la versión que instaló.
 - [ ] **WebView2 garantizado.** Configurar `bundle.windows.webviewInstallMode` (por ejemplo `embedBootstrapper`) para que el instalador lo instale si falta.
 - [ ] **Probar en un Windows limpio**, en una máquina virtual sin Node, Git ni WebView2: instalar, abrir, desinstalar.
-- [ ] **Separar desarrollo y producción.** Hoy las dos versiones usan el identificador `dev.pulso.editor` y comparten configuración, sesión y copias de recuperación. La versión de desarrollo debería tener otro identificador, por ejemplo `dev.pulso.editor.dev`.
+- [x] **Separar desarrollo y producción.** Las compilaciones de desarrollo usan el identificador `dev.pulso.editor.dev` y ya no comparten datos con la instalada (ver [Distribución](DISTRIBUCION.md)).
 - [ ] **Documentos para el público:**
   - un README pensado para quien instala, con capturas y enlace de descarga;
   - `CHANGELOG.md`;

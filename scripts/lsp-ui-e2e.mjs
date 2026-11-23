@@ -163,7 +163,9 @@ try {
   if (app && app.exitCode === null) { app.kill(); await Promise.race([new Promise((done) => app.once("exit", done)), sleep(3000)]); }
   // La prueba de renombrar deja archivos sin guardar; borrar sus copias de recuperación para no avisar en el próximo inicio.
   try {
-    const recovery = join(process.env.APPDATA ?? "", "dev.pulso.editor", "recovery");
+    // La compilación de desarrollo guarda sus datos con el sufijo «.dev»; la instalada (PULSO_EXE), sin él.
+    const identifier = process.env.PULSO_EXE ? "dev.pulso.editor" : "dev.pulso.editor.dev";
+    const recovery = join(process.env.APPDATA ?? "", identifier, "recovery");
     const marker = basename(root);
     for (const f of await readdir(recovery)) {
       const text = await readFile(join(recovery, f), "utf8").catch(() => "");
