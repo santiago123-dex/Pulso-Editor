@@ -61,8 +61,8 @@ Puntos fuertes:
     - [x] explorador, búsqueda, pestañas y documentos;
     - [x] Git, historial y pull requests;
     - [x] servidor de lenguaje y panel de problemas.
-  - Faltan unos 1.350 textos:
-    - [ ] issues, tablero y chat del equipo;
+  - Tercera tanda traducida, unos 130 textos: [x] issues, tablero, chat del equipo y «trabajar en una issue». Quedan en español a propósito el título de la sala del chat y el texto de su issue (los comparte todo el equipo en GitHub) y las instrucciones que se envían a la IA.
+  - Faltan unos 1.200 textos:
     - [ ] asistente de IA;
     - [ ] temas, atajos y terminal;
     - [ ] mensajes de error que llegan desde Rust y la herramienta de línea de comandos `pulso`.

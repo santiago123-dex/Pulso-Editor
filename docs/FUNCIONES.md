@@ -135,7 +135,7 @@ Incluye temas de interfaz y sintaxis, colores de acento, configuración de la te
 - control de código (Git), historial, diferencias y pull requests;
 - servidor de lenguaje y panel de problemas.
 
-El resto (issues, tablero, chat, asistente de IA, temas, terminal y los mensajes que llegan de Rust) sigue en español hasta que se traduzca. Las opciones del propio editor Monaco (menú contextual, buscar en el documento) están siempre en inglés.
+También issues, tablero, chat del equipo y «trabajar en una issue». El resto (asistente de IA, temas, terminal y los mensajes que llegan de Rust) sigue en español hasta que se traduzca. Las opciones del propio editor Monaco (menú contextual, buscar en el documento) están siempre en inglés.
 
 **Aspecto por defecto.** El tema «Pulso Oscuro» usa grafito neutro y un único acento azul (`#5b9cf5`); el color queda para estados, etiquetas y la acción principal, y la barra de estado es neutra. El texto de los botones con acento se elige por contraste (blanco o negro, el que más contraste dé). Quien tenía el acento morado de fábrica pasa al nuevo; uno elegido a propósito se respeta. La dirección completa y sus razones están en [DESIGN.md](../DESIGN.md).
 
