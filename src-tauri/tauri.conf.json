@@ -9,6 +9,13 @@
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDUzRUFFRTdEM0Y3ODkwNzIKUldSeWtIZy9mZTdxVXd1a3BMN3V1VUd0dHdwOTZoMERmTkNCMXNMMDNuWCtsUml3QkdRNWVSdWwK",
+      "endpoints": ["https://github.com/santiago123-dex/Pulso-Editor-releases/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
+  },
   "app": {
     "windows": [
       {

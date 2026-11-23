@@ -6,6 +6,8 @@ import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
 import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getVersion } from "@tauri-apps/api/app";
+import { checkForUpdates, initUpdates } from "./updates";
 import { open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 import { bus } from "./core/events";
@@ -418,6 +420,7 @@ const selectionText = () => {
 register(
   { id: "file.openFolder", label: "Archivo: Abrir carpeta…", key: "Ctrl+O", run: pickFolder },
   { id: "cli.install", label: "Instalar el comando «pulso» en la terminal", run: installCliCommand },
+  { id: "app.checkUpdates", label: "Ayuda: Buscar actualizaciones", keywords: "update actualizar versión nueva", run: () => checkForUpdates(true) },
   { id: "file.openRecent", label: "Archivo: Abrir carpeta reciente…", run: pickRecent },
   { id: "file.closeFolder", label: "Archivo: Cerrar carpeta", run: closeWorkspace },
   { id: "file.newFile", label: "Archivo: Nuevo archivo…", key: "Ctrl+N", run: () => newEntry("file") },
@@ -634,10 +637,11 @@ const MENUS: MenuDef[] = [
   { label: "Ayuda", items: [
     { cmd: "palette.commands", label: "Mostrar todos los comandos" },
     { cmd: "view.settings", label: "Configuración y atajos de teclado" },
+    { cmd: "app.checkUpdates", label: "Buscar actualizaciones" },
     "sep",
-    { label: "Acerca de Pulso", run: () => { void showDialog({
+    { label: "Acerca de Pulso", run: async () => { const version = inTauri ? await getVersion().catch(() => "") : ""; void showDialog({
       title: "Pulso Editor",
-      message: "Versión 0.1.0\n\nEditor de código con issues, tableros y repos integrados.\nHecho con Tauri 2 y Monaco Editor.",
+      message: `Versión ${version || "desconocida"}\n\nEditor de código con issues, tableros y repos integrados.\nHecho con Tauri 2 y Monaco Editor.`,
       buttons: [{ label: "Cerrar", value: "ok", primary: true }],
     }); } },
   ] },
@@ -770,6 +774,12 @@ void (async () => {
     await listen<CliTarget[]>("cli-open", (e) => void applyCliTargets(e.payload));
     await applyCliTargets(cliTargets);
     await offerRecovery(openFile);
+    // Antes de instalar una versión nueva (Pulso se cierra): guardar lo pendiente o no instalar.
+    initUpdates(async () => {
+      for (const d of dirtyDocs()) if (!(await saveDoc(d))) return false;
+      persister.flush();
+      return true;
+    });
   } finally {
     persister.markReady();
     revealApp();
