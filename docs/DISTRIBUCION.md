@@ -8,6 +8,8 @@ npm run tauri build -- --bundles nsis
 
 Produce `src-tauri/target/release/bundle/nsis/Pulso Editor_0.1.0_x64-setup.exe` (≈ 8,4 MB). La primera compilación de producción tarda unos 3 minutos. El instalador se instala por usuario en `%LOCALAPPDATA%\Pulso Editor` (`/S` para instalación silenciosa). Incluye el servidor de TypeScript y la configuración que usa el LSP; no incluye Node.js.
 
+Si el equipo no tiene WebView2, el instalador descarga el instalador de Microsoft y lo ejecuta sin preguntar (`webviewInstallMode: downloadBootstrapper` en `tauri.conf.json`). Para eso necesita conexión a internet. En Windows 11 y en la mayoría de los Windows 10 actualizados ya viene instalado.
+
 ## Linux (Fedora): paquete .rpm
 
 Desde Windows, con Docker Desktop en marcha:
@@ -53,4 +55,7 @@ Compila el instalador NSIS en Windows y los paquetes .deb, .rpm y AppImage en Li
 - Firma de código: el instalador no está firmado, así que SmartScreen mostrará una advertencia.
 - Actualizaciones automáticas.
 - La política de seguridad del contenido (`csp`) ya está acotada en `src-tauri/tauri.conf.json` (con `connect-src` restringido a IPC local; las llamadas a GitHub salen desde Rust).
-- La app instalada y la de desarrollo comparten datos (mismo identificador `dev.pulso.editor`): configuración, sesión y copias de recuperación.
+
+## Datos de la versión instalada y de la de desarrollo
+
+La versión instalada usa el identificador `dev.pulso.editor`. Las compilaciones sin optimizar usan `dev.pulso.editor.dev`: `src-tauri\target\debug\pulso-editor.exe`, `npm run tauri -- dev` y el instalador generado con `--debug`. Por eso guardan configuración, sesión, copias de recuperación y datos del WebView en carpetas distintas de `%APPDATA%` y `%LOCALAPPDATA%`, y las dos pueden estar abiertas a la vez. El token de GitHub del almacén de credenciales se comparte. La primera vez que se abre la versión de desarrollo empieza sin configuración: lo anterior a este cambio quedó en la carpeta de la instalada.

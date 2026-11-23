@@ -937,6 +937,21 @@ fn install_cli_command_sync() -> Result<String, String> {
     }
 }
 
+/// Sufijo del identificador en las compilaciones de desarrollo (sin optimizar: `target/debug/pulso-editor.exe`,
+/// `tauri dev`). Con su propio identificador guardan configuración, sesión, copias de recuperación y datos del
+/// WebView en otra carpeta, y pueden abrirse a la vez que la versión instalada sin tocar sus datos.
+/// Las credenciales del sistema (el token de GitHub) se siguen compartiendo.
+pub const DEV_IDENTIFIER_SUFFIX: &str = ".dev";
+
+fn app_context() -> tauri::Context<tauri::Wry> {
+    let mut context = tauri::generate_context!();
+    if cfg!(debug_assertions) {
+        let config = context.config_mut();
+        config.identifier = format!("{}{}", config.identifier, DEV_IDENTIFIER_SUFFIX);
+    }
+    context
+}
+
 pub fn run() {
     tauri::Builder::default()
         // Una sola ventana: si se vuelve a lanzar `pulso archivo`, los argumentos llegan a la que ya está abierta.
@@ -1028,7 +1043,7 @@ pub fn run() {
             aichat::ai_send,
             aichat::ai_stop
         ])
-        .build(tauri::generate_context!())
+        .build(app_context())
         .expect("error al iniciar Pulso Editor")
         .run(|app, event| {
             // Al salir se cierran las terminales, LSP y procesos de IA para no dejar procesos huérfanos.

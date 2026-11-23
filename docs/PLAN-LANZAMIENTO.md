@@ -24,9 +24,9 @@ Puntos fuertes:
   - **SignPath:** gratis para proyectos de código abierto.
   - **Azure Trusted Signing:** de pago, con una cuota mensual baja.
 - [ ] **Actualizaciones automáticas** con `tauri-plugin-updater`, usando GitHub Releases y un par de claves de firma de actualizaciones. La clave privada se guarda como secreto del repositorio y nunca se sube. Sin esto, cada persona se queda en la versión que instaló.
-- [ ] **WebView2 garantizado.** Configurar `bundle.windows.webviewInstallMode` (por ejemplo `embedBootstrapper`) para que el instalador lo instale si falta.
+- [x] **WebView2 garantizado.** El instalador ya lo instalaba si faltaba: es lo que hace Tauri por defecto, descargando el instalador de Microsoft sin preguntar. Ahora está fijado de forma explícita en `tauri.conf.json` (`downloadBootstrapper`). Necesita internet. Si hiciera falta instalar sin conexión, se puede publicar un segundo instalador con `offlineInstaller`, unos 127 MB más grande. Falta comprobarlo en un Windows sin WebView2 (punto siguiente).
 - [ ] **Probar en un Windows limpio**, en una máquina virtual sin Node, Git ni WebView2: instalar, abrir, desinstalar.
-- [ ] **Separar desarrollo y producción.** Hoy las dos versiones usan el identificador `dev.pulso.editor` y comparten configuración, sesión y copias de recuperación. La versión de desarrollo debería tener otro identificador, por ejemplo `dev.pulso.editor.dev`.
+- [x] **Separar desarrollo y producción.** Las compilaciones de desarrollo usan el identificador `dev.pulso.editor.dev` y ya no comparten datos con la instalada (ver [Distribución](DISTRIBUCION.md)).
 - [ ] **Documentos para el público:**
   - un README pensado para quien instala, con capturas y enlace de descarga;
   - `CHANGELOG.md`;
