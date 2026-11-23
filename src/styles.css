@@ -245,6 +245,10 @@ kbd { font: 11px var(--mono); background: var(--hover); border: 1px solid var(--
 .modal { width: min(440px, 90vw); background: var(--sidebar); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 12px 40px #000a; padding: 18px; display: grid; gap: 12px; }
 .modal-title { font-weight: 600; font-size: 14px; }
 .modal-msg { color: var(--muted); white-space: pre-wrap; line-height: 1.5; max-height: 40vh; overflow: auto; }
+/* Código para iniciar sesión en GitHub: grande, monoespaciado y fácil de copiar a mano. */
+.gh-device { display: grid; gap: 6px; justify-items: center; padding: 12px; background: var(--editor); border: 1px solid var(--border); border-radius: 6px; }
+.gh-device-code { font-family: var(--mono, "Cascadia Code", Consolas, monospace); font-size: 26px; font-weight: 600; letter-spacing: 0.12em; user-select: all; }
+.gh-device-hint { color: var(--muted); font-size: 12px; text-align: center; }
 .modal-input { width: 100%; background: var(--editor); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 7px 10px; outline: none; }
 .modal-input:focus { border-color: var(--accent); }
 .modal-err { color: #ff6b6b; font-size: 12px; min-height: 0; }

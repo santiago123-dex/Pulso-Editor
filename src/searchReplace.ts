@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 /**
  * Reemplazo en texto en memoria con las mismas reglas que el backend Rust:
  * línea a línea, conservando finales CRLF/LF y sin interpretar `$` cuando no se usan expresiones regulares.
@@ -26,7 +27,7 @@ function escapeRegExp(s: string): string {
 }
 
 function buildLineRegex(o: ReplaceOptions): RegExp {
-  if (!o.query) throw new Error("La búsqueda está vacía");
+  if (!o.query) throw new Error(t("La búsqueda está vacía"));
   let pat = o.useRegex ? o.query : escapeRegExp(o.query);
   if (o.wholeWord) pat = `\\b(?:${pat})\\b`;
   return new RegExp(pat, o.caseSensitive ? "g" : "gi");

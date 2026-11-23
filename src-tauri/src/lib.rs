@@ -1,3 +1,4 @@
+use crate::i18n::{tr, trf};
 use regex::{NoExpand, Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -15,12 +16,17 @@ mod userconf;
 mod lsp;
 mod gitops;
 mod githubauth;
+mod githubdevice;
 pub mod aichat;
 mod cli;
 pub mod termchat;
 pub mod termui;
 pub mod fsguard;
 pub mod procguard;
+pub mod i18n;
+pub mod localai;
+mod updates;
+mod diag;
 
 /// Los procesos auxiliares no deben abrir ventanas de consola en Windows.
 fn background_command(program: &str) -> Command {
@@ -34,8 +40,19 @@ fn background_command(program: &str) -> Command {
 const SKIP_DIRS: [&str; 7] = [".git", "node_modules", "target", "dist", "build", ".next", ".venv"];
 
 /// Normaliza a barras `/` para que el frontend use un solo formato de ruta.
+/// Ruta para la interfaz, con `/`. Quita el prefijo «verbatim» de Windows (`\\?\C:\…`, `\\?\UNC\…`)
+/// que deja `canonicalize` en las rutas que valida `fsguard`: si no, el explorador, Ctrl+P y la búsqueda
+/// devolverían `//?/C:/…` y el mismo archivo se abriría en dos pestañas distintas.
 fn norm(p: &Path) -> String {
-    p.to_string_lossy().replace('\\', "/")
+    let raw = p.to_string_lossy();
+    let plain = if let Some(unc) = raw.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{unc}")
+    } else if let Some(local) = raw.strip_prefix(r"\\?\") {
+        local.to_string()
+    } else {
+        raw.into_owned()
+    };
+    plain.replace('\\', "/")
 }
 
 #[derive(Serialize)]
@@ -50,11 +67,46 @@ const MAX_THEME_FILE_BYTES: u64 = 2 * 1024 * 1024;
 
 #[tauri::command]
 async fn set_workspace_root(
+    window: tauri::WebviewWindow,
     guard: tauri::State<'_, fsguard::WorkspaceGuard>,
     path: Option<String>,
 ) -> Result<Option<String>, String> {
-    let resolved = guard.set_root(path.as_deref())?;
+    let resolved = guard.set_root_for(window.label(), path.as_deref())?;
     Ok(resolved.map(|p| norm(&p)))
+}
+
+fn encode_query_value(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    for b in raw.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+static WIN_SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+
+/// Abre una nueva ventana de Pulso Editor, opcionalmente apuntando directamente a una carpeta.
+#[tauri::command]
+async fn open_new_window(app: tauri::AppHandle, path: Option<String>) -> Result<(), String> {
+    let n = WIN_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let label = format!("win-{n}");
+    let url = match path.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(p) => format!("index.html?folder={}", encode_query_value(p)),
+        None => "index.html".to_string(),
+    };
+    tauri::WebviewWindowBuilder::new(&app, label, tauri::WebviewUrl::App(PathBuf::from(url)))
+        .title("Pulso Editor")
+        .inner_size(1280.0, 800.0)
+        .min_inner_size(800.0, 500.0)
+        .decorations(false)
+        .shadow(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -121,13 +173,58 @@ fn list_files_sync(path: String) -> Result<Vec<String>, String> {
 fn read_file_sync(path: &Path) -> Result<String, String> {
     let meta = fs::metadata(path).map_err(|e| e.to_string())?;
     if meta.len() > MAX_OPEN_FILE_BYTES {
-        return Err(format!(
-            "El archivo es demasiado grande ({:.1} MB; límite {} MB)",
-            meta.len() as f64 / (1024.0 * 1024.0),
-            MAX_OPEN_FILE_BYTES / (1024 * 1024)
+        return Err(trf(
+            "El archivo es demasiado grande ({size} MB; límite {limit} MB)",
+            &[
+                ("size", &format!("{:.1}", meta.len() as f64 / (1024.0 * 1024.0))),
+                ("limit", &(MAX_OPEN_FILE_BYTES / (1024 * 1024))),
+            ],
         ));
     }
     fs::read_to_string(path).map_err(|e| e.to_string())
+}
+
+#[derive(Serialize)]
+struct ImagePreview {
+    data_url: String,
+    bytes: u64,
+    mime: String,
+}
+
+fn image_mime_for(path: &Path) -> Option<&'static str> {
+    match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "webp" => Some("image/webp"),
+        "gif" => Some("image/gif"),
+        "svg" => Some("image/svg+xml"),
+        "ico" => Some("image/x-icon"),
+        "bmp" => Some("image/bmp"),
+        _ => None,
+    }
+}
+
+#[tauri::command]
+async fn read_image_file(
+    guard: tauri::State<'_, fsguard::WorkspaceGuard>,
+    path: String,
+) -> Result<ImagePreview, String> {
+    use base64::Engine;
+    let safe = guard.ensure_read(&path)?;
+    let mime = image_mime_for(&safe).ok_or_else(|| tr("Formato de imagen no soportado").to_string())?;
+    let meta = fs::metadata(&safe).map_err(|e| e.to_string())?;
+    if meta.len() > 15 * 1024 * 1024 {
+        return Err(tr("La imagen es demasiado grande (máximo 15 MB)").into());
+    }
+    let bytes = meta.len();
+    let data = tauri::async_runtime::spawn_blocking(move || fs::read(&safe).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())??;
+    Ok(ImagePreview {
+        data_url: format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(&data)),
+        bytes,
+        mime: mime.to_string(),
+    })
 }
 
 #[tauri::command]
@@ -145,11 +242,11 @@ async fn read_theme_file(path: String) -> Result<String, String> {
         let p = Path::new(&path);
         let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
         if ext != "json" && ext != "jsonc" {
-            return Err("Solo se pueden importar archivos de tema .json o .jsonc".into());
+            return Err(tr("Solo se pueden importar archivos de tema .json o .jsonc").into());
         }
         let meta = fs::metadata(p).map_err(|e| e.to_string())?;
         if !meta.is_file() || meta.len() > MAX_THEME_FILE_BYTES {
-            return Err("El archivo de tema es demasiado grande o no es válido".into());
+            return Err(tr("El archivo de tema es demasiado grande o no es válido").into());
         }
         fs::read_to_string(p).map_err(|e| e.to_string())
     })
@@ -308,9 +405,9 @@ fn ai_history_read_in(file: &Path) -> String {
 }
 
 fn ai_history_write_in(file: &Path, text: &str) -> Result<(), String> {
-    if text.len() > AI_HISTORY_MAX { return Err("El historial del asistente es demasiado grande.".into()); }
+    if text.len() > AI_HISTORY_MAX { return Err(tr("El historial del asistente es demasiado grande.").into()); }
     if serde_json::from_str::<serde_json::Value>(text).map(|v| !v.is_array()).unwrap_or(true) {
-        return Err("El historial del asistente no tiene un formato válido.".into());
+        return Err(tr("El historial del asistente no tiene un formato válido.").into());
     }
     if let Some(dir) = file.parent() { fs::create_dir_all(dir).map_err(|e| e.to_string())?; }
     write_atomic(file, text.as_bytes()).map_err(|e| e.to_string())
@@ -354,7 +451,7 @@ fn ensure_allowed_secret_key(name: &str) -> Result<(), String> {
     if name == "github-token" {
         Ok(())
     } else {
-        Err("Clave de credencial no permitida".into())
+        Err(tr("Clave de credencial no permitida").into())
     }
 }
 
@@ -405,7 +502,7 @@ fn create_file_sync(path: &Path) -> Result<(), String> {
     match fs::OpenOptions::new().write(true).create_new(true).open(path) {
         Ok(_) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            Err("Ya existe un archivo o carpeta con ese nombre".into())
+            Err(tr("Ya existe un archivo o carpeta con ese nombre").into())
         }
         Err(e) => Err(e.to_string()),
     }
@@ -421,7 +518,7 @@ async fn create_file(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: Str
 
 fn create_dir_sync(path: &Path) -> Result<(), String> {
     if path.exists() {
-        return Err("Ya existe un archivo o carpeta con ese nombre".into());
+        return Err(tr("Ya existe un archivo o carpeta con ese nombre").into());
     }
     fs::create_dir_all(path).map_err(|e| e.to_string())
 }
@@ -436,12 +533,12 @@ async fn create_dir(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: Stri
 
 fn rename_path_sync(from: &Path, to: &Path) -> Result<(), String> {
     if to.exists() {
-        return Err("Ya existe un archivo o carpeta con ese nombre".into());
+        return Err(tr("Ya existe un archivo o carpeta con ese nombre").into());
     }
     let from_res = fsguard::resolve_safe(from).unwrap_or_else(|_| from.to_path_buf());
     let to_res = fsguard::resolve_safe(to).unwrap_or_else(|_| to.to_path_buf());
     if to_res.starts_with(&from_res) && to_res != from_res {
-        return Err("No se puede mover una carpeta dentro de sí misma".into());
+        return Err(tr("No se puede mover una carpeta dentro de sí misma").into());
     }
     fs::rename(from, to).map_err(|e| e.to_string())
 }
@@ -498,7 +595,7 @@ async fn reveal_in_explorer(guard: tauri::State<'_, fsguard::WorkspaceGuard>, pa
             c.arg(dir);
             c
         };
-        let child = cmd.spawn().map_err(|e| format!("No se pudo abrir el explorador de archivos: {e}"))?;
+        let child = cmd.spawn().map_err(|e| trf("No se pudo abrir el explorador de archivos: {e}", &[("e", &e)]))?;
         procguard::reap_detached(child);
         Ok(())
     })
@@ -508,7 +605,7 @@ async fn reveal_in_explorer(guard: tauri::State<'_, fsguard::WorkspaceGuard>, pa
 
 fn build_regex(query: &str, case_sensitive: bool, use_regex: bool, whole_word: bool) -> Result<Regex, String> {
     if query.is_empty() {
-        return Err("La búsqueda está vacía".into());
+        return Err(tr("La búsqueda está vacía").into());
     }
     let mut pat = if use_regex { query.to_string() } else { regex::escape(query) };
     if whole_word {
@@ -517,7 +614,7 @@ fn build_regex(query: &str, case_sensitive: bool, use_regex: bool, whole_word: b
     RegexBuilder::new(&pat)
         .case_insensitive(!case_sensitive)
         .build()
-        .map_err(|e| format!("Expresión regular no válida: {}", e))
+        .map_err(|e| trf("Expresión regular no válida: {e}", &[("e", &e)]))
 }
 
 #[derive(Serialize)]
@@ -718,7 +815,7 @@ fn replace_in_file_sync(
     let re = build_regex(&query, case_sensitive, use_regex, whole_word)?;
     let p = Path::new(&path);
     let mtime = mtime_ms(p);
-    let text = read_text(p).ok_or_else(|| "El archivo es binario, demasiado grande o no es UTF-8; no se modifica".to_string())?;
+    let text = read_text(p).ok_or_else(|| tr("El archivo es binario, demasiado grande o no es UTF-8; no se modifica").to_string())?;
     let mut out = String::with_capacity(text.len());
     let mut count = 0u32;
     for seg in text.split_inclusive('\n') {
@@ -743,7 +840,7 @@ fn replace_in_file_sync(
     }
     if let Some(e) = expected {
         if e != count {
-            return Err(format!("El archivo cambió desde la búsqueda ({} coincidencias previstas, {} ahora)", e, count));
+            return Err(trf("El archivo cambió desde la búsqueda ({expected} coincidencias previstas, {now} ahora)", &[("expected", &e), ("now", &count)]));
         }
     }
     write_checked(p, out.as_bytes(), mtime)?;
@@ -922,19 +1019,34 @@ async fn install_cli_command() -> Result<String, String> {
 
 fn install_cli_command_sync() -> Result<String, String> {
     #[cfg(not(windows))]
-    { return Ok("En Linux y macOS el paquete ya instala el comando `pulso` en el PATH; no hace falta hacer nada más.".into()); }
+    { return Ok(tr("En Linux y macOS el paquete ya instala el comando `pulso` en el PATH; no hace falta hacer nada más.").into()); }
     #[cfg(windows)]
     {
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-        let dir = exe.parent().ok_or("No se encontró la carpeta del programa")?.to_path_buf();
-        if !dir.join("pulso.exe").exists() { return Err("No se encontró pulso.exe junto a Pulso Editor (¿es una compilación de desarrollo?).".into()); }
+        let dir = exe.parent().ok_or(tr("No se encontró la carpeta del programa"))?.to_path_buf();
+        if !dir.join("pulso.exe").exists() { return Err(tr("No se encontró pulso.exe junto a Pulso Editor (¿es una compilación de desarrollo?).").into()); }
         let _ = std::fs::remove_file(dir.join("pulso.cmd"));
         let script = "$d = $args[0]; $p = [Environment]::GetEnvironmentVariable('Path','User'); $parts = @(); if ($p) { $parts = $p -split ';' | Where-Object { $_ }; }; if ($parts -notcontains $d) { [Environment]::SetEnvironmentVariable('Path', (($parts + $d) -join ';'), 'User'); 'added' } else { 'present' }";
         let out = background_command("powershell").args(["-NoProfile", "-NonInteractive", "-Command", script, &dir.to_string_lossy()])
             .output().map_err(|e| e.to_string())?;
         if !out.status.success() { return Err(String::from_utf8_lossy(&out.stderr).trim().to_string()); }
-        Ok(format!("Listo: `pulso` quedó disponible en {}. Abre una terminal nueva para usarlo.", dir.display()))
+        Ok(trf("Listo: `pulso` quedó disponible en {dir}. Abre una terminal nueva para usarlo.", &[("dir", &dir.display())]))
     }
+}
+
+/// Sufijo del identificador en las compilaciones de desarrollo (sin optimizar: `target/debug/pulso-editor.exe`,
+/// `tauri dev`). Con su propio identificador guardan configuración, sesión, copias de recuperación y datos del
+/// WebView en otra carpeta, y pueden abrirse a la vez que la versión instalada sin tocar sus datos.
+/// Las credenciales del sistema (el token de GitHub) se siguen compartiendo.
+pub const DEV_IDENTIFIER_SUFFIX: &str = ".dev";
+
+fn app_context() -> tauri::Context<tauri::Wry> {
+    let mut context = tauri::generate_context!();
+    if cfg!(debug_assertions) {
+        let config = context.config_mut();
+        config.identifier = format!("{}{}", config.identifier, DEV_IDENTIFIER_SUFFIX);
+    }
+    context
 }
 
 pub fn run() {
@@ -959,13 +1071,22 @@ pub fn run() {
         .manage(lsp::LspState::default())
         .manage(aichat::AiState::default())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                window.state::<fsguard::WorkspaceGuard>().remove_window(window.label());
+                window.state::<lsp::LspState>().stop_window(window.label());
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             set_workspace_root,
+            open_new_window,
             list_dir,
             cli_startup_targets,
             install_cli_command,
             list_files,
             read_file,
+            read_image_file,
             read_theme_file,
             write_file,
             file_mtime,
@@ -1003,6 +1124,10 @@ pub fn run() {
             gitops::git_stage,
             gitops::git_unstage,
             gitops::git_commit,
+            gitops::git_last_commit_message,
+            gitops::git_commit_amend,
+            gitops::git_delete_branch,
+            gitops::git_rename_branch,
             gitops::git_diff_sources,
             gitops::git_branches,
             gitops::git_switch,
@@ -1020,15 +1145,27 @@ pub fn run() {
             githubauth::github_disconnect,
             githubauth::github_api,
             githubauth::open_external,
+            githubdevice::github_device_available,
+            githubdevice::github_device_start,
+            githubdevice::github_device_poll,
+            githubdevice::github_device_cancel,
             aichat::ai_detect,
             aichat::ai_detect_provider,
             aichat::ai_detect_all,
             aichat::ai_usage,
             aichat::ai_extra_usage,
             aichat::ai_send,
-            aichat::ai_stop
+            aichat::ai_stop,
+            aichat::ai_save_image,
+            aichat::ai_read_image_data_url,
+            aichat::ai_prune_images,
+            updates::update_check,
+            updates::update_install,
+            diag::diag_log,
+            diag::diag_collect,
+            i18n::i18n_set_lang
         ])
-        .build(tauri::generate_context!())
+        .build(app_context())
         .expect("error al iniciar Pulso Editor")
         .run(|app, event| {
             // Al salir se cierran las terminales, LSP y procesos de IA para no dejar procesos huérfanos.

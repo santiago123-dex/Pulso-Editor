@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 /** Lógica pura del historial de Git, de la culpa (blame) y de fechas relativas. */
 export interface CommitInfo { hash: string; short: string; author: string; email: string; date: string; subject: string; refs: string[] }
 export interface CommitFile { status: string; path: string; orig: string | null }
@@ -33,19 +34,19 @@ export const mayHaveMore = (batch: readonly unknown[], limit = PAGE) => batch.le
 /** «hace 5 min», «hace 3 h», «hace 2 d», «hace 3 meses», «hace 2 años». */
 export function agoFrom(ms: number, now = Date.now()): string {
   const s = Math.max(0, Math.round((now - ms) / 1000));
-  if (s < 60) return "hace un momento";
-  if (s < 3600) return `hace ${Math.round(s / 60)} min`;
-  if (s < 86400) return `hace ${Math.round(s / 3600)} h`;
+  if (s < 60) return t("hace un momento");
+  if (s < 3600) return t("hace {n} min", { n: Math.round(s / 60) });
+  if (s < 86400) return t("hace {n} h", { n: Math.round(s / 3600) });
   const d = Math.round(s / 86400);
-  if (d < 30) return `hace ${d} d`;
-  if (d < 365) { const m = Math.round(d / 30); return `hace ${m} ${m === 1 ? "mes" : "meses"}`; }
+  if (d < 30) return t("hace {n} d", { n: d });
+  if (d < 365) { const m = Math.round(d / 30); return m === 1 ? t("hace 1 mes") : t("hace {n} meses", { n: m }); }
   const y = Math.round(d / 365);
-  return `hace ${y} ${y === 1 ? "año" : "años"}`;
+  return y === 1 ? t("hace 1 año") : t("hace {n} años", { n: y });
 }
 
 export const agoIso = (iso: string, now = Date.now()) => { const t = Date.parse(iso); return Number.isNaN(t) ? "" : agoFrom(t, now); };
 
-export const STATUS_LABEL: Record<string, string> = { M: "Modificado", A: "Añadido", D: "Eliminado", R: "Renombrado" };
+export const STATUS_LABEL: Record<string, string> = { M: t("Modificado"), A: t("Añadido"), D: t("Eliminado"), R: t("Renombrado") };
 
 /** Ruta de un archivo relativa a la raíz del repositorio, o null si está fuera (sin distinguir mayúsculas, como en Windows). */
 export function relativeToTop(path: string, top: string): string | null {
@@ -60,7 +61,7 @@ export interface BlameLine { line: number; hash: string; author: string; time: n
 /** Texto de la anotación de culpa de una línea; para una línea sin commit lo dice. */
 export function blameText(b: BlameLine | undefined, now = Date.now()): string {
   if (!b) return "";
-  if (!b.hash) return "Cambio sin confirmar";
+  if (!b.hash) return t("Cambio sin confirmar");
   const summary = b.summary.length > 60 ? `${b.summary.slice(0, 57)}…` : b.summary;
   return `${b.author}, ${agoFrom(b.time * 1000, now)} · ${summary}`;
 }

@@ -1,5 +1,6 @@
 //! Asistente de IA en la terminal (`pulso`): decide qué hacer con los argumentos y traduce la salida en streaming de
 //! cada herramienta (Claude Code, Codex, Antigravity) a eventos sencillos para imprimir. Sin DOM ni ventana: todo es puro y se prueba.
+use crate::i18n::{tr, trf};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
@@ -43,7 +44,7 @@ pub fn normalize_provider(p: &str) -> Option<&'static str> {
 
 fn take(args: &[String], i: &mut usize, name: &str) -> Result<String, String> {
     *i += 1;
-    args.get(*i).cloned().ok_or_else(|| format!("Falta el valor de {name}."))
+    args.get(*i).cloned().ok_or_else(|| trf("Falta el valor de {name}.", &[("name", &name)]))
 }
 
 /// Decide la acción a partir de los argumentos (sin el nombre del programa).
@@ -193,8 +194,8 @@ impl Parser {
                 }
             }
             "turn.completed" => vec![Ev::Done(Ok(()))],
-            "turn.failed" => vec![Ev::Done(Err(non_empty(s(&v["error"], "message"), "La ejecución de Codex falló.")))],
-            "error" => vec![Ev::Done(Err(non_empty(s(v, "message"), "Error de Codex CLI.")))],
+            "turn.failed" => vec![Ev::Done(Err(non_empty(s(&v["error"], "message"), tr("La ejecución de Codex falló."))))],
+            "error" => vec![Ev::Done(Err(non_empty(s(v, "message"), tr("Error de Codex CLI."))))],
             _ => vec![],
         }
     }
@@ -240,8 +241,8 @@ impl Parser {
                 let denied = res["denied_actions"].as_array().is_some_and(|a| !a.is_empty());
                 let ok = s(res, "status").eq_ignore_ascii_case("success") && !(denied && !self.agy_text && final_text.is_empty());
                 out.push(Ev::Done(if ok { Ok(()) } else if denied {
-                    Err("Antigravity necesitó permiso para ejecutar un comando y no puede pedir confirmación en este modo.".into())
-                } else { Err(non_empty(s(res, "error"), "Antigravity terminó con error.")) }));
+                    Err(tr("Antigravity necesitó permiso para ejecutar un comando y no puede pedir confirmación en este modo.").into())
+                } else { Err(non_empty(s(res, "error"), tr("Antigravity terminó con error."))) }));
                 out
             }
             _ => vec![],

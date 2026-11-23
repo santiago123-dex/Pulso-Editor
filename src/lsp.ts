@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -7,6 +8,7 @@ import { setLspState } from "./lspState";
 import { setStatus } from "./ui";
 import { applyTextEdits, collectEdits } from "./lspEdits";
 import { fileKey } from "./util";
+import { diagnosticsStillValid, lspConfiguration } from "./lspConfig";
 
 type Json = any; // LSP messages are validated at the boundary where they are used.
 type Pending = { resolve: (value: Json) => void; reject: (error: Error) => void; timer: number };
@@ -31,7 +33,15 @@ type Session = {
   models: Map<string, monaco.IDisposable>;
   openedAt: Map<string, number>;
   definitions: Map<string, Promise<monaco.languages.LocationLink[]>>;
+  /** El servidor nativo de TypeScript 7 no envía diagnósticos: hay que pedirlos (`textDocument/diagnostic`). */
+  pull: boolean;
+  /** Un cambio en un archivo puede cambiar los errores de otros: se vuelven a pedir los de todos. */
+  pullInterFile: boolean;
+  pullQueue: Set<monaco.editor.ITextModel>;
+  pullTimer: number;
 };
+/** Respuesta de `lsp_start`: qué servidor quedó en marcha. */
+type Started = { id: number; mode: "native" | "compat"; tsserver: string | null; notice: string | null };
 let session: Session | null = null;
 let generation = 0;
 let transition: Promise<void> = Promise.resolve();
@@ -67,7 +77,7 @@ function notify(s: Session, method: string, params?: Json) {
 function request(s: Session, method: string, params: Json, token?: monaco.CancellationToken): Promise<Json> {
   const id = ++s.next;
   return new Promise((resolve, reject) => {
-    const timer = window.setTimeout(() => { s.pending.delete(id); reject(new Error(`LSP: tiempo agotado (${method})`)); }, 15000);
+    const timer = window.setTimeout(() => { s.pending.delete(id); reject(new Error(t("LSP: tiempo agotado ({method})", { method }))); }, 15000);
     s.pending.set(id, { resolve, reject, timer });
     token?.onCancellationRequested(() => { if (s.pending.delete(id)) { clearTimeout(timer); notify(s, "$/cancelRequest", { id }); resolve(null); } });
     void send(s, { jsonrpc: "2.0", id, method, params }).catch((e) => {
@@ -76,8 +86,33 @@ function request(s: Session, method: string, params: Json, token?: monaco.Cancel
     });
   });
 }
+function setMarkers(model: monaco.editor.ITextModel, diagnostics: Json[]) {
+  monaco.editor.setModelMarkers(model, owner, diagnostics.map((d: Json) => ({ ...range(d.range), message: d.message, severity: [monaco.MarkerSeverity.Error, monaco.MarkerSeverity.Warning, monaco.MarkerSeverity.Info, monaco.MarkerSeverity.Hint][(d.severity ?? 1) - 1] ?? monaco.MarkerSeverity.Error, code: d.code === undefined ? undefined : String(d.code), source: d.source })));
+}
+/** Pide los diagnósticos poco después del último cambio. Sin `model`, los de todos los abiertos. */
+function schedulePull(s: Session, model?: monaco.editor.ITextModel) {
+  if (!s.pull) return;
+  if (model && !s.pullInterFile) s.pullQueue.add(model);
+  else for (const m of monaco.editor.getModels()) if (s.models.has(uri(m))) s.pullQueue.add(m);
+  clearTimeout(s.pullTimer);
+  s.pullTimer = window.setTimeout(() => {
+    const models = [...s.pullQueue];
+    s.pullQueue.clear();
+    for (const m of models) void pullDiagnostics(s, m);
+  }, 300);
+}
+async function pullDiagnostics(s: Session, model: monaco.editor.ITextModel) {
+  if (session !== s || model.isDisposed() || !s.models.has(uri(model))) return;
+  const version = model.getVersionId();
+  const result = await request(s, "textDocument/diagnostic", { textDocument: { uri: uri(model) } }).catch(() => null);
+  // Si el documento cambió mientras tanto, ya hay otra petición en camino con la versión nueva.
+  if (session !== s || !diagnosticsStillValid(version, model.isDisposed() ? -1 : model.getVersionId(), model.isDisposed())) return;
+  if (result?.kind === "full" && Array.isArray(result.items)) setMarkers(model, result.items);
+}
 function clear(s: Session) {
-  for (const p of s.pending.values()) { clearTimeout(p.timer); p.reject(new Error("Servidor LSP cerrado")); }
+  clearTimeout(s.pullTimer);
+  s.pullQueue.clear();
+  for (const p of s.pending.values()) { clearTimeout(p.timer); p.reject(new Error(t("Servidor LSP cerrado"))); }
   s.pending.clear();
   for (const d of s.models.values()) d.dispose();
   s.models.clear();
@@ -89,7 +124,7 @@ function fail(s: Session, error: string) {
   clear(s);
   builtIn(true);
   setLspState({ kind: "stopped", reason: error });
-  setStatus(`Inteligencia de proyecto no disponible: ${error}`, 12000);
+  setStatus(t("Inteligencia de proyecto no disponible: {error}", { error }), 12000);
   transition = transition.catch(() => {}).then(async () => { if (!session) await invoke("lsp_stop"); });
 }
 function openModel(s: Session, model: monaco.editor.ITextModel) {
@@ -104,9 +139,11 @@ function openModel(s: Session, model: monaco.editor.ITextModel) {
       ? event.changes.map((c) => ({ range: { start: { line: c.range.startLineNumber - 1, character: c.range.startColumn - 1 }, end: { line: c.range.endLineNumber - 1, character: c.range.endColumn - 1 } }, text: c.text }))
       : [{ text: model.getValue() }];
     notify(s, "textDocument/didChange", { textDocument: { uri: documentUri, version: model.getVersionId() }, contentChanges });
+    schedulePull(s, model);
   });
   const dispose = model.onWillDispose(() => { change.dispose(); dispose.dispose(); s.models.delete(documentUri); s.openedAt.delete(documentUri); notify(s, "textDocument/didClose", { textDocument: { uri: documentUri } }); });
   s.models.set(documentUri, { dispose: () => { change.dispose(); dispose.dispose(); } });
+  schedulePull(s, model);
 }
 function handleMessage(id: number, msg: Json) {
   const s = session;
@@ -124,14 +161,15 @@ function handleMessage(id: number, msg: Json) {
       void send(s, { jsonrpc: "2.0", id: msg.id, result: null });
       return;
     }
-    const result = msg.method === "workspace/configuration" ? (msg.params?.items ?? []).map(() => ({})) : null;
+    if (msg.method === "workspace/diagnostic/refresh") schedulePull(s);
+    const result = msg.method === "workspace/configuration" ? (msg.params?.items ?? []).map((item: Json) => lspConfiguration(item?.section)) : null;
     void send(s, { jsonrpc: "2.0", id: msg.id, result });
   } else if (msg.method === "textDocument/publishDiagnostics") {
     const resource = monaco.Uri.parse(msg.params.uri);
     const model = monaco.editor.getModel(resource) ?? findOpenDoc(resource.fsPath)?.model;
     if (!model || !Array.isArray(msg.params.diagnostics)) return;
     if (typeof msg.params.version === "number" && msg.params.version < model.getVersionId()) return;
-    monaco.editor.setModelMarkers(model, owner, msg.params.diagnostics.map((d: Json) => ({ ...range(d.range), message: d.message, severity: [monaco.MarkerSeverity.Error, monaco.MarkerSeverity.Warning, monaco.MarkerSeverity.Info, monaco.MarkerSeverity.Hint][(d.severity ?? 1) - 1] ?? monaco.MarkerSeverity.Error, code: d.code === undefined ? undefined : String(d.code), source: d.source })));
+    setMarkers(model, msg.params.diagnostics);
   } else if (msg.id !== undefined && !msg.method) {
     const p = s.pending.get(msg.id);
     if (!p) return;
@@ -161,10 +199,10 @@ export function setLspWorkspace(root: string | null) {
     if (!root || current !== generation) return;
     await ensureListeners();
     if (current !== generation) return;
-    const id = await invoke<number>("lsp_start", { root });
+    const started = await invoke<Started>("lsp_start", { root });
     if (current !== generation) { await invoke("lsp_stop"); return; }
     const s: Session = {
-      id,
+      id: started.id,
       root,
       ready: false,
       incremental: false,
@@ -175,6 +213,10 @@ export function setLspWorkspace(root: string | null) {
       models: new Map(),
       openedAt: new Map(),
       definitions: new Map(),
+      pull: false,
+      pullInterFile: false,
+      pullQueue: new Set(),
+      pullTimer: 0,
     };
     session = s;
     try {
@@ -190,10 +232,12 @@ export function setLspWorkspace(root: string | null) {
             applyEdit: true,
             executeCommand: { dynamicRegistration: false },
             inlayHint: { refreshSupport: true },
+            diagnostics: { refreshSupport: true },
             workspaceEdit: { documentChanges: true },
           },
           textDocument: {
             publishDiagnostics: { versionSupport: true },
+            diagnostic: { dynamicRegistration: false },
             completion: { completionItem: { snippetSupport: true, resolveSupport: { properties: ["documentation", "detail", "additionalTextEdits"] } } },
             hover: { contentFormat: ["markdown", "plaintext"] },
             definition: { linkSupport: true },
@@ -210,6 +254,8 @@ export function setLspWorkspace(root: string | null) {
         },
         initializationOptions: {
           hostInfo: "Pulso",
+          // Modo compatible (TypeScript 5 o 6 del proyecto): typescript-language-server usa ese tsserver.
+          ...(started.tsserver ? { tsserver: { path: started.tsserver } } : {}),
           disableAutomaticTypingAcquisition: true,
           maxTsServerMemory: 1536,
           preferences: {
@@ -232,14 +278,19 @@ export function setLspWorkspace(root: string | null) {
         formatting: caps?.documentFormattingProvider !== false,
         executeCommand: !!caps?.executeCommandProvider,
       };
+      s.pull = !!caps?.diagnosticProvider;
+      s.pullInterFile = !!caps?.diagnosticProvider?.interFileDependencies;
       notify(s, "initialized", {});
       s.ready = true;
       builtIn(false);
       setLspState({ kind: "ready" });
       for (const model of monaco.editor.getModels()) openModel(s, model);
-      setStatus("Inteligencia de TypeScript y JavaScript activada");
+      if (started.notice) setStatus(started.notice, 15000);
+      else setStatus(started.mode === "compat"
+        ? t("Inteligencia de TypeScript y JavaScript activada (con el TypeScript del proyecto)")
+        : t("Inteligencia de TypeScript y JavaScript activada"));
     } catch (e) { fail(s, String(e)); }
-  }).catch((e) => { if (current === generation) { builtIn(true); setLspState({ kind: "stopped", reason: String(e) }); setStatus(String(e).startsWith("No se pudo iniciar") ? String(e) : `No se pudo iniciar LSP: ${e}`, 12000); } });
+  }).catch((e) => { if (current === generation) { builtIn(true); setLspState({ kind: "stopped", reason: String(e) }); setStatus(String(e).startsWith(t("No se pudo iniciar")) ? String(e) : t("No se pudo iniciar LSP: {error}", { error: String(e) }), 12000); } });
 }
 
 function active(model: monaco.editor.ITextModel) { return session?.ready && language(model) && session.models.has(uri(model)) ? session : null; }
@@ -255,7 +306,7 @@ function locations(value: Json): monaco.languages.LocationLink[] {
 async function definition(model: monaco.editor.ITextModel, position: monaco.Position, indicate: boolean): Promise<monaco.languages.LocationLink[] | null> {
   const started = generation;
   if (!active(model) && language(model) && workspaceRoot) {
-    if (indicate) setStatus("Iniciando inteligencia de código…");
+    if (indicate) setStatus(t("Iniciando inteligencia de código…"));
     await transition;
   }
   if (started !== generation || model.isDisposed()) return null;
@@ -287,7 +338,7 @@ async function definition(model: monaco.editor.ITextModel, position: monaco.Posi
     if (s.definitions.size > 100) s.definitions.delete(s.definitions.keys().next().value!);
     void promise.then((found) => { if (!found.length && s.definitions.get(key) === promise) s.definitions.delete(key); }, () => { if (s.definitions.get(key) === promise) s.definitions.delete(key); });
   }
-  if (indicate) setStatus("Buscando definición…");
+  if (indicate) setStatus(t("Buscando definición…"));
   return promise;
 }
 
@@ -321,8 +372,8 @@ async function writeClosedEdits(closed: { path: string; text: string; mtime: num
   for (const f of closed) {
     try { await invoke("write_file", { path: f.path, contents: f.text, expectedMtime: f.mtime }); written.push(f.path); }
     catch (e) {
-      const done = written.length ? ` Ya se escribieron: ${written.map((w) => w.split("/").pop()).join(", ")}.` : "";
-      throw new Error(`No se pudo escribir ${f.path.split("/").pop()}: ${String(e).replace(/^CONFLICT$/, "cambió en el disco")}.${done}`);
+      const done = written.length ? " " + t("Ya se escribieron: {files}.", { files: written.map((w) => w.split("/").pop()).join(", ") }) : "";
+      throw new Error(t("No se pudo escribir {file}: {error}.", { file: f.path.split("/").pop()!, error: String(e).replace(/^CONFLICT$/, t("cambió en el disco")) }) + done);
     }
   }
 }
@@ -333,7 +384,7 @@ async function prepareWorkspaceEdits(workspaceEdit: Json) {
   const closed: { path: string; text: string; mtime: number }[] = [];
   for (const [u, list] of byUri) {
     const target = monaco.Uri.parse(u);
-    if (target.scheme !== "file") throw new Error(`El servidor pidió editar un recurso que no es un archivo (${u})`);
+    if (target.scheme !== "file") throw new Error(t("El servidor pidió editar un recurso que no es un archivo ({uri})", { uri: String(u) }));
     const path = slash(target.fsPath);
     const open = findOpenDoc(path);
     const model = open?.model ?? monaco.editor.getModel(target);
@@ -375,7 +426,9 @@ async function renameEdits(s: Session, model: monaco.editor.ITextModel, position
   if (token.isCancellationRequested) return { edits: [] };
   await writeClosedEdits(closed);
   const edits = openEdits.map((o) => o.edit);
-  setStatus(`Renombrado en ${files} archivo${files === 1 ? "" : "s"}${closed.length ? ` (${closed.length} guardado${closed.length === 1 ? "" : "s"} en disco)` : ""}${edits.length ? ". Los archivos abiertos quedan sin guardar" : ""}`, 6000);
+  setStatus((files === 1 ? t("Renombrado en 1 archivo") : t("Renombrado en {count} archivos", { count: files }))
+    + (closed.length ? " " + (closed.length === 1 ? t("(1 guardado en disco)") : t("({count} guardados en disco)", { count: closed.length })) : "")
+    + (edits.length ? ". " + t("Los archivos abiertos quedan sin guardar") : ""), 6000);
   return { edits };
 }
 
@@ -411,7 +464,7 @@ function toCodeAction(raw: Json): monaco.languages.CodeAction & { _lsp?: Json } 
     return { title: String(raw.title ?? raw.command), command: bridgeCommand(raw), _lsp: raw };
   }
   return {
-    title: String(raw?.title ?? "Acción"),
+    title: String(raw?.title ?? t("Acción")),
     kind: typeof raw?.kind === "string" ? raw.kind : undefined,
     isPreferred: raw?.isPreferred === true,
     disabled: typeof raw?.disabled?.reason === "string" ? raw.disabled.reason : undefined,
@@ -450,7 +503,7 @@ export function initLsp() {
     if (!result) return false;
     const target = result[0];
     if (!target || target.uri.scheme !== "file") {
-      setStatus("No se encontró una definición para este símbolo");
+      setStatus(t("No se encontró una definición para este símbolo"));
       return true;
     }
     const selection = target.targetSelectionRange ?? target.range;
@@ -463,7 +516,7 @@ export function initLsp() {
     const s = session;
     if (!s || !active(d.model) || !s.caps.formatting) return;
     const version = d.model.getVersionId();
-    const edits = await Promise.race([formatEdits(s, d.model), new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error("el servidor tardó demasiado")), 4000))]);
+    const edits = await Promise.race([formatEdits(s, d.model), new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error(t("el servidor tardó demasiado"))), 4000))]);
     if (!edits.length || d.model.getVersionId() !== version) return;
     d.model.pushEditOperations([], edits, () => null);
   });
@@ -485,21 +538,21 @@ export function initLsp() {
     monaco.languages.registerRenameProvider({ language: lang, scheme: "file", exclusive: true }, {
       resolveRenameLocation: async (model, position, token) => {
         const s = active(model);
-        if (!s) return { range: model.getWordAtPosition(position) ? { startLineNumber: position.lineNumber, endLineNumber: position.lineNumber, startColumn: model.getWordAtPosition(position)!.startColumn, endColumn: model.getWordAtPosition(position)!.endColumn } : new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column), text: "", rejectReason: "La inteligencia de lenguaje no está activa" };
+        if (!s) return { range: model.getWordAtPosition(position) ? { startLineNumber: position.lineNumber, endLineNumber: position.lineNumber, startColumn: model.getWordAtPosition(position)!.startColumn, endColumn: model.getWordAtPosition(position)!.endColumn } : new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column), text: "", rejectReason: t("La inteligencia de lenguaje no está activa") };
         const r = await safe(request(s, "textDocument/prepareRename", params(model, position), token), null);
         const target = r && (r.range ?? (r.start ? r : null));
-        if (!target) return { range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column), text: "", rejectReason: "No se puede renombrar lo que hay bajo el cursor" };
+        if (!target) return { range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column), text: "", rejectReason: t("No se puede renombrar lo que hay bajo el cursor") };
         const rg = range(target);
         return { range: rg, text: r.placeholder ?? model.getValueInRange(rg) };
       },
       provideRenameEdits: async (model, position, newName, token) => {
         const s = active(model);
-        if (!s) return { edits: [], rejectReason: "La inteligencia de lenguaje no está activa" };
+        if (!s) return { edits: [], rejectReason: t("La inteligencia de lenguaje no está activa") };
         try { return await renameEdits(s, model, position, newName, token); }
         catch (e) { return { edits: [], rejectReason: e instanceof Error ? e.message : String(e) }; }
       },
     });
-    monaco.languages.registerDocumentFormattingEditProvider(lang, { displayName: "Servidor de lenguaje", provideDocumentFormattingEdits: (model, _options, token) => { const s = active(model); return s && s.caps.formatting ? safe(formatEdits(s, model, token), []) : []; } });
+    monaco.languages.registerDocumentFormattingEditProvider(lang, { displayName: t("Servidor de lenguaje"), provideDocumentFormattingEdits: (model, _options, token) => { const s = active(model); return s && s.caps.formatting ? safe(formatEdits(s, model, token), []) : []; } });
     monaco.languages.registerSignatureHelpProvider?.(lang, {
       signatureHelpTriggerCharacters: ["(", ","],
       signatureHelpRetriggerCharacters: [","],
@@ -551,14 +604,14 @@ export function initLsp() {
       },
     }, { providedCodeActionKinds: ["quickfix", "refactor", "source", "source.organizeImports"] });
     monaco.languages.registerDocumentSymbolProvider?.(lang, {
-      displayName: "Servidor de lenguaje",
+      displayName: t("Servidor de lenguaje"),
       provideDocumentSymbols: (model, token) => {
         const s = active(model); if (!s || !s.caps.documentSymbol) return [];
         return safe(request(s, "textDocument/documentSymbol", { textDocument: { uri: uri(model) } }, token).then(toDocumentSymbols), []);
       },
     });
     monaco.languages.registerInlayHintsProvider?.(lang, {
-      displayName: "Servidor de lenguaje",
+      displayName: t("Servidor de lenguaje"),
       onDidChangeInlayHints: inlayRefresh?.event,
       provideInlayHints: (model, hintRange, token) => {
         const s = active(model); if (!s || !s.caps.inlayHint) return { hints: [], dispose() {} };

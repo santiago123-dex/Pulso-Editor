@@ -7,7 +7,7 @@ vi.stubGlobal("localStorage", {
   removeItem: (k: string) => { store.delete(k); },
 });
 
-import { addRecent, clearLastRoot, clearSession, createSessionPersister, getLastRoot, getRecent, loadSession, rel, removeRecent, saveSession, setLastRoot, ws } from "./workspace";
+import { addRecent, clearLastRoot, clearSession, createSessionPersister, getLastRoot, getRecent, loadProjectLayout, loadSession, rel, removeRecent, saveProjectLayout, saveSession, setLastRoot, ws } from "./workspace";
 
 beforeEach(() => { store.clear(); ws.root = null; });
 
@@ -64,6 +64,14 @@ describe("sesión", () => {
     expect(loadSession()).toBeNull();
     store.set("pulso.session", "###");
     expect(loadSession()).toBeNull();
+  });
+
+  it("recuerda pestañas por proyecto normalizando barras y mayúsculas", () => {
+    saveProjectLayout("C:\\Proyectos\\Alpha\\", { groups: [{ paths: ["a.ts"] }] });
+    saveProjectLayout("C:/Proyectos/Beta", { groups: [{ paths: ["b.ts"] }] });
+    expect(loadProjectLayout("c:/proyectos/alpha")).toEqual({ groups: [{ paths: ["a.ts"] }] });
+    expect(loadProjectLayout("C:/Proyectos/Beta")).toEqual({ groups: [{ paths: ["b.ts"] }] });
+    expect(loadProjectLayout("C:/Proyectos/Otro")).toBeNull();
   });
 });
 

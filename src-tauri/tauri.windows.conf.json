@@ -1,0 +1,9 @@
+{
+  "bundle": {
+    "resources": {
+      "../scripts/lsp-no-console.cjs": "lsp/no-console.cjs",
+      "../node_modules/typescript-language-server/lib/cli.mjs": "lsp/node_modules/typescript-language-server/lib/cli.mjs",
+      "../node_modules/@typescript/typescript-win32-x64/lib/": "lsp/typescript/"
+    }
+  }
+}

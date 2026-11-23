@@ -1,3 +1,4 @@
+import { lang, t as tr } from "./i18n";
 /** Lógica pura del chat del repositorio (sin DOM ni red) para poder probarla. */
 export interface ChatUser { login: string; avatar_url: string }
 export interface ChatComment { id: number; body: string; user: ChatUser | null; created_at: string }
@@ -15,9 +16,9 @@ const dayKey = (t: number) => { const d = new Date(t); return `${d.getFullYear()
 
 /** «Hoy», «Ayer» o la fecha corta. */
 export function dayLabel(t: number, now = Date.now()): string {
-  if (dayKey(t) === dayKey(now)) return "Hoy";
-  if (dayKey(t) === dayKey(now - 86_400_000)) return "Ayer";
-  return new Date(t).toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long" });
+  if (dayKey(t) === dayKey(now)) return tr("Hoy");
+  if (dayKey(t) === dayKey(now - 86_400_000)) return tr("Ayer");
+  return new Date(t).toLocaleDateString(lang(), { weekday: "long", day: "numeric", month: "long" });
 }
 
 /** Lista de comentarios → elementos de pantalla: separadores de día y mensajes agrupados por persona. */
@@ -29,7 +30,7 @@ export function buildItems(comments: readonly ChatComment[], me: string, now = D
     const at = Date.parse(c.created_at) || 0;
     const day = dayKey(at);
     if (day !== lastDay) { out.push({ type: "day", key: day, label: dayLabel(at, now) }); lastDay = day; prev = null; }
-    const login = c.user?.login ?? "usuario eliminado";
+    const login = c.user?.login ?? tr("usuario eliminado");
     const joins = !!prev && sameLogin(prev.login, login) && at - prev.at < GROUP_GAP_MS;
     if (prev && !joins) prev.tail = true;
     const msg: Extract<ChatItem, { type: "msg" }> = { type: "msg", id: c.id, login, avatar: c.user?.avatar_url ?? "", mine: sameLogin(login, me), body: c.body, at, head: !joins, tail: false };
@@ -125,10 +126,10 @@ export function insertMention(text: string, q: MentionQuery, login: string): { t
 /** «hace 5 min», «hace 2 h», «hace 3 d». */
 export function ago(t: number, now = Date.now()): string {
   const s = Math.max(0, Math.round((now - t) / 1000));
-  if (s < 60) return "hace un momento";
-  if (s < 3600) return `hace ${Math.round(s / 60)} min`;
-  if (s < 86400) return `hace ${Math.round(s / 3600)} h`;
-  return `hace ${Math.round(s / 86400)} d`;
+  if (s < 60) return tr("hace un momento");
+  if (s < 3600) return tr("hace {n} min", { n: Math.round(s / 60) });
+  if (s < 86400) return tr("hace {n} h", { n: Math.round(s / 3600) });
+  return tr("hace {n} d", { n: Math.round(s / 86400) });
 }
 
 /** Última vez que escribió cada persona (milisegundos), para el panel de miembros. */
@@ -146,5 +147,6 @@ export function lastSpoke(comments: readonly ChatComment[]): Map<string, number>
 export const ROOM_LABEL = "pulso-chat";
 /** La issue que guarda el chat no es trabajo: no debe salir en el tablero ni en la lista de issues. */
 export const isChatRoom = (issue: { labels: readonly { name: string }[] }): boolean => issue.labels.some((l) => l.name.toLowerCase() === ROOM_LABEL);
+// Fijo, sin traducir: es el nombre de la issue de la sala en GitHub, igual para todo el equipo.
 export const ROOM_TITLE = "💬 Chat de Pulso";
 export const MAX_MESSAGE = 4000;

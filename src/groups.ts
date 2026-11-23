@@ -1,8 +1,10 @@
+import { t } from "./i18n";
 import { isLargeFile, largeFileOptions } from "./largeFile";
 import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
 import { cloneDoc, disposeDoc, docs, isDirty, loadDoc, onDocsChange, saveDoc, type Doc } from "./docs";
 import { fileIcon } from "./icons";
+import { isBinaryImageFile, isImageFile, isMarkdownFile, openImagePreview, openPreviewFor } from "./preview";
 import { editorOptions, state } from "./settings";
 import { setStatus, showDialog, showMenu, type MenuItem } from "./ui";
 import { $, baseName, dirName, fileKey, h } from "./util";
@@ -58,6 +60,7 @@ export const FILE_MIME = "application/x-pulso-file";
 const ICON_SPLIT = '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>';
 const ICON_SPLIT_DOWN = '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 12h18"/></svg>';
 const ICON_CLOSE = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+const ICON_PREVIEW = '<svg viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/></svg>';
 const ICON_PIN = '<svg viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M14 3l7 7-2 1-3 3 .5 4.5-1.5 1.5-4-4-5.5 5.5-1-1L10 14l-4-4 1.5-1.5L12 9l3-3z"/></svg>';
 
 // ---------- Creación y diseño ----------
@@ -181,7 +184,7 @@ function createGroup(at: number): Group {
     void (async () => {
       const handled = await config.goToDefinition?.(model, click.position, () => current === navigationGeneration && editor.getModel() === model && model.getVersionId() === version);
       if (!handled) await editor.getAction("editor.action.revealDefinition")?.run();
-    })().catch((error) => setStatus(`No se pudo ir a la definición: ${error}`));
+    })().catch((error) => setStatus(t("No se pudo ir a la definición: {error}", { error: String(error) })));
   }, true);
 
   const g: Group = {
@@ -282,11 +285,11 @@ function renderTabs(g: Group) {
     const close = h("span", "close");
     if (pinned) {
       close.innerHTML = ICON_PIN;
-      close.title = "Desfijar";
+      close.title = t("Desfijar");
       close.onclick = (e) => { e.stopPropagation(); togglePin(g, path); };
     } else {
       close.append(h("span", "x", "×"));
-      close.title = "Cerrar";
+      close.title = t("Cerrar");
       close.onclick = (e) => { e.stopPropagation(); void closeTab(g, path); };
     }
     tab.append(close);
@@ -305,13 +308,21 @@ function renderTabs(g: Group) {
   const actions = h("div", "tab-actions");
   const split = h("button", "icon-btn");
   split.innerHTML = direction === "row" ? ICON_SPLIT : ICON_SPLIT_DOWN;
-  split.title = "Dividir el editor";
+  split.title = t("Dividir el editor");
+  if (g.active && (isMarkdownFile(g.active) || isImageFile(g.active))) {
+    const prev = h("button", "icon-btn");
+    prev.innerHTML = ICON_PREVIEW;
+    prev.title = t("Vista previa (Ctrl+Shift+V)");
+    const target = g.active;
+    prev.onclick = () => { void openPreviewFor(target); };
+    actions.append(prev);
+  }
   split.onclick = () => { const n = splitGroup(g.active); n?.editor.focus(); };
   actions.append(split);
   if (groups.length > 1) {
     const x = h("button", "icon-btn");
     x.innerHTML = ICON_CLOSE;
-    x.title = "Cerrar grupo";
+    x.title = t("Cerrar grupo");
     x.onclick = () => { void closeGroup(g); };
     actions.append(x);
   }
@@ -332,17 +343,17 @@ function renderCrumbs(g: Group) {
 function tabMenu(g: Group, path: string): MenuItem[] {
   const i = g.paths.indexOf(path);
   return [
-    { label: "Cerrar", run: () => void closeTab(g, path) },
-    { label: "Cerrar las demás", run: () => void closeMany(g, g.paths.filter((p) => p !== path)) },
-    { label: "Cerrar las de la derecha", disabled: i === g.paths.length - 1, run: () => void closeMany(g, g.paths.slice(i + 1)) },
-    { label: "Cerrar todas", run: () => void closeMany(g, [...g.paths]) },
+    { label: t("Cerrar"), run: () => void closeTab(g, path) },
+    { label: t("Cerrar las demás"), run: () => void closeMany(g, g.paths.filter((p) => p !== path)) },
+    { label: t("Cerrar las de la derecha"), disabled: i === g.paths.length - 1, run: () => void closeMany(g, g.paths.slice(i + 1)) },
+    { label: t("Cerrar todas"), run: () => void closeMany(g, [...g.paths]) },
     "sep",
-    { label: g.pinned.has(path) ? "Desfijar" : "Fijar", run: () => togglePin(g, path) },
-    { label: "Abrir en un grupo nuevo", run: () => { const n = splitGroup(path); n?.editor.focus(); } },
+    { label: g.pinned.has(path) ? t("Desfijar") : t("Fijar"), run: () => togglePin(g, path) },
+    { label: t("Abrir en un grupo nuevo"), run: () => { const n = splitGroup(path); n?.editor.focus(); } },
     "sep",
-    { label: "Copiar ruta", run: () => void navigator.clipboard.writeText(path) },
-    { label: "Copiar ruta relativa", run: () => void navigator.clipboard.writeText(rel(path)) },
-    { label: "Mostrar en el explorador de archivos", run: () => void invoke("reveal_in_explorer", { path }) },
+    { label: t("Copiar ruta"), run: () => void navigator.clipboard.writeText(path) },
+    { label: t("Copiar ruta relativa"), run: () => void navigator.clipboard.writeText(rel(path)) },
+    { label: t("Mostrar en el explorador de archivos"), run: () => void invoke("reveal_in_explorer", { path }) },
   ];
 }
 
@@ -363,6 +374,10 @@ export function activate(g: Group, path: string | null) {
 export interface OpenOpts { line?: number; col?: number; len?: number; group?: Group; focus?: boolean }
 
 export async function openFile(path: string, o: OpenOpts = {}): Promise<void> {
+  if (isBinaryImageFile(path)) {
+    await openImagePreview(path);
+    return;
+  }
   const g = o.group ?? focusedGroup;
   const root = ws.root;
   const request = (openRequests.get(g) ?? 0) + 1;
@@ -373,7 +388,7 @@ export async function openFile(path: string, o: OpenOpts = {}): Promise<void> {
     path = (await loadDoc(path)).path;
   } catch (e) {
     const msg = String(e);
-    setStatus(`No se pudo abrir ${baseName(path)}: ${/utf-?8/i.test(msg) ? "no es un archivo de texto" : msg}`);
+    setStatus(t("No se pudo abrir {file}: {error}", { file: baseName(path), error: /utf-?8/i.test(msg) ? t("no es un archivo de texto") : msg }));
     return;
   } finally {
     const remaining = (pendingOpens.get(key) ?? 1) - 1;
@@ -419,12 +434,12 @@ export async function closeTab(g: Group, path: string, force = false): Promise<b
   const d = docs.get(path);
   if (!force && d && isDirty(d) && !inAnyGroup(path, g)) {
     const r = await showDialog({
-      title: "¿Guardar los cambios?",
-      message: `${baseName(path)} tiene cambios sin guardar.`,
+      title: t("¿Guardar los cambios?"),
+      message: t("{file} tiene cambios sin guardar.", { file: baseName(path) }),
       buttons: [
-        { label: "Guardar", value: "save", primary: true },
-        { label: "No guardar", value: "discard", danger: true },
-        { label: "Cancelar", value: "cancel" },
+        { label: t("Guardar"), value: "save", primary: true },
+        { label: t("No guardar"), value: "discard", danger: true },
+        { label: t("Cancelar"), value: "cancel" },
       ],
     });
     if (r === "cancel") return false;
@@ -476,6 +491,11 @@ export async function reopenClosed() {
   if (p) await openFile(p);
 }
 
+/** Vacía la pila de pestañas cerradas (al cambiar o cerrar carpeta). */
+export function clearClosedTabs() {
+  closedStack.length = 0;
+}
+
 export function closeActive() {
   const g = focusedGroup;
   if (g?.active && !g.pinned.has(g.active)) return closeTab(g, g.active);
@@ -510,7 +530,7 @@ export function togglePin(g: Group, path: string) {
 // ---------- Dividir y mover ----------
 /** Crea un grupo a la derecha (o debajo). `path` undefined = archivo activo, null = vacío. */
 export function splitGroup(path?: string | null): Group | null {
-  if (groups.length >= MAX_GROUPS) { setStatus("Máximo de grupos de editores alcanzado"); return null; }
+  if (groups.length >= MAX_GROUPS) { setStatus(t("Máximo de grupos de editores alcanzado")); return null; }
   const base = focusedGroup;
   const p = path === undefined ? base.active : path;
   const g = createGroup(groups.indexOf(base) + 1);

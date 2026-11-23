@@ -1,4 +1,6 @@
+import { t } from "./i18n";
 import { invoke } from "@tauri-apps/api/core";
+import { readStorage, removeStorage, writeStorage } from "./core/storage";
 import type { AiProvider, Turn } from "./aiModel";
 
 /** Conversaciones guardadas en este equipo (en un archivo de los datos de la aplicación): lo justo para volver a verlas y reanudarlas con la sesión de la herramienta. */
@@ -11,6 +13,7 @@ const EMERGENCY_KEY = "pulso.ai.emergency";
 export const MAX_CHATS = 30;
 export const MAX_BYTES = 1_500_000;
 const SAVED_RESULT = 600;
+const SAVED_IMAGE_PREVIEW = 40_000;
 
 const isList = (text: string | null | undefined): text is string => {
   if (!text) return false;
@@ -46,7 +49,7 @@ async function flush(): Promise<void> {
 
 /** Guarda de inmediato en disco y en copia de respaldo síncrona (útil al cerrar mientras ejecuta). */
 export function flushHistoryNow(): void {
-  try { localStorage.setItem(EMERGENCY_KEY, cache); } catch { /* nada que hacer */ }
+  writeStorage(EMERGENCY_KEY, cache);
   void flush();
 }
 
@@ -60,10 +63,8 @@ export const historyStore: Store = {
 export async function initHistory(): Promise<void> {
   let fileText: string | null = null;
   try { fileText = await invoke<string>("ai_history_read"); } catch { /* sin archivo todavía */ }
-  let legacy: string | null = null;
-  try { legacy = localStorage.getItem(KEY); } catch { /* sin acceso */ }
-  let emergency: string | null = null;
-  try { emergency = localStorage.getItem(EMERGENCY_KEY); } catch { /* sin acceso */ }
+  const legacy = readStorage(KEY);
+  const emergency = readStorage(EMERGENCY_KEY);
   const pick = pickHistory(fileText, legacy);
   cache = pick.text;
   let dirty = pick.migrated;
@@ -73,8 +74,8 @@ export async function initHistory(): Promise<void> {
     dirty = true;
   }
   if (dirty) await flush();
-  if (legacy !== null) try { localStorage.removeItem(KEY); } catch { /* nada que hacer */ }
-  if (emergency !== null) try { localStorage.removeItem(EMERGENCY_KEY); } catch { /* nada que hacer */ }
+  if (legacy !== null) removeStorage(KEY);
+  if (emergency !== null) removeStorage(EMERGENCY_KEY);
   window.addEventListener("blur", () => { if (timer) void flush(); });
   window.addEventListener("pagehide", flushHistoryNow);
   window.addEventListener("beforeunload", flushHistoryNow);
@@ -87,10 +88,10 @@ export const newChatId = (now = Date.now(), rnd = Math.random()) => `c${now.toSt
 export function titleFrom(messages: readonly Turn[]): string {
   const first = messages.find((m) => m.role === "user")?.blocks.find((b) => b.kind === "text");
   const text = first && first.kind === "text" ? first.text.replace(/\s+/g, " ").trim() : "";
-  return text ? (text.length > 60 ? `${text.slice(0, 57)}…` : text) : "Conversación nueva";
+  return text ? (text.length > 60 ? `${text.slice(0, 57)}…` : text) : t("Conversación nueva");
 }
 
-const sameDir = (a: string, b: string) => a.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase() === b.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+export const sameDir = (a: string, b: string) => a.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase() === b.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 
 export const chatsFor = (chats: readonly SavedChat[], cwd: string): SavedChat[] => chats.filter((c) => sameDir(c.cwd, cwd));
 
@@ -111,7 +112,11 @@ function compact(chat: SavedChat): SavedChat {
     messages: chat.messages.map((m) => ({
       ...m,
       done: true,
-      blocks: m.blocks.map((b) => (b.kind === "tool" ? { ...b, json: "", result: b.result && b.result.length > SAVED_RESULT ? `${b.result.slice(0, SAVED_RESULT)}…` : b.result } : b)),
+      blocks: m.blocks.map((b) => {
+        if (b.kind === "tool") return { ...b, json: "", result: b.result && b.result.length > SAVED_RESULT ? `${b.result.slice(0, SAVED_RESULT)}…` : b.result };
+        if (b.kind === "image" && b.preview && b.preview.length > SAVED_IMAGE_PREVIEW) return { kind: "image", path: b.path, name: b.name };
+        return b;
+      }),
     })),
   };
 }

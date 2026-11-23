@@ -8,18 +8,19 @@ import {
   toggleActivityVisible,
   type ActivityConfig,
 } from "./activityOrder";
+import { t } from "./i18n";
 import { quickPick, setStatus, showMenu, type MenuItem, type PickItem } from "./ui";
 import { $ } from "./util";
 
 const VIEW_LABELS: Record<string, string> = {
-  explorer: "Explorador",
-  search: "Buscar",
-  git: "Control de código fuente",
-  issues: "Issues de GitHub",
-  ai: "Asistente de IA",
-  prs: "Pull requests",
-  chat: "Chat del equipo",
-  problems: "Problemas",
+  explorer: t("Explorador"),
+  search: t("Buscar"),
+  git: t("Control de código fuente"),
+  issues: t("Issues de GitHub"),
+  ai: t("Asistente de IA"),
+  prs: t("Pull requests"),
+  chat: t("Chat del equipo"),
+  problems: t("Problemas"),
 };
 
 interface Options {
@@ -82,9 +83,9 @@ function openMenu(x: number, y: number, targetId: string | null) {
   if (targetId && targetId !== "settings" && buttons.has(targetId)) {
     const pos = vis.indexOf(targetId);
     items.push(
-      { label: "Mover arriba", hint: "Alt+↑", disabled: pos <= 0, run: () => step(targetId, -1) },
-      { label: "Mover abajo", hint: "Alt+↓", disabled: pos < 0 || pos >= vis.length - 1, run: () => step(targetId, 1) },
-      { label: "Ocultar de la barra", disabled: vis.length <= 1, run: () => commit(toggleActivityVisible(cfg, targetId)) },
+      { label: t("Mover arriba"), hint: "Alt+↑", disabled: pos <= 0, run: () => step(targetId, -1) },
+      { label: t("Mover abajo"), hint: "Alt+↓", disabled: pos < 0 || pos >= vis.length - 1, run: () => step(targetId, 1) },
+      { label: t("Ocultar de la barra"), disabled: vis.length <= 1, run: () => commit(toggleActivityVisible(cfg, targetId)) },
       "sep",
     );
   }
@@ -99,7 +100,7 @@ function openMenu(x: number, y: number, targetId: string | null) {
   }
 
   items.push("sep", {
-    label: "Restablecer orden predeterminado",
+    label: t("Restablecer orden predeterminado"),
     run: () => resetActivityBar(),
   });
 
@@ -236,13 +237,13 @@ export function initActivityBar(options: Options) {
 
 export function resetActivityBar() {
   commit({ order: [...defaults], hidden: [] });
-  setStatus("Barra lateral restablecida al orden predeterminado", 3000);
+  setStatus(t("Barra lateral restablecida al orden predeterminado"), 3000);
 }
 
 /** Selector rápido para mostrar/ocultar o restablecer botones desde la paleta de comandos. */
 export function customizeActivityBar() {
   quickPick({
-    placeholder: "Mostrar u ocultar un botón de la barra lateral (también puedes arrastrarlos)…",
+    placeholder: t("Mostrar u ocultar un botón de la barra lateral (también puedes arrastrarlos)…"),
     load: (): PickItem[] => {
       const hidden = new Set(cfg.hidden);
       const visCount = cfg.order.filter((id) => !hidden.has(id)).length;
@@ -250,13 +251,13 @@ export function customizeActivityBar() {
         const isVis = !hidden.has(id);
         return {
           label: `${isVis ? "✓ " : "   "}${labelOf(id)}`,
-          detail: isVis ? (visCount <= 1 ? "Visible (obligatorio)" : "Visible — clic para ocultar") : "Oculto — clic para mostrar",
+          detail: isVis ? (visCount <= 1 ? t("Visible (obligatorio)") : t("Visible — clic para ocultar")) : t("Oculto — clic para mostrar"),
           run: () => { commit(toggleActivityVisible(cfg, id)); },
         };
       });
       items.push({
-        label: "Restablecer orden y visibilidad predeterminados",
-        detail: "Vuelve al orden original",
+        label: t("Restablecer orden y visibilidad predeterminados"),
+        detail: t("Vuelve al orden original"),
         run: () => resetActivityBar(),
       });
       return items;

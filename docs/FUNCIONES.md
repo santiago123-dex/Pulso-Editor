@@ -8,7 +8,7 @@ Este inventario describe la implementación presente en el repositorio. Las prop
 - El explorador permite crear, renombrar, mover y enviar archivos o carpetas a la papelera; ofrece menús contextuales y permite mostrar un elemento en el explorador del sistema.
 - El editor admite pestañas fijadas, reapertura de pestañas y hasta cuatro grupos, en disposición horizontal o vertical. Un documento abierto en varios grupos comparte su contenido.
 - Hay paleta de comandos, apertura rápida de archivos, navegación atrás/adelante y atajos editables.
-- Línea de comandos (`pulso`, un programa de consola que viaja con el instalador y queda en el PATH del usuario; se deshace al desinstalar). Sin argumentos abre el asistente de IA en la propia terminal, sobre la carpeta actual, como `claude`: `pulso`, o `pulso -p "pregunta"` para una sola respuesta. Opciones: `--provider claude|codex|antigravity`, `--model`, `--effort`, `--edit` (por defecto solo lee). Solo trabaja en carpetas de proyecto: la primera vez en cada una pide confianza (se recuerda, y vale para sus subcarpetas; `--trust` la da sin preguntar) y se niega en la raíz de una unidad, la carpeta personal, Escritorio, Documentos, Descargas y carpetas del sistema. Muestra un recuadro de bienvenida, un indicador de espera con el tiempo, las herramientas que usa la IA y la respuesta con formato (títulos, listas, negrita, código y bloques); sin colores si la salida no es una terminal o existe `NO_COLOR`. Dentro: `/provider`, `/model`, `/effort`, `/edit`, `/read`, `/new`, `/help`, `/exit`; la conversación continúa entre mensajes. Con una ruta abre la ventana: `pulso .`, `pulso archivo`, `pulso -g archivo:línea:columna` (varias a la vez). Solo hay una ventana: si Pulso ya está abierto, las rutas se abren en ella y se le da el foco. Una carpeta pasa a ser el espacio de trabajo; un archivo suelto sin carpeta abierta abre la carpeta que lo contiene. El comando «Instalar el comando «pulso» en la terminal» repite el paso del PATH en Windows.
+- Línea de comandos (`pulso`, un programa de consola que viaja con el instalador y queda en el PATH del usuario; se deshace al desinstalar). Sin argumentos abre el asistente de IA en la propia terminal, sobre la carpeta actual, como `claude`: `pulso`, o `pulso -p "pregunta"` para una sola respuesta. Opciones: `--provider claude|codex|antigravity`, `--model`, `--effort`, `--edit` (por defecto solo lee). Solo trabaja en carpetas de proyecto: la primera vez en cada una pide confianza (se recuerda, y vale para sus subcarpetas; `--trust` la da sin preguntar) y se niega en la raíz de una unidad, la carpeta personal, Escritorio, Documentos, Descargas y carpetas del sistema. Muestra un recuadro de bienvenida, un indicador de espera con el tiempo, las herramientas que usa la IA y la respuesta con formato (títulos, listas, negrita, código y bloques); sin colores si la salida no es una terminal o existe `NO_COLOR`. Habla en el idioma del sistema (español si es español; si no, inglés); `PULSO_LANG=es` o `PULSO_LANG=en` lo fija. Dentro: `/provider`, `/model`, `/effort`, `/edit`, `/read`, `/new`, `/help`, `/exit`; la conversación continúa entre mensajes. Con una ruta abre la ventana: `pulso .`, `pulso archivo`, `pulso -g archivo:línea:columna` (varias a la vez). Solo hay una ventana: si Pulso ya está abierto, las rutas se abren en ella y se le da el foco. Una carpeta pasa a ser el espacio de trabajo; un archivo suelto sin carpeta abierta abre la carpeta que lo contiene. El comando «Instalar el comando «pulso» en la terminal» repite el paso del PATH en Windows.
 - El explorador oculta `.git`, `node_modules` y `target`. La apertura rápida recorre hasta 20.000 archivos y omite, además, varios directorios de compilación habituales.
 
 ## Edición y búsqueda
@@ -34,11 +34,13 @@ La terminal utiliza xterm.js y un pseudoterminal nativo; admite procesos interac
 
 ## Inteligencia de proyecto: LSP
 
-Pulso inicia un servidor local de TypeScript/JavaScript al abrir una carpeta. Ofrece diagnósticos, sugerencias, documentación al pasar el cursor, definiciones y referencias; sincroniza documentos abiertos y sus cambios sin guardar. Detecta extensiones TypeScript/JavaScript, incluidas variantes JSX/TSX. El proyecto puede aportar su propia configuración y versión de TypeScript.
+Pulso inicia un servidor local de TypeScript/JavaScript al abrir una carpeta. Ofrece diagnósticos, sugerencias, documentación al pasar el cursor, definiciones y referencias; sincroniza documentos abiertos y sus cambios sin guardar. Detecta extensiones TypeScript/JavaScript, incluidas variantes JSX/TSX.
+
+**Sin instalar nada.** El servidor es el de **TypeScript 7**, un ejecutable nativo que viene con Pulso: no hace falta Node.js. TypeScript 7 retiró opciones antiguas de `tsconfig.json` (`baseUrl`, `moduleResolution: "node"`, `target: "es5"`, …) y las marca como error. Por eso, si el proyecto tiene instalado **TypeScript 5 o 6** en su `node_modules` (o en el de una carpeta superior), Pulso usa esa versión, como antes. Ese **modo compatible** necesita Node.js, que esos proyectos ya tienen. Si Node no está, Pulso usa TypeScript 7 y lo avisa en la barra de estado.
 
 Con `Ctrl` pulsado (`Cmd` en macOS) el cursor pasa a mano sobre las palabras y, cuando el servidor confirma que hay definición, se subraya; `Ctrl+clic` abre el archivo de destino. Si el servidor aún está arrancando, el primer `Ctrl+clic` espera a que termine en vez de perderse.
 
-Se requiere Node.js 22.22.2 o posterior en `PATH`. La barra de estado muestra su estado («LSP: iniciando…», «LSP: activo» o «LSP: detenido»); al pulsarlo se explica el estado, con el motivo si se detuvo, y se puede reiniciar. Si el servidor falla, Pulso informa y vuelve a los servicios integrados de Monaco. Para reiniciarlo, abre la paleta y busca **Lenguaje: Reiniciar inteligencia de TypeScript y JavaScript**. **Renombrar (F2).** Con el cursor sobre un símbolo, `F2` pide el renombrado al servidor. También están conectadas las acciones de código (`Ctrl+.`), ayuda de firma, símbolos del documento (`Ctrl+Shift+O`) e inlay hints respetando las capacidades anunciadas por el servidor; el soporte de otros lenguajes requiere nuevos servidores.
+La barra de estado muestra su estado («LSP: iniciando…», «LSP: activo» o «LSP: detenido»); al pulsarlo se explica el estado, con el motivo si se detuvo, y se puede reiniciar. Si el servidor falla, Pulso informa y vuelve a los servicios integrados de Monaco. Para reiniciarlo, abre la paleta y busca **Lenguaje: Reiniciar inteligencia de TypeScript y JavaScript**. **Renombrar (F2).** Con el cursor sobre un símbolo, `F2` pide el renombrado al servidor. También están conectadas las acciones de código (`Ctrl+.`), ayuda de firma, símbolos del documento (`Ctrl+Shift+O`) e inlay hints respetando las capacidades anunciadas por el servidor; el soporte de otros lenguajes requiere nuevos servidores.
 
 **Formatear.** `Mayús+Alt+F` da formato al documento con el servidor de lenguaje (TypeScript y JavaScript, con el tamaño de tabulación del editor). La opción **Formatear al guardar** (Configuración o la paleta; apagada por defecto) lo hace al guardar con `Ctrl+S`, nunca en el autoguardado; si el formateo falla o tarda más de 4 s, se guarda el texto tal cual. Pulso no incluye Prettier ni otros formateadores.
 
@@ -112,6 +114,20 @@ Límites: columnas fijas (no hay columnas personalizadas ni GitHub Projects), si
 
 **Abrir enlaces.** Pulsar una issue de la lista lateral (o el icono de enlace de una tarjeta) la abre en el navegador del sistema. La ventana de Pulso no abre ventanas nuevas, así que se usa un comando propio que solo acepta enlaces http y https. El botón **Tablero** de la cabecera de Issues abre el tablero kanban.
 
+**Iniciar sesión con GitHub con un código (sin Git).**
+Si la compilación trae el identificador de la aplicación OAuth de Pulso, «Conectar con GitHub» funciona así:
+1. Muestra un código corto («WDJB-MJHT»).
+2. «Copiar el código y abrir GitHub» lo copia y abre github.com/login/device.
+3. Lo pegas, pulsas «Authorize», y el diálogo se cierra solo con «Conectado a GitHub como …».
+
+Detalles:
+- Permisos que se piden: `repo` (repositorios, issues y pull requests, también privados) y `read:user`.
+- El token se comprueba con `/user` y se guarda en el almacén de credenciales del sistema, igual que con Git; nunca pasa por la interfaz.
+- El código caduca a los 15 minutos.
+- No hace falta tener Git ni Git Credential Manager.
+- Sin ese identificador, o con el botón «Usar la sesión de Git», se usa la conexión de siempre, descrita a continuación.
+- Push y pull siguen usando las credenciales de Git del equipo.
+
 **Conectar la cuenta de GitHub.** No hay que crear ni pegar ningún token. Con una carpeta con `origin` de GitHub, si la lista de issues o el tablero reciben 401, 403 o 404 (GitHub responde 404 a un repositorio privado al que no tienes acceso), aparece el botón **Conectar con GitHub**; también está en Configuración → GitHub, junto a «Volver a conectar» y «Desconectar». El botón pide a Git la credencial de GitHub (`git credential fill`): si Git Credential Manager ya tiene tu sesión se usa al instante; si no, el gestor abre el navegador para que autorices el acceso. Pulso comprueba la sesión con `GET /user`, muestra «Conectado como …» y guarda el token en el almacén de credenciales del sistema. Al iniciar, si no hay ningún token, Pulso adopta en silencio la sesión que Git ya tenga (nunca abre ventanas). Requisitos y límites: Git instalado y un gestor de credenciales (Git Credential Manager viene con Git para Windows); el permiso es el que concedió ese gestor (normalmente acceso a repositorios); si GitHub rechaza una sesión caducada, Pulso lo dice y no guarda nada. No se probó la autorización por navegador desde cero (sin sesión previa).
 
 Para repositorios privados también se puede configurar un token a mano en Ajustes (avanzado). Pulso intenta guardarlo en el almacén de credenciales del sistema y migra el token de la ubicación antigua; si el almacén falla, se conserva en memoria durante la sesión.
@@ -119,6 +135,21 @@ Para repositorios privados también se puede configurar un token a mano en Ajust
 ## Personalización
 
 Incluye temas de interfaz y sintaxis, colores de acento, configuración de la terminal y editor de atajos. Es posible importar temas de VS Code instalados o un archivo de tema JSON; esto no instala extensiones de VS Code.
+
+**Idioma.** Se elige en Configuración → Apariencia → Idioma: «Automático» (español si el sistema está en español; si no, inglés), «Español» o «English». El cambio se aplica al recargar la ventana: el diálogo ofrece «Recargar ahora». Traducido al inglés por ahora:
+- menús;
+- paleta de comandos;
+- barra de estado y barra de actividad;
+- pantalla de inicio;
+- diálogos comunes;
+- actualizaciones;
+- página de configuración;
+- textos fijos de los paneles;
+- explorador, búsqueda y reemplazo, pestañas, conflictos y recuperación de archivos;
+- control de código (Git), historial, diferencias y pull requests;
+- servidor de lenguaje y panel de problemas.
+
+También issues, tablero, chat del equipo y «trabajar en una issue». También el asistente de IA, los temas, los atajos y la terminal. También los mensajes de error que llegan desde Rust. Siguen en español a propósito lo que se envía a la IA o se publica en GitHub para todo el equipo (como el título de la sala del chat o el cuerpo de las pull requests que crea el flujo de issues). Las opciones del propio editor Monaco (menú contextual, buscar en el documento) están siempre en inglés.
 
 **Aspecto por defecto.** El tema «Pulso Oscuro» usa grafito neutro y un único acento azul (`#5b9cf5`); el color queda para estados, etiquetas y la acción principal, y la barra de estado es neutra. El texto de los botones con acento se elige por contraste (blanco o negro, el que más contraste dé). Quien tenía el acento morado de fábrica pasa al nuevo; uno elegido a propósito se respeta. La dirección completa y sus razones están en [DESIGN.md](../DESIGN.md).
 

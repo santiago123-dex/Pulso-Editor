@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import * as monaco from "monaco-editor";
 import { docs, onDocsChange } from "./docs";
 import { openFile } from "./groups";
@@ -35,7 +36,7 @@ function refresh() {
   const text = statusText(counts);
   status.textContent = text;
   status.hidden = !text;
-  status.title = `${summaryText(counts)} en los archivos abiertos. Pulsa para ver el panel.`;
+  status.title = t("{summary} en los archivos abiertos. Pulsa para ver el panel.", { summary: summaryText(counts) });
   status.classList.toggle("has-errors", counts.error > 0);
   const badge = $("problems-badge");
   const n = counts.error + counts.warning;
@@ -51,12 +52,12 @@ function schedule() {
 
 function paint(all: Problem[]) {
   const counts = countProblems(all);
-  $("problems-summary").textContent = all.length ? `${summaryText(counts)} en los archivos abiertos` : "Sin problemas en los archivos abiertos";
+  $("problems-summary").textContent = all.length ? t("{summary} en los archivos abiertos", { summary: summaryText(counts) }) : t("Sin problemas en los archivos abiertos");
   const box = $("problems-list");
   box.replaceChildren();
   const groups = groupProblems(all, onlyErrors);
   if (!groups.length) {
-    box.append(h("div", "problems-empty", all.length && onlyErrors ? "No hay errores. Quita el filtro para ver avisos." : "Los problemas aparecen aquí cuando el servidor de lenguaje analiza los archivos abiertos."));
+    box.append(h("div", "problems-empty", all.length && onlyErrors ? t("No hay errores. Quita el filtro para ver avisos.") : t("Los problemas aparecen aquí cuando el servidor de lenguaje analiza los archivos abiertos.")));
     return;
   }
   for (const g of groups) {

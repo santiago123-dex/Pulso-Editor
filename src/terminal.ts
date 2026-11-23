@@ -1,8 +1,10 @@
+import { t as tr } from "./i18n";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { readStorage, writeStorage } from "./core/storage";
 import { terminalKeyAction } from "./terminalKeys";
 import { commit, currentTheme, state } from "./settings";
 import { detectPrefs, hasAnythingToAdapt, planAdaptation, resolveScheme, shellIdFor, type Adaptation, type Detected, type ShellInfo } from "./terminalPrefs";
@@ -15,6 +17,7 @@ export type { ShellInfo };
 interface Term {
   id: number;
   label: string;
+  cwd: string;
   xterm: Terminal;
   fit: FitAddon;
   el: HTMLElement;
@@ -81,7 +84,7 @@ function shellBadge(label: string): string {
   if (low.includes("powershell") || low.includes("pwsh")) return "PS";
   if (low.includes("git bash") || low.includes("bash")) return "SH";
   if (low.includes("wsl") || low.includes("ubuntu")) return "WSL";
-  if (low.includes("cmd") || low.includes("símbolo")) return "CMD";
+  if (low.includes("cmd") || low.includes("símbolo") || low.includes("command prompt")) return "CMD";
   return ">_";
 }
 
@@ -91,7 +94,7 @@ function syncMeta() {
   if (!meta) return;
   panel.classList.toggle("term-err", !!active?.exited);
   if (!active) { meta.hidden = true; return; }
-  const dir = ws.root ? ws.root.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? "" : "";
+  const dir = active.cwd ? active.cwd.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? "" : "";
   meta.textContent = `${dir ? `${dir} · ` : ""}${active.xterm.cols}×${active.xterm.rows}`;
   meta.hidden = false;
 }
@@ -104,7 +107,7 @@ function renderTabs() {
     tab.title = t.label;
     tab.append(h("span", "term-glyph", shellBadge(t.label)), h("span", "term-label", t.label));
     const close = h("span", "term-close", "×");
-    close.title = "Terminar esta terminal";
+    close.title = tr("Terminar esta terminal");
     close.onclick = (e) => { e.stopPropagation(); closeTerm(t); };
     tab.append(close);
     tab.onclick = () => activateTerm(t);
@@ -145,7 +148,7 @@ function onExit(t: Term, code: number) {
   t.exited = true;
   // Un `exit` normal cierra la terminal; si falló se deja el mensaje a la vista.
   if (code === 0) { closeTerm(t); return; }
-  t.xterm.write(`\r\n\x1b[2m[El proceso terminó con el código ${code}]\x1b[0m\r\n`);
+  t.xterm.write(`\r\n\x1b[2m[${tr("El proceso terminó con el código {code}", { code })}]\x1b[0m\r\n`);
   renderTabs();
 }
 
@@ -178,20 +181,20 @@ export async function adaptToMyTerminal(): Promise<boolean> {
   detected = await detectPrefs();
   const plan = planAdaptation(detected, await listShells());
   if (!plan.summary.length) {
-    setStatus("No encontré configuración de terminal en VS Code ni en Windows Terminal");
+    setStatus(tr("No encontré configuración de terminal en VS Code ni en Windows Terminal"));
     return false;
   }
   const r = await showDialog({
-    title: "Adaptar la terminal a la tuya",
-    message: "Encontré esta configuración en tus otras terminales:\n\n" + plan.summary.map((l) => "\u2022 " + l).join("\n") + "\n\n¿Quieres que Pulso la use?",
+    title: tr("Adaptar la terminal a la tuya"),
+    message: tr("Encontré esta configuración en tus otras terminales:\n\n") + plan.summary.map((l) => "\u2022 " + l).join("\n") + tr("\n\n¿Quieres que Pulso la use?"),
     buttons: [
-      { label: "No, gracias", value: "no" },
-      { label: "Usar la mía", value: "yes", primary: true },
+      { label: tr("No, gracias"), value: "no" },
+      { label: tr("Usar la mía"), value: "yes", primary: true },
     ],
   });
   if (r !== "yes") return false;
   applyAdaptation(plan);
-  setStatus("Terminal adaptada a tu configuración");
+  setStatus(tr("Terminal adaptada a tu configuración"));
   return true;
 }
 
@@ -202,27 +205,27 @@ export async function adaptToMyTerminal(): Promise<boolean> {
  */
 const AUTO_KEY = "pulso.terminalAutoAdapt";
 async function adaptOnce() {
-  if (localStorage.getItem(AUTO_KEY)) return;
-  localStorage.setItem(AUTO_KEY, "1");
+  if (readStorage(AUTO_KEY)) return;
+  writeStorage(AUTO_KEY, "1");
   const s = state.settings;
   const custom = !!(s.terminalFont || s.terminalShell || s.terminalScheme || s.terminalFontSize);
   if (custom) return;
   try {
     detected = await detectPrefs();
     const plan = planAdaptation(detected, await listShells());
-    if (plan.summary.length) { applyAdaptation(plan); setStatus("Terminal adaptada a la tuya: " + plan.summary.join(" · "), 6000); return; }
+    if (plan.summary.length) { applyAdaptation(plan); setStatus(tr("Terminal adaptada a la tuya: ") + plan.summary.join(" · "), 6000); return; }
   } catch { /* sin configuración que leer: se usa la shell predeterminada */ }
   state.settings.terminalAdapted = true;
   commit();
 }
 
 export async function newTerminal(opts: { shell?: ShellInfo; cwd?: string } = {}): Promise<boolean> {
-  if (!inTauri) { setStatus("La terminal solo funciona en la ventana de Pulso Editor."); return false; }
+  if (!inTauri) { setStatus(tr("La terminal solo funciona en la ventana de Pulso Editor.")); return false; }
   await adaptOnce();
   // xterm mide las celdas al abrirse: la fuente de símbolos debe estar cargada antes, o los iconos salen como cuadros.
   await document.fonts.load('14px "Symbols Nerd Font Mono"', "").catch(() => {});
   const shell = opts.shell ?? (await preferredShell());
-  if (!shell) { setStatus("No se encontró ninguna shell instalada."); return false; }
+  if (!shell) { setStatus(tr("No se encontró ninguna shell instalada.")); return false; }
   await ensureListening();
   showPanel(true);
 
@@ -242,11 +245,12 @@ export async function newTerminal(opts: { shell?: ShellInfo; cwd?: string } = {}
   xterm.open(el);
   fit.fit();
 
+  const cwd = opts.cwd ?? ws.root ?? "";
   let id: number;
   try {
     id = await invoke<number>("term_spawn", {
       shellId: shell.id,
-      cwd: opts.cwd ?? ws.root ?? null,
+      cwd: cwd || null,
       cols: xterm.cols,
       rows: xterm.rows,
     });
@@ -254,11 +258,11 @@ export async function newTerminal(opts: { shell?: ShellInfo; cwd?: string } = {}
     xterm.dispose();
     el.remove();
     if (!order.length) showPanel(false);
-    setStatus(`No se pudo abrir la terminal: ${e}`);
+    setStatus(tr("No se pudo abrir la terminal: {error}", { error: String(e) }));
     return false;
   }
 
-  const t: Term = { id, label: `${shell.label} ${++counter}`, xterm, fit, el, exited: false };
+  const t: Term = { id, label: `${shell.label} ${++counter}`, cwd, xterm, fit, el, exited: false };
   byId.set(id, t);
   order.push(t);
 
@@ -281,12 +285,12 @@ export async function newTerminal(opts: { shell?: ShellInfo; cwd?: string } = {}
   el.addEventListener("contextmenu", (e) => {
     e.preventDefault();
     showMenu(e.clientX, e.clientY, [
-      { label: "Copiar", hint: "Ctrl+Shift+C", disabled: !xterm.hasSelection(), run: () => copySelection(t) },
-      { label: "Pegar", hint: "Ctrl+Shift+V", run: () => void pasteInto(t) },
-      { label: "Seleccionar todo", run: () => xterm.selectAll() },
+      { label: tr("Copiar"), hint: "Ctrl+Shift+C", disabled: !xterm.hasSelection(), run: () => copySelection(t) },
+      { label: tr("Pegar"), hint: "Ctrl+Shift+V", run: () => void pasteInto(t) },
+      { label: tr("Seleccionar todo"), run: () => xterm.selectAll() },
       "sep",
-      { label: "Limpiar", run: () => xterm.clear() },
-      { label: "Nueva terminal", run: () => void newTerminal() },
+      { label: tr("Limpiar"), run: () => xterm.clear() },
+      { label: tr("Nueva terminal"), run: () => void newTerminal() },
     ]);
   });
 
@@ -304,12 +308,12 @@ function sendInterrupt(t: Term) {
 
 function copySelection(t: Term, clear = false) {
   const text = t.xterm.getSelection();
-  if (text) void navigator.clipboard.writeText(text).catch(() => setStatus("No se pudo copiar al portapapeles"));
+  if (text) void navigator.clipboard.writeText(text).catch(() => setStatus(tr("No se pudo copiar al portapapeles")));
   if (clear) t.xterm.clearSelection();
 }
 
 async function pasteInto(t: Term) {
-  try { t.xterm.paste(await navigator.clipboard.readText()); } catch { setStatus("No se pudo leer el portapapeles"); }
+  try { t.xterm.paste(await navigator.clipboard.readText()); } catch { setStatus(tr("No se pudo leer el portapapeles")); }
 }
 
 // ---------- Acciones públicas ----------

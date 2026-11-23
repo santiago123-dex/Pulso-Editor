@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
 import { state } from "./settings";
@@ -76,7 +77,7 @@ const pendingBackupWrites = new Map<string, object>();
 function queueBackup(path: string, operation: () => Promise<void>): Promise<void> {
   const previous = backupOperations.get(path) ?? Promise.resolve();
   const next = previous.catch(() => {}).then(operation).catch((e) => {
-    setStatus(`No se pudo actualizar la recuperación de ${baseName(path)}: ${e}`, 10000);
+    setStatus(t("No se pudo actualizar la recuperación de {file}: {error}", { file: baseName(path), error: String(e) }), 10000);
   });
   backupOperations.set(path, next);
   void next.then(() => { if (backupOperations.get(path) === next) backupOperations.delete(path); });
@@ -171,7 +172,7 @@ export async function saveDoc(d: Doc, force = false, retried = false, auto = fal
   saving.add(d.path);
   // Formatear antes de escribir, solo en guardados manuales: en el autoguardado movería el texto mientras se escribe.
   if (!auto && !retried && state.settings.formatOnSave && beforeSave) {
-    try { await beforeSave(d); } catch (e) { setStatus(`No se pudo formatear ${baseName(d.path)}: ${e}`, 6000); }
+    try { await beforeSave(d); } catch (e) { setStatus(t("No se pudo formatear {file}: {error}", { file: baseName(d.path), error: String(e) }), 6000); }
   }
   const version = d.model.getAlternativeVersionId();
   try {
@@ -195,7 +196,7 @@ export async function saveDoc(d: Doc, force = false, retried = false, auto = fal
       if (!force && !retried && await unchangedOnDisk(d)) return saveDoc(d, false, true);
       return resolveConflict(d);
     }
-    setStatus(`Error al guardar ${baseName(d.path)}: ${e}`);
+    setStatus(t("Error al guardar {file}: {error}", { file: baseName(d.path), error: String(e) }));
     return false;
   } finally {
     saving.delete(d.path);
@@ -207,21 +208,21 @@ async function resolveConflict(d: Doc): Promise<boolean> {
   conflictOpen.add(d.path);
   try {
     const r = await showDialog({
-      title: "El archivo cambió en el disco",
-      message: `${baseName(d.path)} se modificó fuera del editor después de abrirlo. Si guardas ahora, esos cambios se perderán.`,
+      title: t("El archivo cambió en el disco"),
+      message: t("{file} se modificó fuera del editor después de abrirlo. Si guardas ahora, esos cambios se perderán.", { file: baseName(d.path) }),
       buttons: [
-        { label: "Cancelar", value: "cancel" },
-        { label: "Ver diferencias", value: "diff" },
-        { label: "Cargar la versión del disco", value: "reload" },
-        { label: "Sobrescribir con la mía", value: "overwrite", danger: true },
+        { label: t("Cancelar"), value: "cancel" },
+        { label: t("Ver diferencias"), value: "diff" },
+        { label: t("Cargar la versión del disco"), value: "reload" },
+        { label: t("Sobrescribir con la mía"), value: "overwrite", danger: true },
       ],
     });
     if (r === "diff") {
       const disk = await invoke<string>("read_file", { path: d.path });
       const { openDiffRequest } = await import("./diffView");
       await openDiffRequest({
-        title: `${baseName(d.path)} (conflicto)`,
-        sub: "Disco (externo) ↔ Editor (tus cambios sin guardar)",
+        title: t("{file} (conflicto)", { file: baseName(d.path) }),
+        sub: t("Disco (externo) ↔ Editor (tus cambios sin guardar)"),
         path: d.path,
         openPath: d.path,
         load: async () => ({ original: disk, modified: d.model.getValue(), binary: false }),
@@ -231,11 +232,11 @@ async function resolveConflict(d: Doc): Promise<boolean> {
     if (r === "overwrite") return await saveDoc(d, true);
     if (r === "reload") {
       await reloadDoc(d.path);
-      setStatus(`${baseName(d.path)} se recargó desde el disco`);
+      setStatus(t("{file} se recargó desde el disco", { file: baseName(d.path) }));
     }
     return false;
   } catch (e) {
-    setStatus(`No se pudo resolver el conflicto de ${baseName(d.path)}: ${e}`);
+    setStatus(t("No se pudo resolver el conflicto de {file}: {error}", { file: baseName(d.path), error: String(e) }));
     return false;
   } finally {
     conflictOpen.delete(d.path);
@@ -311,15 +312,15 @@ export async function checkExternal() {
       if (await unchangedOnDisk(d)) continue;
       if (!isDirty(d)) {
         await reloadDoc(d.path);
-        setStatus(`${baseName(d.path)} se recargó porque cambió en el disco`);
+        setStatus(t("{file} se recargó porque cambió en el disco", { file: baseName(d.path) }));
         continue;
       }
       const r = await showDialog({
-        title: "El archivo cambió en el disco",
-        message: `${baseName(d.path)} se modificó fuera del editor y tienes cambios sin guardar.`,
+        title: t("El archivo cambió en el disco"),
+        message: t("{file} se modificó fuera del editor y tienes cambios sin guardar.", { file: baseName(d.path) }),
         buttons: [
-          { label: "Mantener los míos", value: "keep" },
-          { label: "Recargar desde el disco", value: "reload", danger: true },
+          { label: t("Mantener los míos"), value: "keep" },
+          { label: t("Recargar desde el disco"), value: "reload", danger: true },
         ],
       });
       // Con "mantener", guardar volverá a avisar del conflicto: la decisión final es al guardar.
@@ -333,10 +334,10 @@ export async function checkExternal() {
 // ---------- Recuperación tras un cierre inesperado ----------
 function ago(ms: number): string {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
-  if (s < 60) return "hace unos segundos";
-  if (s < 3600) return `hace ${Math.round(s / 60)} min`;
-  if (s < 86400) return `hace ${Math.round(s / 3600)} h`;
-  return `hace ${Math.round(s / 86400)} d`;
+  if (s < 60) return t("hace unos segundos");
+  if (s < 3600) return t("hace {n} min", { n: Math.round(s / 60) });
+  if (s < 86400) return t("hace {n} h", { n: Math.round(s / 3600) });
+  return t("hace {n} d", { n: Math.round(s / 86400) });
 }
 
 /** Vuelve a poner en un documento los cambios de una copia de recuperación. */
@@ -371,14 +372,14 @@ export async function offerRecovery(open: (path: string) => Promise<void>): Prom
   try { list = await invoke<Backup[]>("backup_list"); } catch { return; }
   if (!list.length) return;
   const shown = list.slice(0, 8).map((b) => `• ${baseName(b.path)} (${ago(b.saved_at)})`).join("\n");
-  const more = list.length > 8 ? `\n… y ${list.length - 8} más` : "";
+  const more = list.length > 8 ? "\n" + t("… y {count} más", { count: list.length - 8 }) : "";
   const r = await showDialog({
-    title: "Recuperar cambios sin guardar",
-    message: `Pulso se cerró antes de guardar estos archivos:\n\n${shown}${more}`,
+    title: t("Recuperar cambios sin guardar"),
+    message: t("Pulso se cerró antes de guardar estos archivos:") + `\n\n${shown}${more}`,
     buttons: [
-      { label: "Descartar", value: "discard", danger: true },
-      { label: "Más tarde", value: "later" },
-      { label: "Restaurar", value: "restore", primary: true },
+      { label: t("Descartar"), value: "discard", danger: true },
+      { label: t("Más tarde"), value: "later" },
+      { label: t("Restaurar"), value: "restore", primary: true },
     ],
   });
   if (r === "discard") {
@@ -388,7 +389,7 @@ export async function offerRecovery(open: (path: string) => Promise<void>): Prom
       await restoreFromBackup(b);
       await open(b.path);
     }
-    setStatus(`${list.length} archivo(s) restaurado(s). Revisa los cambios y guarda.`);
+    setStatus(t("{count} archivo(s) restaurado(s). Revisa los cambios y guarda.", { count: list.length }));
   }
 }
 

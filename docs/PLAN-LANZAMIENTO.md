@@ -19,26 +19,30 @@ Puntos fuertes:
 - [x] **Licencia.** MIT en [`LICENSE`](../LICENSE), declarada en `package.json`, `Cargo.toml` y `tauri.conf.json`.
 - [x] **Avisos de terceros.** Están en [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md). Los 539 crates de Rust tienen licencias compatibles con MIT.
 - [x] **Integración continua.** `.github/workflows/ci.yml` ejecuta en Windows y Ubuntu las pruebas TypeScript y Rust, `tsc` con la compilación web y la prueba del arranque del LSP. Todavía no se ha ejecutado en GitHub.
-- [x] **Flujo de publicación.** `.github/workflows/release.yml` genera el instalador NSIS y los paquetes .deb, .rpm y AppImage al subir una etiqueta `vX.Y.Z`, y los deja en un borrador de release. Todavía no se ha ejecutado (ver [Distribución](DISTRIBUCION.md)).
+- [x] **Flujo de publicación.** `.github/workflows/release.yml` genera el instalador NSIS y los paquetes .deb, .rpm y AppImage al subir una etiqueta `vX.Y.Z`, y los deja en un borrador de release del repositorio público de releases. Todavía no se ha ejecutado (ver [Distribución](DISTRIBUCION.md)).
 - [ ] **Firma del instalador.** Sin firma, SmartScreen avisa de «aplicación no reconocida» y mucha gente no la instala. Opciones:
   - **SignPath:** gratis para proyectos de código abierto.
   - **Azure Trusted Signing:** de pago, con una cuota mensual baja.
-- [ ] **Actualizaciones automáticas** con `tauri-plugin-updater`, usando GitHub Releases y un par de claves de firma de actualizaciones. La clave privada se guarda como secreto del repositorio y nunca se sube. Sin esto, cada persona se queda en la versión que instaló.
-- [ ] **WebView2 garantizado.** Configurar `bundle.windows.webviewInstallMode` (por ejemplo `embedBootstrapper`) para que el instalador lo instale si falta.
+- [x] **Actualizaciones automáticas.** Usan `tauri-plugin-updater`, `latest.json` en GitHub Releases y paquetes firmados (ver [Distribución](DISTRIBUCION.md)). Para que funcionen faltan tres cosas:
+  - [ ] guardar los secretos de la clave en GitHub;
+  - [x] publicar las releases en un repositorio público aparte ([Pulso-Editor-releases](https://github.com/santiago123-dex/Pulso-Editor-releases)), porque este es privado;
+  - [ ] crear el secreto `RELEASES_TOKEN` con un token limitado a ese repositorio;
+  - [ ] probar una actualización real entre dos versiones.
+- [x] **WebView2 garantizado.** El instalador ya lo instalaba si faltaba: es lo que hace Tauri por defecto, descargando el instalador de Microsoft sin preguntar. Ahora está fijado de forma explícita en `tauri.conf.json` (`downloadBootstrapper`). Necesita internet. Si hiciera falta instalar sin conexión, se puede publicar un segundo instalador con `offlineInstaller`, unos 127 MB más grande. Falta comprobarlo en un Windows sin WebView2 (punto siguiente).
 - [ ] **Probar en un Windows limpio**, en una máquina virtual sin Node, Git ni WebView2: instalar, abrir, desinstalar.
-- [ ] **Separar desarrollo y producción.** Hoy las dos versiones usan el identificador `dev.pulso.editor` y comparten configuración, sesión y copias de recuperación. La versión de desarrollo debería tener otro identificador, por ejemplo `dev.pulso.editor.dev`.
-- [ ] **Documentos para el público:**
-  - un README pensado para quien instala, con capturas y enlace de descarga;
+- [x] **Separar desarrollo y producción.** Las compilaciones de desarrollo usan el identificador `dev.pulso.editor.dev` y ya no comparten datos con la instalada (ver [Distribución](DISTRIBUCION.md)).
+- [x] **Documentos para el público:**
+  - `README.md` (pendiente añadir capturas finales y enlace de descarga tras la primera release);
   - `CHANGELOG.md`;
   - `CONTRIBUTING.md`;
-  - una plantilla para reportar errores;
-  - una nota de privacidad: qué envía la IA a su proveedor, qué se publica en GitHub y qué se guarda sin cifrar en el equipo.
-- [ ] **Diagnóstico local.** Un registro en archivo (con rotación) y un comando «Copiar información de diagnóstico»: versión, sistema, estado del LSP y de Git, sin datos personales. No hace falta ningún servicio externo de errores.
+  - plantilla para reportar errores (`.github/ISSUE_TEMPLATE/bug_report.md`);
+  - nota de privacidad (`PRIVACY.md`).
+- [x] **Diagnóstico local.** Registro rotativo en `logs/pulso.log` y comando «Ayuda: Copiar información de diagnóstico» (versión, sistema, estado del LSP y de Git, sin datos personales).
 
 ## 2. Arreglos detectados en la revisión
 
 - [ ] **Chat del equipo y notificaciones.** Cada mensaje es un comentario en una issue, así que GitHub probablemente envía un correo a cada persona suscrita a esa issue, en cada mensaje. Hay que comprobarlo con dos cuentas reales antes de promocionar la función. Si se confirma, hay que avisarlo en la interfaz o cambiar de transporte (ver sección 4).
-- [ ] **Terminal: fin de sesión antes de tiempo.** En `src-tauri/src/term.rs`, `drop(reader_done)` no espera a que el hilo lector termine, aunque el comentario lo diga: soltar un `JoinHandle` no lo une. El aviso de salida puede llegar antes que las últimas líneas de la shell. La solución no es un simple `join()`, porque con ConPTY el lector puede no recibir el fin de datos hasta que se cierra el maestro. Hay que esperar con un tiempo límite o cerrar el maestro antes.
+- [x] **Terminal: fin de sesión antes de tiempo.** Corregido en `src-tauri/src/term.rs`: el hilo de espera usa un canal con tiempo límite acotado (`120 ms`) para dejar drenar las últimas líneas antes de emitir `term-exit` sin bloquear ConPTY.
 - [ ] **Pruebas de Ctrl+C.** `ctrl_c_interrupts_a_running_command_in_shell` y `ctrl_c_interrupts_powershell_command` fallan cuando el proceso que las lanza no entrega Ctrl+C a la consola nueva. Desde la terminal de Pulso o desde PowerShell pasan. Si también fallan en los servidores de GitHub, se pueden marcar para saltarlas en la CI con una variable de entorno, sin quitarlas.
 - [ ] **Archivos demasiado grandes.** Dividirlos por responsabilidad facilitaría revisarlos y probarlos:
 
@@ -50,8 +54,18 @@ Puntos fuertes:
   | `src-tauri/src/gitops.rs` | 1124 |
   | `src-tauri/src/lib.rs` | 1044 |
 
-- [ ] **Almacenamiento repartido.** Diez módulos usan `localStorage` directamente, aunque existe `src/core/storage.ts`. Centralizarlo facilita las migraciones, los límites de tamaño y las pruebas.
-- [ ] **Interfaz solo en español.** Todos los textos están escritos directamente en el código. Para llegar a más público hace falta una capa de traducciones, como mínimo en español e inglés, y un selector de idioma.
+- [x] **Almacenamiento repartido.** Todos los módulos de interfaz usan ahora la capa segura `src/core/storage.ts` en lugar de acceder a `localStorage` directamente.
+- [x] **Interfaz en inglés.** Ya hay capa de traducciones (`src/i18n.ts`, `src/locales/en.ts`) y selector de idioma.
+  - Primera tanda traducida: menús, paleta, barra de estado, inicio, diálogos, actualizaciones, configuración e `index.html`, unos 400 textos.
+  - Segunda tanda traducida, unos 260 textos:
+    - [x] explorador, búsqueda, pestañas y documentos;
+    - [x] Git, historial y pull requests;
+    - [x] servidor de lenguaje y panel de problemas.
+  - Tercera tanda traducida, unos 130 textos: [x] issues, tablero, chat del equipo y «trabajar en una issue». Quedan en español a propósito el título de la sala del chat y el texto de su issue (los comparte todo el equipo en GitHub) y las instrucciones que se envían a la IA.
+  - Cuarta tanda traducida, unos 285 textos: [x] asistente de IA (modelos, cuentas, uso del plan, modos y permisos, acciones rápidas y resumen de lo que hizo la IA). Siguen en español a propósito los mensajes que Pulso envía a la IA para que continúe una tarea.
+  - Quinta tanda traducida, unos 120 textos: [x] temas, atajos de teclado, terminal, scripts y los textos sueltos que quedaban. Con ella toda la interfaz web está traducida, salvo lo que se deja en español a propósito (lo que se envía a la IA o se publica en GitHub para todo el equipo).
+  - Sexta tanda: [x] los mensajes que nacen en Rust (archivos, Git, terminal, servidor de lenguaje, IA, actualizaciones), unos 150, con `src-tauri/src/i18n.rs`; la ventana le pasa el idioma elegido al arrancar. La herramienta `pulso` también está traducida y usa el idioma del sistema o `PULSO_LANG`.
+  - Pendiente de comprobar con una persona que use Pulso en inglés: textos largos que no quepan en botones o menús.
 
 ## 3. Funciones nuevas
 
@@ -104,9 +118,9 @@ Puntos fuertes:
    - prueba en un Windows limpio.
 2. **Beta pública:**
    - traducciones;
-   - incluir Node o adoptar `tsgo`;
-   - inicio de sesión OAuth propio;
-   - agente propio con modelos locales;
+   - ~~incluir Node o adoptar `tsgo`~~ hecho: TypeScript 7 nativo incluido;
+   - [x] inicio de sesión OAuth propio (por código de dispositivo, con la aplicación OAuth «Pulso Editor» registrada; ver [Distribución](DISTRIBUCION.md));
+   - [x] agente propio con modelos locales (Ollama): conversar, leer el proyecto, enviar imágenes y proponer ediciones revisables como diferencias antes de aplicarlas (ver [Asistente de IA](CHAT-IA.md));
    - diferencias antes de aplicar los cambios de la IA;
    - asistente de bienvenida.
 3. **Versión 1.0:**

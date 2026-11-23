@@ -38,7 +38,7 @@ Es una **compilación de prueba**, no una instalación. Conserva junto al `.exe`
 
 Para generar un instalador de prueba más rápido, usa `npm run tauri -- build --debug --bundles nsis`; su salida está en `src-tauri\target\debug\bundle\nsis\`. Cada vez que modifiques el código debes volver a compilar y reinstalar para actualizar la aplicación instalada.
 
-Para compilar se necesitan Node.js **22.22.2 o superior**, npm, Rust, las herramientas de compilación de Microsoft C++ y los requisitos de Tauri 2. En Windows, la aplicación necesita Microsoft Edge WebView2 Runtime. La inteligencia de TypeScript/JavaScript requiere también Node.js 22.22.2 o superior disponible en `PATH` **en el equipo donde se ejecuta Pulso**. El resto del editor puede utilizarse sin el servidor LSP.
+Para compilar se necesitan Node.js **22.22.2 o superior**, npm, Rust, las herramientas de compilación de Microsoft C++ y los requisitos de Tauri 2. En Windows, la aplicación necesita Microsoft Edge WebView2 Runtime. La inteligencia de TypeScript/JavaScript usa el servidor nativo de TypeScript 7 que viene con Pulso y **no necesita Node.js en el equipo donde se ejecuta**. Solo los proyectos que instalan TypeScript 5 o 6 lo usan con Node, en el modo compatible.
 
 ## Ejecutar durante el desarrollo
 
