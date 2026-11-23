@@ -7,7 +7,7 @@ import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
 import { lang, t, translateStatic } from "./i18n";
 import { connectProvider } from "./ai/providers";
-import { showAgentConfig } from "./ai/agentConfig";
+import { showAgentConfig, trustProject } from "./ai/agentConfig";
 import { showPermissionRules } from "./ai/permissions";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getVersion } from "@tauri-apps/api/app";
@@ -515,6 +515,7 @@ register(
   { id: "app.onboarding", label: t("Ayuda: Asistente de bienvenida"), keywords: "bienvenida inicio configurar tema idioma github onboarding", run: () => openOnboarding({ onOpenFolder: pickFolder }) },
   { id: "ai.permissionRules", label: t("IA: Comandos permitidos para este proyecto…"), keywords: "ai ia permisos comandos reglas permitir aprobar approve permissions", run: showPermissionRules },
   { id: "ai.agentConfig", label: t("IA: Ver instrucciones, skills y agentes del proyecto…"), keywords: "ai ia agente skills subagentes instrucciones agents.md claude.md comandos", run: showAgentConfig },
+  { id: "ai.trustProject", label: t("IA: Confiar en este proyecto…"), keywords: "ai ia confiar confianza trust proyecto agents.md", run: () => void trustProject() },
   { id: "ai.connectProvider", label: t("IA: Conectar un proveedor de modelos…"), keywords: "ai ia modelos provider proveedor api key clave openai anthropic openrouter models.dev", run: () => connectProvider() },
   { id: "file.openRecent", label: t("Archivo: Abrir carpeta reciente…"), run: pickRecent },
   { id: "file.closeFolder", label: t("Archivo: Cerrar carpeta"), run: closeWorkspace },

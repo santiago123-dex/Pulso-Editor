@@ -68,7 +68,7 @@ Dos agentes trabajan a la vez: **Claude** y **Antigravity**. Cada uno hace solo 
 **Por qué:** hoy la ventana declara su carpeta con `set_workspace_root`. Una ventana comprometida podría declarar `C:\` y saltarse todo `fsguard`. Es el hueco de seguridad más importante.
 
 - [x] Que **solo el backend fije la carpeta**: al elegirla con el diálogo (que abra Rust, no la ventana), al abrirla desde la CLI, al elegir una reciente y al restaurar la sesión guardada. Quitar `set_workspace_root` como comando libre, o hacer que solo acepte una ruta que el backend ya aprobó.
-- [ ] **Aviso de confianza** al abrir un proyecto nuevo (como en la CLI, `trusted-folders.json`): sin confianza no se cargan `AGENTS.md`, skills ni subagentes del proyecto y el modo Agente queda desactivado.
+- [x] **Confianza en el proyecto** (misma lista que la CLI, `trusted-folders.json`): sin confianza no se cargan `AGENTS.md`, skills, subagentes ni comandos del proyecto; se pide con «IA: Confiar en este proyecto…». El modo Agente sigue disponible porque ya pregunta antes de cada comando. Falta: avisar al abrir un proyecto que tenga esos archivos, sin que la persona tenga que buscar el comando.
 - [x] Rechazar carpetas demasiado amplias (raíz de disco, carpeta personal) como espacio de trabajo, igual que ya hace `broad_dir_reason` en la CLI.
 - [ ] Revisar `search_files` y `replace_in_file` con enlaces simbólicos.
 - [x] Pruebas: una ventana que pida `C:\` o una ruta no aprobada es rechazada.

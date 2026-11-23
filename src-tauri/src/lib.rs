@@ -1186,6 +1186,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             set_workspace_root,
             pick_workspace_folder,
+            aichat::project_trust_request,
             open_new_window,
             list_dir,
             cli_startup_targets,
