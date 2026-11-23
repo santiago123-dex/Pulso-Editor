@@ -1241,7 +1241,7 @@ pub async fn ai_send(
     }
 
     if provider.as_deref() == Some("local") {
-        return start_local(app, &state, id, cwd, prompt, model, history.unwrap_or_default(), image_paths);
+        return start_local(app, &state, id, cwd, prompt, model, history.unwrap_or_default(), image_paths, mode);
     }
 
     let opts = ChatOptions { session, model, effort, mode };
@@ -1339,6 +1339,7 @@ fn start_local(
     model: Option<String>,
     history: Vec<crate::localai::HistoryMsg>,
     images: Vec<String>,
+    mode: String,
 ) -> Result<(), String> {
     let model = model.map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).ok_or_else(|| tr("Elige un modelo de Ollama para conversar.").to_string())?;
     let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1348,7 +1349,7 @@ fn start_local(
         let _ = emitter.emit("ai-line", AiLine { id: id_line.clone(), line });
     });
     tauri::async_runtime::spawn(async move {
-        let outcome = crate::localai::run(crate::localai::base_url(), model, PathBuf::from(&cwd), id.clone(), history, prompt, images, cancel.clone(), emit).await;
+        let outcome = crate::localai::run(crate::localai::base_url(), model, PathBuf::from(&cwd), id.clone(), history, prompt, images, mode, cancel.clone(), emit).await;
         if let Some(st) = app.try_state::<AiState>() {
             if let Ok(mut m) = st.running.lock() {
                 m.remove(&id);

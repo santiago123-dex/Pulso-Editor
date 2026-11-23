@@ -298,6 +298,9 @@ const EN: &[(&str, &str)] = &[
     ("Todavía no hay ningún commit que corregir", "There is no commit to amend yet"),
     ("Formato de imagen no soportado", "Unsupported image format"),
     ("La imagen es demasiado grande (máximo 15 MB)", "The image is too large (15 MB maximum)"),
+    ("Solo se pueden proponer cambios en rutas relativas dentro del proyecto.", "Changes can only be proposed for relative paths inside the project."),
+    ("Propuesta preparada para {path}. La persona podrá revisarla y aplicarla en el visor de diferencias.", "Proposal ready for {path}. The user can review and apply it in the diff viewer."),
+    ("El modo actual es de solo lectura.", "The current mode is read-only."),
 ];
 
 #[cfg(test)]
