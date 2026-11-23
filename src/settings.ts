@@ -174,6 +174,8 @@ export function applyTheme(s: Settings, previewId?: string) {
   if (!previewId) { try { localStorage.setItem("pulso.themeVars", JSON.stringify(vars)); } catch { /* sin espacio */ } }
   root.setProperty("--mono", s.fontFamily);
   root.colorScheme = light ? "light" : "dark";
+  // El marco y la luz de las hojas cambian con el tono del tema (ver «Profundidad» en styles.css).
+  document.documentElement.dataset.tone = light ? "light" : "dark";
   setIconMode(light);
 
   const sx = previewId ? p.syntax : syntaxFor(s, p);

@@ -713,3 +713,74 @@ export function resetIn(w: UsageWindow | undefined, nowMs = Date.now()): string 
 
 /** Texto de un plan: «Pro», «Max»… */
 export const planLabel = (plan: string): string => (plan ? plan.charAt(0).toUpperCase() + plan.slice(1) : "");
+
+/**
+ * Divide un turno del asistente en «actividad» (lo que hizo por el camino: razonamiento, herramientas y textos intermedios)
+ * y la respuesta final (el último texto con contenido que ya no va seguido de más trabajo). Así la conversación muestra
+ * primero la respuesta y deja el proceso plegado.
+ */
+export function splitAssistantTurn(blocks: Block[]): { activity: Block[]; final: string } {
+  let finalIdx = -1;
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i];
+    if (!b) continue;
+    if (b.kind === "text") {
+      if (b.text.trim()) { finalIdx = i; break; }
+      continue;
+    }
+    if (b.kind === "thinking" && !b.text.trim()) continue;
+    break;
+  }
+  const activity = blocks.filter((b, i) => i !== finalIdx && (b.kind === "tool" || b.text.trim() !== ""));
+  const fb = finalIdx >= 0 ? blocks[finalIdx] : undefined;
+  return { activity, final: fb && fb.kind === "text" ? fb.text : "" };
+}
+
+/** Resumen de la actividad: qué está haciendo ahora (en vivo) o qué hizo (al terminar). */
+export function activitySummary(items: Block[], running: boolean): { now: string; counts: string } {
+  let reads = 0; let edits = 0; let searches = 0; let cmds = 0; let other = 0; let now = "";
+  for (const b of items) {
+    if (b.kind !== "tool") continue;
+    now = toolSummary(b);
+    if (b.name === "Read") reads++;
+    else if (["Edit", "MultiEdit", "Write", "NotebookEdit"].includes(b.name)) edits++;
+    else if (["Glob", "Grep", "WebSearch", "WebFetch"].includes(b.name)) searches++;
+    else if (b.name === "Command" || b.name === "Bash") cmds++;
+    else other++;
+  }
+  const parts: string[] = [];
+  const add = (n: number, one: string, many: string) => { if (n) parts.push(`${n} ${n === 1 ? one : many}`); };
+  add(reads, "archivo leído", "archivos leídos");
+  add(edits, "edición", "ediciones");
+  add(searches, "búsqueda", "búsquedas");
+  add(cmds, "comando", "comandos");
+  add(other, "acción", "acciones");
+  if (!parts.length && items.some((b) => b.kind === "thinking")) parts.push("razonamiento");
+  return { now: running ? now || "Leyendo tu mensaje" : "", counts: parts.join(" · ") };
+}
+
+/** «8 s», «1 min 05 s». */
+export function elapsedLabel(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s} s`;
+  return `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, "0")} s`;
+}
+
+/**
+ * Une los turnos seguidos del asistente en uno solo: algunas herramientas (Antigravity) mandan cada paso como un mensaje
+ * aparte, y la persona debe ver una sola respuesta con una sola actividad. `parts` guarda los turnos originales para
+ * saber si algo cambió sin comparar el contenido.
+ */
+export function mergeAssistantRuns(messages: Turn[]): { turn: Turn; parts: Turn[] }[] {
+  const out: { turn: Turn; parts: Turn[] }[] = [];
+  for (const t of messages) {
+    const prev = out[out.length - 1];
+    if (t.role === "assistant" && prev && prev.turn.role === "assistant") {
+      prev.parts.push(t);
+      prev.turn = { id: prev.parts[0]!.id, role: "assistant", blocks: prev.parts.flatMap((p) => p.blocks), done: t.done };
+    } else {
+      out.push({ turn: t, parts: [t] });
+    }
+  }
+  return out;
+}

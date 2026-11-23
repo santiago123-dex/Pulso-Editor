@@ -36,18 +36,33 @@ export function parseMarkdown(src: string): MdBlock[] {
   return out;
 }
 
-export interface Inline { text: string; kind: "text" | "code" | "bold" }
+export interface Inline { text: string; kind: "text" | "code" | "bold" | "link"; href?: string }
 
-/** Parte una línea en texto, `código` y **negrita**. Un marcador sin cerrar se deja tal cual. */
+/** Parte una línea en texto, `código`, **negrita** y [enlaces](url). Un marcador sin cerrar se deja tal cual. */
 export function parseInline(src: string): Inline[] {
   const out: Inline[] = [];
-  const re = /`([^`\n]+)`|\*\*([^*\n]+)\*\*/g;
+  const re = /`([^`\n]+)`|\*\*([^*\n]+)\*\*|\[([^\]\n]+)\]\(([^)\s]+)\)/g;
   let last = 0;
   for (let m = re.exec(src); m; m = re.exec(src)) {
     if (m.index > last) out.push({ text: src.slice(last, m.index), kind: "text" });
-    out.push(m[1] !== undefined ? { text: m[1], kind: "code" } : { text: m[2], kind: "bold" });
+    if (m[1] !== undefined) out.push({ text: m[1], kind: "code" });
+    else if (m[2] !== undefined) out.push({ text: m[2], kind: "bold" });
+    else out.push({ text: m[3]!, kind: "link", href: m[4]! });
     last = m.index + m[0].length;
   }
   if (last < src.length) out.push({ text: src.slice(last), kind: "text" });
   return out;
+}
+
+/** Destino de un enlace de la respuesta: un archivo del equipo (con su línea, si la trae) o una página web. */
+export function linkTarget(href: string): { kind: "file"; path: string; line: number } | { kind: "web"; url: string } | null {
+  if (/^https?:\/\//i.test(href)) return { kind: "web", url: href };
+  if (!/^file:\/\//i.test(href)) return null;
+  const [rawPath, frag = ""] = href.replace(/^file:\/\/\/?/i, "").split("#");
+  let path: string;
+  try { path = decodeURIComponent(rawPath ?? ""); } catch { return null; }
+  if (!path) return null;
+  if (!/^[a-z]:/i.test(path) && !path.startsWith("/")) path = `/${path}`;
+  const line = Number(/^L(\d+)/i.exec(frag)?.[1] ?? 1);
+  return { kind: "file", path, line: Math.max(1, line) };
 }

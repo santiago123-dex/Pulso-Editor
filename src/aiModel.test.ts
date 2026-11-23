@@ -339,3 +339,48 @@ describe("errores conocidos de las herramientas", () => {
     expect(convo.outcome?.deniedActions?.[0]?.detail).toBe("node -v");
   });
 });
+
+describe("actividad del asistente", () => {
+  const tool = (name: string, done = true): Block => ({ kind: "tool", id: name, name, input: { file_path: "src/a.ts" }, json: "", result: done ? "ok" : undefined, error: false });
+  const text = (t: string): Block => ({ kind: "text", text: t });
+
+  it("separa el proceso de la respuesta final", async () => {
+    const { splitAssistantTurn } = await import("./aiModel");
+    const r = splitAssistantTurn([text("Voy a mirar el archivo."), tool("Read"), { kind: "thinking", text: "ya lo tengo" }, text("Listo: el fallo está en a.ts"), text("  ")]);
+    expect(r.final).toBe("Listo: el fallo está en a.ts");
+    expect(r.activity.map((b) => b.kind)).toEqual(["text", "tool", "thinking"]);
+  });
+
+  it("si lo último es una herramienta, no hay respuesta final todavía", async () => {
+    const { splitAssistantTurn } = await import("./aiModel");
+    const r = splitAssistantTurn([text("Empiezo."), tool("Read", false)]);
+    expect(r.final).toBe("");
+    expect(r.activity).toHaveLength(2);
+  });
+
+  it("resume lo hecho y lo que hace ahora", async () => {
+    const { activitySummary, elapsedLabel } = await import("./aiModel");
+    const items = [tool("Read"), tool("Read"), tool("Edit"), tool("Command")];
+    expect(activitySummary(items, false)).toEqual({ now: "", counts: "2 archivos leídos · 1 edición · 1 comando" });
+    expect(activitySummary([], true).now).toBe("Leyendo tu mensaje");
+    expect(activitySummary(items, true).now).not.toBe("");
+    expect(elapsedLabel(8_400)).toBe("8 s");
+    expect(elapsedLabel(65_000)).toBe("1 min 05 s");
+  });
+});
+
+describe("turnos seguidos del asistente", () => {
+  it("se unen en uno con todos sus bloques", async () => {
+    const { mergeAssistantRuns } = await import("./aiModel");
+    const u = { id: "u", role: "user" as const, blocks: [{ kind: "text" as const, text: "hola" }], done: true };
+    const a1 = { id: "a1", role: "assistant" as const, blocks: [{ kind: "text" as const, text: "uno" }], done: true };
+    const a2 = { id: "a2", role: "assistant" as const, blocks: [{ kind: "text" as const, text: "dos" }], done: false };
+    const v = mergeAssistantRuns([u, a1, a2, u]);
+    expect(v).toHaveLength(3);
+    expect(v[1]!.turn.id).toBe("a1");
+    expect(v[1]!.turn.blocks.map((b) => (b.kind === "text" ? b.text : ""))).toEqual(["uno", "dos"]);
+    expect(v[1]!.turn.done).toBe(false);
+    expect(v[1]!.parts).toEqual([a1, a2]);
+    expect(v[0]!.turn).toBe(u);
+  });
+});

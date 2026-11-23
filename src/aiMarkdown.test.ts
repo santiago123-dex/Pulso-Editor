@@ -39,3 +39,19 @@ describe("parseInline", () => {
     expect(parseInline("<img src=x onerror=alert(1)>")).toEqual([{ text: "<img src=x onerror=alert(1)>", kind: "text" }]);
   });
 });
+
+describe("enlaces de las respuestas", () => {
+  it("separa el texto del enlace y su destino", async () => {
+    const { parseInline, linkTarget } = await import("./aiMarkdown");
+    expect(parseInline("Mira [a.ts](file:///C:/x/a%20b.ts#L13-L18) y ya")).toEqual([
+      { text: "Mira ", kind: "text" },
+      { text: "a.ts", kind: "link", href: "file:///C:/x/a%20b.ts#L13-L18" },
+      { text: " y ya", kind: "text" },
+    ]);
+    expect(linkTarget("file:///C:/x/a%20b.ts#L13-L18")).toEqual({ kind: "file", path: "C:/x/a b.ts", line: 13 });
+    expect(linkTarget("file:///home/ana/x.rs")).toEqual({ kind: "file", path: "/home/ana/x.rs", line: 1 });
+    expect(linkTarget("https://github.com/x")).toEqual({ kind: "web", url: "https://github.com/x" });
+    expect(linkTarget("javascript:alert(1)")).toBeNull();
+    expect(parseInline("[sin cierre](abc")).toEqual([{ text: "[sin cierre](abc", kind: "text" }]);
+  });
+});

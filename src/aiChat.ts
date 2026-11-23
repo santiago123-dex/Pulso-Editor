@@ -8,11 +8,11 @@ import {
   type AiModelInfo, type AiTool, type AllAiTools, type AntigravityBucket, type AntigravityUsage, type CodexQuota, type ExtraUsage, type ModelOption, type ProviderMeta, type WindowQuota,
 } from "./ai/catalog";
 import { applyAiAppearance, buildAppearancePopover } from "./ai/appearance";
-import { parseInline, parseMarkdown } from "./aiMarkdown";
+import { linkTarget, parseInline, parseMarkdown } from "./aiMarkdown";
 import { buildPrompt, chipLabels, type EditorContext } from "./aiContext";
 import {
-  createProviderNormalizer, emptyConversation, exitEvent, formatModelName, isAuthError, needsCommandPermission, parseUsageText, planLabel, pruneUsage,
-  reduce, remainingPercent, remainingRatio, resetClockText, resetCountdown, resetIn, resetTimeFromIso, toolSummary, touchedFiles,
+  activitySummary, createProviderNormalizer, elapsedLabel, emptyConversation, exitEvent, mergeAssistantRuns, formatModelName, isAuthError, needsCommandPermission, parseUsageText, planLabel, pruneUsage,
+  reduce, remainingPercent, remainingRatio, resetClockText, resetCountdown, resetIn, resetTimeFromIso, splitAssistantTurn, toolSummary, touchedFiles,
   userEvent, type AiEvent, type AiProvider, type Block, type Conversation, type DeniedAction, type Turn, type UsageWindow,
 } from "./aiModel";
 import { chatsFor, deleteChat, flushHistoryNow, initHistory, loadChats, newChatId, saveChat, titleFrom, type SavedChat } from "./aiStore";
@@ -434,10 +434,26 @@ function insertCode(text: string) {
   setStatus("Código insertado en el editor", 2500);
 }
 
+/** Enlace de una respuesta: los archivos se abren en el editor en su línea; las páginas, en el navegador. */
+function linkNode(text: string, href: string): Node {
+  const target = linkTarget(href);
+  if (!target) return document.createTextNode(text);
+  const b = h("button", "ai-link", text);
+  b.type = "button";
+  b.title = target.kind === "file" ? `Abrir ${target.path}${target.line > 1 ? ` en la línea ${target.line}` : ""}` : target.url;
+  b.onclick = () => {
+    if (target.kind === "web") { void invoke("open_external", { url: target.url }).catch((e) => setStatus(String(e))); return; }
+    if (isFull()) setFull(false);
+    void openFile(target.path, { line: target.line, col: 1 });
+  };
+  return b;
+}
+
 function inline(parent: HTMLElement, text: string) {
   for (const p of parseInline(text)) {
     if (p.kind === "code") parent.append(h("code", "ai-icode", p.text));
     else if (p.kind === "bold") parent.append(h("strong", "", p.text));
+    else if (p.kind === "link") parent.append(linkNode(p.text, p.href ?? ""));
     else parent.append(document.createTextNode(p.text));
   }
 }
@@ -511,109 +527,108 @@ function toolRow(b: Extract<Block, { kind: "tool" }>): HTMLElement {
   return d;
 }
 
+/** Tarjetas de actividad que la persona desplegó: se conservan al volver a pintar la conversación. */
 const openTraces = new Set<string>();
+/** Cuándo empezó y terminó cada turno del asistente en esta sesión de Pulso (para «Trabajando · 12 s» y «Trabajó 40 s»). */
+const turnStartedAt = new Map<string, number>();
+const turnEndedAt = new Map<string, number>();
+let activityTimer = 0;
+/** Momento del envío: la tarjeta de espera lo fija y la tarjeta real del turno lo hereda, para contar desde que la persona envió. */
+let waitingSince = 0;
 
-function traceLabel(items: Block[], running: boolean): { title: string; live: string } {
-  let reads = 0; let edits = 0; let searches = 0; let cmds = 0; let thoughts = 0; let lastAction = "";
-  for (const b of items) {
-    if (b.kind === "thinking") { thoughts++; continue; }
-    if (b.kind !== "tool") continue;
-    lastAction = toolSummary(b);
-    if (b.name === "Read") reads++;
-    else if (["Edit", "MultiEdit", "Write", "NotebookEdit"].includes(b.name)) edits++;
-    else if (["Glob", "Grep", "WebSearch", "WebFetch"].includes(b.name)) searches++;
-    else if (b.name === "Command" || b.name === "Bash") cmds++;
-  }
-  const tools = reads + edits + searches + cmds;
-  if (running) {
-    const stepNoun = tools > 0 ? ` · ${tools} ${tools === 1 ? "paso" : "pasos"}` : "";
-    return { title: "Pensando", live: lastAction ? `${lastAction}${stepNoun}` : "Analizando tu solicitud…" };
-  }
-  const parts: string[] = [];
-  if (reads) parts.push(`${reads} ${reads === 1 ? "archivo leído" : "archivos leídos"}`);
-  if (edits) parts.push(`${edits} ${edits === 1 ? "edición" : "ediciones"}`);
-  if (searches) parts.push(`${searches} ${searches === 1 ? "búsqueda" : "búsquedas"}`);
-  if (cmds) parts.push(`${cmds} ${cmds === 1 ? "comando" : "comandos"}`);
-  if (!parts.length && thoughts) return { title: "Pensó", live: "Razonamiento interno" };
-  return { title: parts.length ? "Pensó y exploró" : "Pasos", live: parts.join(" · ") || `${items.length} pasos` };
+/** Traza del pulso (el mismo gesto del logotipo): late mientras la IA trabaja y queda quieta al terminar. */
+const PULSE_SVG = '<svg viewBox="0 0 44 14" aria-hidden="true"><path class="ai-pulse-base" d="M0 7h44"/><path class="ai-pulse-beat" d="M0 7h12l2.5-5 3.5 10 3-12 3 12 2.5-5H44"/></svg>';
+
+/** Mantiene vivo el contador de segundos de las tarjetas en curso sin volver a pintar la conversación. */
+function tickActivityClocks() {
+  const live = document.querySelectorAll<HTMLElement>(".ai-activity.running .ai-act-time[data-start]");
+  if (!live.length) { window.clearInterval(activityTimer); activityTimer = 0; return; }
+  live.forEach((el) => { el.textContent = elapsedLabel(Date.now() - Number(el.dataset.start)); });
 }
 
-function stepGroup(traceKey: string, items: Block[], running: boolean): HTMLElement {
-  const { title, live } = traceLabel(items, running);
-  const d = h("details", `ai-step-group${running ? " running" : ""}`);
-  if (openTraces.has(traceKey)) d.open = true;
+function activityItem(b: Block): HTMLElement {
+  if (b.kind === "tool") {
+    const row = h("div", "ai-act-item tool");
+    row.append(toolRow(b));
+    return row;
+  }
+  if (b.kind === "thinking") {
+    const th = h("div", "ai-act-item thought");
+    th.append(h("div", "ai-act-thought", b.text));
+    return th;
+  }
+  const note = h("div", "ai-act-item note");
+  note.append(...markdown(b.text));
+  return note;
+}
+
+function activityCard(turnId: string, items: Block[], running: boolean): HTMLElement {
+  const started = turnStartedAt.get(turnId);
+  if (running && !started) {
+    const waiting = turnId.includes(":espera:");
+    const since = waiting ? Date.now() : waitingSince || Date.now();
+    turnStartedAt.set(turnId, since);
+    waitingSince = waiting ? since : 0;
+  }
+  if (!running && started && !turnEndedAt.has(turnId)) turnEndedAt.set(turnId, Date.now());
+  const t0 = turnStartedAt.get(turnId);
+  const t1 = turnEndedAt.get(turnId);
+  const { now, counts } = activitySummary(items, running);
+
+  // Plegada por defecto: se ve que está trabajando, y el detalle solo si la persona lo despliega.
+  const d = h("details", `ai-step-group ai-activity${running ? " running" : ""}`);
+  if (openTraces.has(turnId)) d.open = true;
   d.ontoggle = () => {
     if (d.open) {
       if (openTraces.size >= 100) {
         const oldest = openTraces.values().next().value;
         if (oldest !== undefined) openTraces.delete(oldest);
       }
-      openTraces.add(traceKey);
+      openTraces.add(turnId);
     } else {
-      openTraces.delete(traceKey);
+      openTraces.delete(turnId);
     }
   };
 
-  const sum = h("summary", "ai-step-summary");
-  const orb = h("span", `ai-step-orb${running ? " pulse" : ""}`);
-  const main = h("span", "ai-step-main");
-  main.append(h("span", "ai-step-title", title));
-  if (live) main.append(h("span", "ai-step-live", live));
-  const chev = h("span", "ai-tool-chev");
-  chev.innerHTML = '<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>';
-  sum.append(orb, main, chev);
+  const sum = h("summary", "ai-act-head");
+  const pulse = h("span", "ai-act-pulse");
+  pulse.innerHTML = PULSE_SVG;
+  const title = h("span", "ai-act-title", running ? "Trabajando" : "Trabajó");
+  const time = h("span", "ai-act-time", "");
+  if (running && t0) {
+    time.dataset.start = String(t0);
+    time.textContent = elapsedLabel(Date.now() - t0);
+    if (!activityTimer) activityTimer = window.setInterval(tickActivityClocks, 1000);
+  } else if (t0 && t1) {
+    time.textContent = elapsedLabel(t1 - t0);
+  }
+  const detail = h("span", "ai-act-detail", running ? now : counts || `${items.length} pasos`);
+  const more = h("span", "ai-act-more", items.length ? (d.open ? "Ocultar" : "Ver pasos") : "");
+  d.addEventListener("toggle", () => { more.textContent = items.length ? (d.open ? "Ocultar" : "Ver pasos") : ""; });
+  sum.append(pulse, title, time, detail, more);
+  if (!items.length) sum.classList.add("empty");
   d.append(sum);
 
-  const body = h("div", "ai-step-body");
-  for (const b of items) {
-    if (b.kind === "thinking") {
-      const th = h("div", "ai-step-thought");
-      th.append(h("div", "ai-step-thought-lbl", "Razonamiento"), h("div", "ai-step-thought-text", b.text));
-      body.append(th);
-    } else if (b.kind === "tool") {
-      body.append(toolRow(b));
-    }
-  }
+  const body = h("div", "ai-act-body");
+  for (const b of items) body.append(activityItem(b));
   d.append(body);
   return d;
 }
 
-function turnNodes(t: Turn, userNum = 0, isRunningTurn = false): HTMLElement[] {
+function turnNodes(t: Turn, _userNum = 0, isRunningTurn = false): HTMLElement[] {
   if (t.role === "user") {
     const u = h("div", "ai-user");
-    const tag = userNum > 0 ? `#${String(userNum).padStart(2, "0")} · TÚ` : "Tú";
-    u.append(h("div", "ai-user-tag", tag), h("div", "ai-user-text", t.blocks[0]?.kind === "text" ? t.blocks[0].text : ""));
+    u.append(h("div", "ai-user-text", t.blocks[0]?.kind === "text" ? t.blocks[0].text : ""));
     return [u];
   }
+  const { activity, final } = splitAssistantTurn(t.blocks);
   const out: HTMLElement[] = [];
-  let buf: Block[] = [];
-  let traceSeq = 0;
-
-  const flushTrace = (trailing: boolean) => {
-    if (!buf.length) return;
-    const key = `${t.id}:${traceSeq++}`;
-    const hasOpenTool = buf.some((b) => b.kind === "tool" && b.result === undefined);
-    out.push(stepGroup(key, buf, isRunningTurn && (trailing || hasOpenTool)));
-    buf = [];
-  };
-
-  for (let i = 0; i < t.blocks.length; i++) {
-    const b = t.blocks[i];
-    if (!b) continue;
-    if (b.kind === "text") {
-      if (b.text.trim()) {
-        flushTrace(false);
-        const wrap = h("div", "ai-assistant");
-        wrap.append(...markdown(b.text));
-        out.push(wrap);
-      }
-    } else if (b.kind === "thinking") {
-      if (b.text.trim()) buf.push(b);
-    } else {
-      buf.push(b);
-    }
+  if (activity.length || isRunningTurn) out.push(activityCard(t.id, activity, isRunningTurn));
+  if (final.trim()) {
+    const wrap = h("div", "ai-assistant");
+    wrap.append(...markdown(final));
+    out.push(wrap);
   }
-  flushTrace(true);
   return out;
 }
 
@@ -978,7 +993,7 @@ function fillQuotaCard(card: HTMLElement) {
       ? (tool?.plan && tool.plan !== "ChatGPT" ? `Plan ${planLabel(tool.plan)}` : "ChatGPT")
       : (tool?.plan || meta.short);
   headLeft.append(
-    h("span", "ai-inst-kicker", "CUOTAS DEL PLAN"),
+    h("span", "ai-inst-kicker", "Cuotas del plan"),
     h("span", "ai-inst-plan", planBadgeText),
   );
   const syncBtn = h("button", "ai-inst-sync", usageSyncing ? "Actualizando…" : "Sincronizar");
@@ -1052,7 +1067,7 @@ function fillQuotaCard(card: HTMLElement) {
 
 function fillScopeStrip(box: HTMLElement, ctx: EditorContext) {
   box.replaceChildren();
-  const label = h("span", "ai-scope-lbl", "ALCANCE");
+  const label = h("span", "ai-scope-lbl", "Alcance");
   const pills = h("div", "ai-scope-pills");
   if (ctx.file) {
     pills.append(h("span", "ai-scope-item active", baseName(ctx.file)));
@@ -1269,7 +1284,7 @@ function setupMessage(title: string, text: string, ...extra: HTMLElement[]): HTM
     card.append(actions);
   }
   const accts = h("div", "ai-setup-accts");
-  accts.append(h("div", "ai-inst-kicker", "TUS CUENTAS Y SUSCRIPCIONES"), buildAccountsList());
+  accts.append(h("div", "ai-inst-kicker", "Tus cuentas y suscripciones"), buildAccountsList());
   card.append(accts);
   box.append(card);
   return box;
@@ -1323,8 +1338,6 @@ function buildEmptyWorkbench(): HTMLElement {
   const modeCls = mode === "full" ? " full" : mode === "edit" ? " edit" : "";
   const eyebrow = h("div", "ai-bench-eyebrow");
   eyebrow.append(
-    h("span", "ai-bench-dot", ""),
-    h("span", "ai-bench-kicker", "PULSO // ESTACIÓN DE CÓDIGO"),
     h("span", `ai-meta-pill${modeCls}`, modeShort),
     buildProviderTabs(),
   );
@@ -1343,10 +1356,7 @@ function buildEmptyWorkbench(): HTMLElement {
   for (const ex of EXAMPLES) {
     const b = h("button", "ai-example");
     b.type = "button";
-    const top = h("div", "ai-example-top");
-    top.append(h("span", "ai-example-code", ex.code), h("span", "ai-example-tag", ex.tag), h("span", "ai-example-arr", "↗"));
-    const mainTxt = h("span", "ai-example-main", ex.label);
-    b.append(top, mainTxt);
+    b.append(h("span", "ai-example-tag", ex.tag), h("span", "ai-example-main", ex.label));
     b.onclick = () => { const t = q<HTMLTextAreaElement>(".ai-input")!; t.value = ex.prompt; t.focus(); autosize(); };
     exWrap.append(b);
   }
@@ -1359,7 +1369,7 @@ function buildEmptyWorkbench(): HTMLElement {
   const threadsCard = h("div", "ai-inst-card ai-inst-threads");
   const thHead = h("div", "ai-inst-head");
   const thLeft = h("div", "ai-inst-head-left");
-  thLeft.append(h("span", "ai-inst-kicker", "SESIONES RECIENTES"));
+  thLeft.append(h("span", "ai-inst-kicker", "Sesiones recientes"));
   const allBtn = h("button", "ai-inst-sync", "Ver todo");
   allBtn.type = "button";
   allBtn.onclick = () => { historyOpen = true; renderBody(); };
@@ -1507,7 +1517,10 @@ function renderIssueBanner() {
 }
 
 /** Caché incremental de nodos renderizados por turno: evita reconstruir toda la conversación en cada token (O(1) por frame). */
-interface TurnCacheEntry { turn: Turn; active: boolean; slot: HTMLElement }
+interface TurnCacheEntry { parts: Turn[]; active: boolean; slot: HTMLElement }
+
+/** ¿Son los mismos turnos originales, en el mismo orden? (si sí, el nodo ya pintado sirve) */
+const sameParts = (a: Turn[], b: Turn[]) => a.length === b.length && a.every((t, i) => t === b[i]);
 let renderedChatId = "";
 let renderedTurns: TurnCacheEntry[] = [];
 let turnsHost: HTMLElement | null = null;
@@ -1607,17 +1620,18 @@ function renderBody() {
       body.replaceChildren(turnsHost, tailHost);
     }
 
+    const view = mergeAssistantRuns(c.messages);
     // Recortar turnos sobrantes si la lista se acortó.
-    while (renderedTurns.length > c.messages.length) {
+    while (renderedTurns.length > view.length) {
       renderedTurns.pop()?.slot.remove();
     }
 
     let userNum = 0;
-    c.messages.forEach((t, idx) => {
+    view.forEach(({ turn: t, parts }, idx) => {
       if (t.role === "user") userNum += 1;
-      const activeTurn = c.running && idx === c.messages.length - 1 && t.role === "assistant";
+      const activeTurn = c.running && idx === view.length - 1 && t.role === "assistant";
       const existing = renderedTurns[idx];
-      if (existing && existing.turn === t && existing.active === activeTurn) {
+      if (existing && sameParts(existing.parts, parts) && existing.active === activeTurn) {
         return; // Sin cambios: conserva el DOM y cualquier selección de texto del usuario.
       }
       const slot = existing ? existing.slot : h("div", "ai-turn-slot");
@@ -1625,18 +1639,16 @@ function renderBody() {
         turnsHost!.append(slot);
       }
       slot.replaceChildren(...turnNodes(t, userNum, activeTurn));
-      renderedTurns[idx] = { turn: t, active: activeTurn, slot };
+      renderedTurns[idx] = { parts: [...parts], active: activeTurn, slot };
     });
 
     const tailNodes: HTMLElement[] = [];
     const last = c.messages[c.messages.length - 1];
     const lastSlot = renderedTurns[renderedTurns.length - 1]?.slot;
-    const lastEl = lastSlot?.lastElementChild as HTMLElement | null;
-    const hasRunningTrace = c.running && lastEl?.classList.contains("ai-step-group") && lastEl.classList.contains("running");
+    const hasRunningTrace = c.running && !!lastSlot?.querySelector(".ai-activity.running");
     if (c.running && (!last || last.role === "user" || (!last.done && !hasRunningTrace))) {
-      const w = h("div", "ai-working-pill");
-      w.append(h("span", "ai-step-orb pulse"), h("span", "ai-working-lbl", "Pensando"));
-      tailNodes.push(w);
+      // Aún no llegó nada del asistente: la misma tarjeta de actividad, para que no cambie de forma al empezar a responder.
+      tailNodes.push(activityCard(`${live.id}:espera:${c.messages.length}`, [], true));
     }
     if (c.error) {
       const e = h("div", "ai-error");
@@ -1934,7 +1946,7 @@ function build() {
   const dock = h("div", "ai-dock");
   const dockCtx = h("div", "ai-dock-ctx"); dockCtx.hidden = true;
   const chips = h("div", "ai-chips"); chips.hidden = true;
-  dockCtx.append(h("span", "ai-dock-ctx-lbl", "CONTEXTO"), chips);
+  dockCtx.append(h("span", "ai-dock-ctx-lbl", "Contexto"), chips);
 
   const inputWrap = h("div", "ai-input-wrap");
   const input = h("textarea", "ai-input");

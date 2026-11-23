@@ -27,7 +27,7 @@ export function loadAppearance(): AiAppearance {
   const raw = readJsonStorage<Partial<AiAppearance>>(BG_KEY, {});
   return {
     bg: typeof raw.bg === "string" && /^#[0-9a-f]{6}$/i.test(raw.bg) ? raw.bg : "",
-    pattern: raw.pattern === "solid" ? "solid" : "dots",
+    pattern: raw.pattern === "dots" ? "dots" : "solid",
     scope: raw.scope === "global" ? "global" : "assistant",
   };
 }
@@ -47,6 +47,7 @@ export function applyAiAppearance(
 ) {
   const root = document.documentElement.style;
   view.classList.toggle("ai-bg-solid", cfg.pattern === "solid");
+  view.classList.toggle("ai-bg-dots", cfg.pattern === "dots");
   const clearVars = (s: CSSStyleDeclaration) => THEME_VARS.forEach((v) => s.removeProperty(v));
   if (!cfg.bg) {
     clearVars(view.style);
