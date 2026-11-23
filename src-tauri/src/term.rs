@@ -1,4 +1,5 @@
 //! Terminal integrada: pseudo-terminales (ConPTY en Windows) con `portable-pty`.
+use crate::i18n::{tr, trf};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
@@ -61,7 +62,7 @@ pub fn spawn_session(
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERM_PROGRAM", "pulso");
 
-    let mut child = pair.slave.spawn_command(cmd).map_err(|e| format!("No se pudo iniciar «{}»: {}", shell, e))?;
+    let mut child = pair.slave.spawn_command(cmd).map_err(|e| trf("No se pudo iniciar «{shell}»: {e}", &[("shell", &shell), ("e", &e)]))?;
     drop(pair.slave);
     let killer = child.clone_killer();
     let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
@@ -124,7 +125,7 @@ pub fn detect_shells() -> Vec<ShellInfo> {
         }
         let cmd = std::env::var_os("COMSPEC").map(PathBuf::from).filter(|p| p.is_file()).or_else(|| find_in_path("cmd.exe"));
         if let Some(p) = cmd {
-            out.push(shell("cmd", "Símbolo del sistema", p, &[]));
+            out.push(shell("cmd", tr("Símbolo del sistema"), p, &[]));
         }
         for base in [r"C:\Program Files\Git\bin\bash.exe", r"C:\Program Files (x86)\Git\bin\bash.exe"] {
             let p = PathBuf::from(base);
@@ -174,19 +175,19 @@ pub fn resolve_allowed_shell(
             .iter()
             .find(|s| s.id == id)
             .cloned()
-            .ok_or_else(|| format!("Shell no permitida o no disponible: «{id}»"));
+            .ok_or_else(|| trf("Shell no permitida o no disponible: «{id}»", &[("id", &id)]));
     }
     if let Some(path) = legacy_path.map(str::trim).filter(|s| !s.is_empty()) {
         return available
             .iter()
             .find(|s| s.path == path || s.id == path)
             .cloned()
-            .ok_or_else(|| "La shell solicitada no está en la lista de shells autorizadas".into());
+            .ok_or_else(|| tr("La shell solicitada no está en la lista de shells autorizadas").into());
     }
     available
         .first()
         .cloned()
-        .ok_or_else(|| "No se encontró ninguna shell instalada".into())
+        .ok_or_else(|| tr("No se encontró ninguna shell instalada").into())
 }
 
 // ---------- Comandos de Tauri ----------
@@ -314,7 +315,7 @@ pub async fn term_write(state: State<'_, TermState>, id: u32, data: String) -> R
         let m = state.sessions.lock().map_err(|e| e.to_string())?;
         match m.get(&id) {
             Some(TermSlot::Active(s)) => Arc::clone(s),
-            _ => return Err("La terminal ya no existe".into()),
+            _ => return Err(tr("La terminal ya no existe").into()),
         }
     };
     tauri::async_runtime::spawn_blocking(move || {

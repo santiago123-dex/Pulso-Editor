@@ -290,7 +290,7 @@ export function setLspWorkspace(root: string | null) {
         ? t("Inteligencia de TypeScript y JavaScript activada (con el TypeScript del proyecto)")
         : t("Inteligencia de TypeScript y JavaScript activada"));
     } catch (e) { fail(s, String(e)); }
-  }).catch((e) => { if (current === generation) { builtIn(true); setLspState({ kind: "stopped", reason: String(e) }); setStatus(String(e).startsWith("No se pudo iniciar") ? String(e) : t("No se pudo iniciar LSP: {error}", { error: String(e) }), 12000); } });
+  }).catch((e) => { if (current === generation) { builtIn(true); setLspState({ kind: "stopped", reason: String(e) }); setStatus(String(e).startsWith(t("No se pudo iniciar")) ? String(e) : t("No se pudo iniciar LSP: {error}", { error: String(e) }), 12000); } });
 }
 
 function active(model: monaco.editor.ITextModel) { return session?.ready && language(model) && session.models.has(uri(model)) ? session : null; }

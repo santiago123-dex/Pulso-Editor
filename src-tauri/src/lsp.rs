@@ -1,4 +1,5 @@
 //! Transporte LSP por stdio. El frontend habla JSON-RPC; aquí solo se enmarcan mensajes.
+use crate::i18n::{tr, trf};
 use serde::Serialize;
 use std::{
     io::{BufRead, BufReader, Read, Write},
@@ -214,16 +215,16 @@ pub struct Started {
 }
 
 fn spawn_native(app: &AppHandle, root: &str) -> Result<Child, String> {
-    let exe = native_server_path(app).ok_or("No se encontró el servidor de TypeScript de Pulso")?;
+    let exe = native_server_path(app).ok_or(tr("No se encontró el servidor de TypeScript de Pulso"))?;
     let mut command = crate::background_command(&exe.to_string_lossy());
     command.args(["--lsp", "--stdio"]);
-    spawn_piped(command, root).map_err(|e| format!("No se pudo iniciar el servidor de TypeScript: {e}"))
+    spawn_piped(command, root).map_err(|e| trf("No se pudo iniciar el servidor de TypeScript: {e}", &[("e", &e)]))
 }
 
 fn spawn_compat(app: &AppHandle, root: &str) -> Result<Child, String> {
-    let script = node_path(server_path(app).ok_or("No se encontró el servidor de TypeScript de Pulso")?);
+    let script = node_path(server_path(app).ok_or(tr("No se encontró el servidor de TypeScript de Pulso"))?);
     let preload = node_path(
-        preload_path(app).ok_or("No se encontró la configuración del servidor de lenguaje")?,
+        preload_path(app).ok_or(tr("No se encontró la configuración del servidor de lenguaje"))?,
     );
     let node = crate::aichat::node_program(Path::new(root));
     let mut command = crate::background_command(&node);
@@ -245,7 +246,7 @@ fn spawn_piped(mut command: std::process::Command, root: &str) -> std::io::Resul
 pub async fn lsp_start(app: AppHandle, root: String) -> Result<Started, String> {
     tauri::async_runtime::spawn_blocking(move || {
         if !Path::new(&root).is_dir() {
-            return Err("La carpeta de trabajo ya no existe".into());
+            return Err(tr("La carpeta de trabajo ya no existe").into());
         }
         let state = app.state::<LspState>();
         state.stop();
@@ -259,8 +260,9 @@ pub async fn lsp_start(app: AppHandle, root: String) -> Result<Started, String> 
                     spawn_native(&app, &root)?,
                     "native",
                     None,
-                    Some(format!(
-                        "El proyecto usa TypeScript {major}, pero no se pudo iniciar Node.js ({e}). Se usa TypeScript 7, que puede marcar opciones de tsconfig que ya no existen."
+                    Some(trf(
+                        "El proyecto usa TypeScript {major}, pero no se pudo iniciar Node.js ({e}). Se usa TypeScript 7, que puede marcar opciones de tsconfig que ya no existen.",
+                        &[("major", &major), ("e", &e)],
                     )),
                 ),
             }
@@ -270,10 +272,10 @@ pub async fn lsp_start(app: AppHandle, root: String) -> Result<Started, String> 
         crate::procguard::attach_job(&child);
         let pid = child.id();
         let stdin = Arc::new(Mutex::new(
-            child.stdin.take().ok_or("No se pudo abrir la entrada del servidor")?,
+            child.stdin.take().ok_or(tr("No se pudo abrir la entrada del servidor"))?,
         ));
-        let stdout = child.stdout.take().ok_or("No se pudo abrir la salida del servidor")?;
-        let stderr = child.stderr.take().ok_or("No se pudo leer el error del servidor")?;
+        let stdout = child.stdout.take().ok_or(tr("No se pudo abrir la salida del servidor"))?;
+        let stderr = child.stderr.take().ok_or(tr("No se pudo leer el error del servidor"))?;
         let id = state.next.fetch_add(1, Ordering::SeqCst) + 1;
         *state.server.lock().map_err(|e| e.to_string())? = Some(Server { id, pid, child, stdin });
 
@@ -298,7 +300,7 @@ pub async fn lsp_start(app: AppHandle, root: String) -> Result<Started, String> 
                     Ok(Some(message)) => {
                         let _ = app_ev.emit("lsp-message", Message { id, message });
                     }
-                    Ok(None) => break "El servidor de lenguaje se cerró".to_string(),
+                    Ok(None) => break tr("El servidor de lenguaje se cerró").to_string(),
                     Err(e) => break e,
                 }
             };
@@ -324,7 +326,7 @@ pub async fn lsp_send(
         let server = guard
             .as_ref()
             .filter(|s| s.id == id)
-            .ok_or("El servidor LSP ya no está activo")?;
+            .ok_or(tr("El servidor LSP ya no está activo"))?;
         Arc::clone(&server.stdin)
     };
     tauri::async_runtime::spawn_blocking(move || {

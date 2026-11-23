@@ -1,6 +1,7 @@
 //! Chat de IA con herramientas oficiales de línea de comandos (por ahora Claude Code).
 //! La herramienta inicia sesión con la cuenta de la persona (por ejemplo su suscripción); Pulso nunca ve credenciales:
 //! solo lanza el proceso en la carpeta del proyecto, le pasa el mensaje y reenvía su salida JSON línea a línea.
+use crate::i18n::{tr, trf};
 use super::background_command;
 use serde::Serialize;
 use std::{
@@ -197,15 +198,15 @@ fn capture_status(program: &str, args: &[String], secs: u64) -> Result<(bool, St
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| e.to_string())?;
-    let mut out = child.stdout.take().ok_or("sin salida")?;
-    let mut err = child.stderr.take().ok_or("sin salida de error")?;
+    let mut out = child.stdout.take().ok_or(tr("sin salida"))?;
+    let mut err = child.stderr.take().ok_or(tr("sin salida de error"))?;
     let r_out = thread::spawn(move || { let mut s = String::new(); let _ = out.read_to_string(&mut s); s });
     let r_err = thread::spawn(move || { let mut s = String::new(); let _ = err.read_to_string(&mut s); s });
     let deadline = Instant::now() + Duration::from_secs(secs);
     let status = loop {
         match child.try_wait().map_err(|e| e.to_string())? {
             Some(st) => break st,
-            None if Instant::now() >= deadline => { let _ = child.kill(); let _ = child.wait(); return Err("tardó demasiado".into()); }
+            None if Instant::now() >= deadline => { let _ = child.kill(); let _ = child.wait(); return Err(tr("tardó demasiado").into()); }
             None => thread::sleep(Duration::from_millis(30)),
         }
     };
@@ -228,13 +229,13 @@ fn capture_vec(program: &str, args: &[String], secs: u64) -> Result<String, Stri
         .stderr(Stdio::null())
         .spawn()
         .map_err(|e| e.to_string())?;
-    let mut out = child.stdout.take().ok_or("sin salida")?;
+    let mut out = child.stdout.take().ok_or(tr("sin salida"))?;
     let reader = thread::spawn(move || { let mut s = String::new(); let _ = out.read_to_string(&mut s); s });
     let deadline = Instant::now() + Duration::from_secs(secs);
     loop {
         match child.try_wait().map_err(|e| e.to_string())? {
             Some(_) => break,
-            None if Instant::now() >= deadline => { let _ = child.kill(); let _ = child.wait(); return Err("tardó demasiado".into()); }
+            None if Instant::now() >= deadline => { let _ = child.kill(); let _ = child.wait(); return Err(tr("tardó demasiado").into()); }
             None => thread::sleep(Duration::from_millis(30)),
         }
     }
@@ -245,12 +246,12 @@ fn detect_claude() -> AiTool {
     let program = claude_program();
     let version = match capture(&program, &["--version"], 15) {
         Ok(v) if !v.trim().is_empty() => v.trim().to_string(),
-        _ => return AiTool { error: "No se encontró Claude Code en este equipo.".into(), ..Default::default() },
+        _ => return AiTool { error: tr("No se encontró Claude Code en este equipo.").into(), ..Default::default() },
     };
     let mut tool = AiTool { installed: true, version, ..Default::default() };
     match capture(&program, &["auth", "status"], 20).ok().and_then(|t| parse_auth_status(&t)) {
         Some((logged, method, plan)) => { tool.logged_in = logged; tool.auth_method = method; tool.plan = plan; }
-        None => tool.error = "No se pudo comprobar si hay una sesión iniciada.".into(),
+        None => tool.error = tr("No se pudo comprobar si hay una sesión iniciada.").into(),
     }
     tool
 }
@@ -638,7 +639,7 @@ fn detect_codex() -> AiTool {
     let (program, prefix) = resolve_cli("codex", "PULSO_CODEX_BIN", Some("@openai/codex"));
     let version = match capture_vec(&program, &with_prefix(&prefix, &["--version"]), 15) {
         Ok(v) if !v.trim().is_empty() => v.trim().to_string(),
-        _ => return AiTool { error: "No se encontró Codex CLI (ChatGPT) en este equipo.".into(), ..Default::default() },
+        _ => return AiTool { error: tr("No se encontró Codex CLI (ChatGPT) en este equipo.").into(), ..Default::default() },
     };
     if let Some(snap) = codex_app_server_snapshot(&program, &prefix, true, false) {
         let mut models = snap.models;
@@ -663,7 +664,7 @@ fn detect_codex() -> AiTool {
             tool.auth_method = method;
             tool.plan = plan;
         }
-        Err(_) => tool.error = "No se pudo comprobar la sesión de Codex.".into(),
+        Err(_) => tool.error = tr("No se pudo comprobar la sesión de Codex.").into(),
     }
     if tool.logged_in {
         let home = user_home();
@@ -681,7 +682,7 @@ fn detect_antigravity() -> AiTool {
     let (program, prefix) = resolve_cli("agy", "PULSO_AGY_BIN", None);
     let version = match capture_vec(&program, &with_prefix(&prefix, &["--version"]), 12) {
         Ok(v) if !v.trim().is_empty() => v.trim().to_string(),
-        _ => return AiTool { error: "No se encontró Antigravity CLI (`agy`) en este equipo.".into(), ..Default::default() },
+        _ => return AiTool { error: tr("No se encontró Antigravity CLI (`agy`) en este equipo.").into(), ..Default::default() },
     };
     let mut tool = AiTool { installed: true, version, ..Default::default() };
     match capture_status(&program, &with_prefix(&prefix, &["models"]), 20) {
@@ -727,7 +728,7 @@ pub async fn ai_detect_provider(provider: String) -> Result<AiTool, String> {
         "claude" => Ok(detect_claude()),
         "codex" => Ok(detect_codex()),
         "antigravity" | "gemini" => Ok(detect_antigravity()),
-        _ => Err("Proveedor de IA no soportado".to_string()),
+        _ => Err(tr("Proveedor de IA no soportado").to_string()),
     }).await.map_err(|e| e.to_string())?
 }
 
@@ -757,7 +758,7 @@ pub fn parse_usage_result(text: &str) -> Option<String> {
 pub async fn ai_usage() -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(|| {
         let out = capture(&claude_program(), &["-p", "/usage", "--output-format", "json"], 30)?;
-        parse_usage_result(&out).ok_or_else(|| "La herramienta no informó el uso del plan.".to_string())
+        parse_usage_result(&out).ok_or_else(|| tr("La herramienta no informó el uso del plan.").to_string())
     }).await.map_err(|e| e.to_string())?
 }
 
@@ -806,13 +807,13 @@ pub fn claude_program() -> String {
 pub fn build_claude_args(o: &ChatOptions) -> Result<Vec<String>, String> {
     let mut a: Vec<String> = ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages"].iter().map(|s| s.to_string()).collect();
     if let Some(s) = &o.session {
-        if !safe_token(s) { return Err("Identificador de sesión no válido".into()); }
+        if !safe_token(s) { return Err(tr("Identificador de sesión no válido").into()); }
         a.push("--resume".into());
         a.push(s.clone());
     }
     if let Some(m) = &o.model {
         if !m.is_empty() {
-            if !safe_token(m) { return Err("Modelo no válido".into()); }
+            if !safe_token(m) { return Err(tr("Modelo no válido").into()); }
             a.push("--model".into());
             a.push(m.clone());
         }
@@ -820,7 +821,7 @@ pub fn build_claude_args(o: &ChatOptions) -> Result<Vec<String>, String> {
     if let Some(e) = &o.effort {
         if !e.is_empty() {
             if !matches!(e.as_str(), "low" | "medium" | "high" | "xhigh" | "max") {
-                return Err("Nivel de esfuerzo no válido".into());
+                return Err(tr("Nivel de esfuerzo no válido").into());
             }
             a.push("--effort".into());
             a.push(e.clone());
@@ -831,7 +832,7 @@ pub fn build_claude_args(o: &ChatOptions) -> Result<Vec<String>, String> {
         "read" => { a.extend(["--permission-mode", "default", "--allowedTools", read_tools].iter().map(|s| s.to_string())); }
         "edit" => { a.extend(["--permission-mode", "acceptEdits", "--allowedTools", "Read,Glob,Grep,Edit,Write,MultiEdit"].iter().map(|s| s.to_string())); }
         "full" => { a.extend(["--permission-mode", "acceptEdits", "--allowedTools", "Read,Glob,Grep,Edit,Write,MultiEdit,Bash"].iter().map(|s| s.to_string())); }
-        _ => return Err("Modo de permisos no válido".into()),
+        _ => return Err(tr("Modo de permisos no válido").into()),
     }
     Ok(a)
 }
@@ -842,10 +843,10 @@ pub fn build_codex_args(o: &ChatOptions) -> Result<Vec<String>, String> {
         "read" => "read-only",
         "edit" => "workspace-write",
         "full" => "danger-full-access",
-        _ => return Err("Modo de permisos no válido".into()),
+        _ => return Err(tr("Modo de permisos no válido").into()),
     };
     if let Some(s) = &o.session {
-        if !safe_token(s) { return Err("Identificador de sesión no válido".into()); }
+        if !safe_token(s) { return Err(tr("Identificador de sesión no válido").into()); }
     }
     // `exec resume` no tiene `--sandbox`: el modo se fuerza por configuración para que «Solo leer» valga también al continuar
     // una conversación (si no, mandaría el `config.toml` de la persona, que puede permitirlo todo).
@@ -857,7 +858,7 @@ pub fn build_codex_args(o: &ChatOptions) -> Result<Vec<String>, String> {
     a.push("--skip-git-repo-check".into());
     if let Some(m) = &o.model {
         if !m.is_empty() {
-            if !safe_token(m) { return Err("Modelo no válido".into()); }
+            if !safe_token(m) { return Err(tr("Modelo no válido").into()); }
             a.push("--model".into());
             a.push(m.clone());
         }
@@ -867,7 +868,7 @@ pub fn build_codex_args(o: &ChatOptions) -> Result<Vec<String>, String> {
             let mapped = match e.as_str() {
                 "low" | "medium" | "high" | "xhigh" => e.as_str(),
                 "max" => "xhigh",
-                _ => return Err("Nivel de esfuerzo no válido".into()),
+                _ => return Err(tr("Nivel de esfuerzo no válido").into()),
             };
             a.push("-c".into());
             a.push(format!("model_reasoning_effort=\"{mapped}\""));
@@ -896,19 +897,19 @@ pub fn build_agy_args(o: &ChatOptions, prompt: &str) -> Result<Vec<String>, Stri
             "[Instrucción de entorno: estás en modo Agente completo en Pulso Editor. Tienes permiso aprobado por el usuario para leer, buscar, editar archivos y ejecutar comandos de terminal (run_command) dentro del proyecto para completar y verificar la tarea.]\n\n",
             Some("[Permisos actuales en Pulso: modo Agente completo aprobado; puedes editar archivos y ejecutar comandos de terminal (run_command) para completar la tarea.]\n\n"),
         ),
-        _ => return Err("Modo de permisos no válido".into()),
+        _ => return Err(tr("Modo de permisos no válido").into()),
     };
     let mut a: Vec<String> = vec!["--output-format".into(), "stream-json".into()];
     a.extend(mode_flags.into_iter().map(|s| s.to_string()));
     if let Some(s) = &o.session {
-        if !safe_token(s) { return Err("Identificador de sesión no válido".into()); }
+        if !safe_token(s) { return Err(tr("Identificador de sesión no válido").into()); }
         a.push("--conversation".into());
         a.push(s.clone());
     }
     let has_explicit_model = o.model.as_deref().is_some_and(|m| !m.trim().is_empty());
     if let Some(m) = &o.model {
         if !m.is_empty() {
-            if !safe_token(m) { return Err("Modelo no válido".into()); }
+            if !safe_token(m) { return Err(tr("Modelo no válido").into()); }
             a.push("--model".into());
             a.push(m.clone());
         }
@@ -918,7 +919,7 @@ pub fn build_agy_args(o: &ChatOptions, prompt: &str) -> Result<Vec<String>, Stri
         if let Some(e) = &o.effort {
             if !e.is_empty() {
                 if !matches!(e.as_str(), "low" | "medium" | "high" | "xhigh" | "max") {
-                    return Err("Nivel de esfuerzo no válido".into());
+                    return Err(tr("Nivel de esfuerzo no válido").into());
                 }
                 a.push("--effort".into());
                 a.push(e.clone());
@@ -1004,12 +1005,12 @@ pub fn spawn_stream(
     crate::procguard::configure_child(&mut cmd);
     let mut child = cmd
         .spawn()
-        .map_err(|e| format!("No se pudo iniciar {program}: {e}"))?;
+        .map_err(|e| trf("No se pudo iniciar {program}: {e}", &[("program", &program), ("e", &e)]))?;
     crate::procguard::attach_job(&child);
     let pid = child.id();
 
-    let out = child.stdout.take().ok_or("sin salida")?;
-    let mut err = child.stderr.take().ok_or("sin salida de error")?;
+    let out = child.stdout.take().ok_or(tr("sin salida"))?;
+    let mut err = child.stderr.take().ok_or(tr("sin salida de error"))?;
     let stdin_opt = child.stdin.take();
     let prompt_bytes = prompt.as_bytes().to_vec();
 
@@ -1081,18 +1082,18 @@ pub async fn ai_send(
     mode: String,
     provider: Option<String>,
 ) -> Result<(), String> {
-    if !safe_token(&id) { return Err("Identificador de conversación no válido".into()); }
-    if !std::path::Path::new(&cwd).is_dir() { return Err("Abre una carpeta de proyecto para hablar con la IA.".into()); }
+    if !safe_token(&id) { return Err(tr("Identificador de conversación no válido").into()); }
+    if !std::path::Path::new(&cwd).is_dir() { return Err(tr("Abre una carpeta de proyecto para hablar con la IA.").into()); }
     if let Some(reason) = crate::termui::broad_dir_reason(Path::new(&cwd), user_home().as_deref()) {
-        return Err(format!("No se permite lanzar la IA en esa carpeta ({reason}). Abre una carpeta de proyecto concreta."));
+        return Err(trf("No se permite lanzar la IA en esa carpeta ({reason}). Abre una carpeta de proyecto concreta.", &[("reason", &reason)]));
     }
-    if prompt.trim().is_empty() { return Err("El mensaje está vacío.".into()); }
+    if prompt.trim().is_empty() { return Err(tr("El mensaje está vacío.").into()); }
 
     // Reservar el slot ANTES de spawnear elimina carreras de doble envío y PIDs obsoletos.
     {
         let mut map = state.running.lock().map_err(|e| e.to_string())?;
         if map.contains_key(&id) {
-            return Err("Esta conversación ya está respondiendo.".into());
+            return Err(tr("Esta conversación ya está respondiendo.").into());
         }
         map.insert(id.clone(), AiSlot::Starting);
     }
@@ -1117,13 +1118,13 @@ pub async fn ai_send(
                 let (prog, mut prefix) = resolve_cli("agy", "PULSO_AGY_BIN", None);
                 let low = prog.to_ascii_lowercase();
                 if (low.ends_with(".cmd") || low.ends_with(".bat")) && prompt.len() > 6000 {
-                    return Err("El mensaje es demasiado largo para pasarlo a través de un script .cmd en Windows. Instala el ejecutable nativo de agy o acorta el contexto.".into());
+                    return Err(tr("El mensaje es demasiado largo para pasarlo a través de un script .cmd en Windows. Instala el ejecutable nativo de agy o acorta el contexto.").into());
                 }
                 prefix.extend(build_agy_args(&opts, &prompt)?);
                 stdin_payload = "";
                 (prog, prefix)
             }
-            _ => return Err("Proveedor de IA no soportado".into()),
+            _ => return Err(tr("Proveedor de IA no soportado").into()),
         };
         let (a1, a2, id1, id2) = (app_clone.clone(), app_clone.clone(), id_for_spawn.clone(), id_for_spawn.clone());
         spawn_stream(

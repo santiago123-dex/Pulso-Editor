@@ -58,6 +58,16 @@ Los textos se escriben en español dentro de `t("…")` (`src/i18n.ts`). El text
 - **HTML estático:** `translateStatic` traduce los textos y los atributos `title`, `placeholder` y `aria-label` de `index.html` al arrancar.
 - **Pruebas:** `src/i18n.test.ts`, con `scripts/i18n-keys.mjs`, comprueba que cada `t("…")` del código y cada texto fijo del HTML tengan traducción con los mismos `{valores}`, y que no sobren entradas.
 - **Para traducir una pantalla nueva:** envolver sus textos en `t()`, ejecutar `node scripts/i18n-keys.mjs --missing` y añadir lo que liste a `en.ts`.
+- **En archivos que ya tienen una variable `t`,** la función se importa como `tr`, y la herramienta de claves reconoce los dos nombres.
+- **Pruebas en español fijo:** `src/test/i18n-setup.ts` fija el español para que no dependan del idioma del sistema donde corren (la CI está en inglés).
+- **Mensajes de Rust (`src-tauri/src/i18n.rs`):** mismo enfoque.
+  - Se usa `tr("…")` y `trf("… {e}", &[("e", &e)])`, con la tabla `EN` en el mismo archivo.
+  - Al arrancar, la ventana llama a `i18n_set_lang` con el idioma elegido.
+  - La herramienta `pulso` usa `PULSO_LANG`, `LC_ALL`, `LC_MESSAGES` o `LANG` y, en Windows, el idioma del usuario.
+  - Sus pruebas leen los fuentes con `include_str!` y fallan si algún `tr`/`trf` no tiene traducción o si no coinciden los `{valores}`.
+  - Las constantes (como `SLASH_COMMANDS` o `HELP`) se traducen al mostrarlas.
+  - Lo que el frontend compara con mensajes de Rust (por ejemplo, el inicio «No se pudo iniciar») tiene que coincidir también en inglés.
+- **Qué no se traduce:** lo que se envía a la IA, lo que se publica en GitHub para todo el equipo (título de la sala del chat, cuerpo de las pull requests del flujo de issues) y los textos de Git que se comparan con su salida.
 
 ## Compilación y pruebas
 

@@ -1,6 +1,7 @@
 //! Control de fronteras del sistema de archivos: restringe las operaciones del WebView
 //! a la carpeta de trabajo autorizada, archivos abiertos explícitamente por CLI/diálogo
 //! y directorios de solo lectura estrictamente permitidos (como extensiones de temas de VS Code).
+use crate::i18n::{tr, trf};
 use std::{
     collections::HashSet,
     fs,
@@ -44,7 +45,7 @@ impl Default for WorkspaceGuard {
 /// canonizando el ancestro existente más profundo y anexando los segmentos restantes sin permitir `..`.
 pub fn resolve_safe(path: &Path) -> Result<PathBuf, String> {
     if path.as_os_str().is_empty() {
-        return Err("La ruta está vacía".into());
+        return Err(tr("La ruta está vacía").into());
     }
     if let Ok(canon) = fs::canonicalize(path) {
         return Ok(canon);
@@ -60,14 +61,14 @@ pub fn resolve_safe(path: &Path) -> Result<PathBuf, String> {
             return Ok(full);
         }
         let Some(name) = cur.file_name() else {
-            return Err("No se pudo resolver la ruta de forma segura".into());
+            return Err(tr("No se pudo resolver la ruta de forma segura").into());
         };
         // Rechazar cualquier intento de traversal en segmentos no resueltos.
         if name == ".." {
-            return Err("Ruta no permitida".into());
+            return Err(tr("Ruta no permitida").into());
         }
         missing.push(name.to_os_string());
-        cur = cur.parent().ok_or_else(|| "No se pudo resolver la ruta de forma segura".to_string())?;
+        cur = cur.parent().ok_or_else(|| tr("No se pudo resolver la ruta de forma segura").to_string())?;
     }
 }
 
@@ -91,11 +92,11 @@ impl WorkspaceGuard {
             Some(raw) => {
                 let p = Path::new(raw);
                 if has_parent_traversal(p) {
-                    return Err("La ruta del espacio de trabajo no es válida".into());
+                    return Err(tr("La ruta del espacio de trabajo no es válida").into());
                 }
-                let canon = fs::canonicalize(p).map_err(|e| format!("No se pudo abrir la carpeta: {e}"))?;
+                let canon = fs::canonicalize(p).map_err(|e| trf("No se pudo abrir la carpeta: {e}", &[("e", &e)]))?;
                 if !canon.is_dir() {
-                    return Err("La ruta indicada no es una carpeta".into());
+                    return Err(tr("La ruta indicada no es una carpeta").into());
                 }
                 g.root = Some(canon.clone());
                 Ok(Some(canon))
@@ -123,7 +124,7 @@ impl WorkspaceGuard {
     pub fn ensure_read(&self, raw: &str) -> Result<PathBuf, String> {
         let p = Path::new(raw);
         if has_parent_traversal(p) {
-            return Err("Acceso denegado: ruta fuera del espacio de trabajo".into());
+            return Err(tr("Acceso denegado: ruta fuera del espacio de trabajo").into());
         }
         let resolved = resolve_safe(p)?;
         let g = self.inner.lock().map_err(|e| e.to_string())?;
@@ -138,7 +139,7 @@ impl WorkspaceGuard {
         if g.readonly_roots.iter().any(|r| is_within(&resolved, r)) {
             return Ok(resolved);
         }
-        Err("Acceso denegado: la ruta está fuera del espacio de trabajo abierto".into())
+        Err(tr("Acceso denegado: la ruta está fuera del espacio de trabajo abierto").into())
     }
 
     /// Verifica que `path` esté autorizado para escritura o mutación.
@@ -146,7 +147,7 @@ impl WorkspaceGuard {
     pub fn ensure_write(&self, raw: &str) -> Result<PathBuf, String> {
         let p = Path::new(raw);
         if has_parent_traversal(p) {
-            return Err("Escritura denegada: ruta no permitida".into());
+            return Err(tr("Escritura denegada: ruta no permitida").into());
         }
         let resolved = resolve_safe(p)?;
         let g = self.inner.lock().map_err(|e| e.to_string())?;
@@ -158,14 +159,14 @@ impl WorkspaceGuard {
         if g.extra_files.contains(&resolved) {
             return Ok(resolved);
         }
-        Err("Escritura denegada: la ruta está fuera del espacio de trabajo abierto".into())
+        Err(tr("Escritura denegada: la ruta está fuera del espacio de trabajo abierto").into())
     }
 
     /// Verifica que `raw` sea el propio workspace o un subdirectorio dentro de él.
     pub fn ensure_dir(&self, raw: &str) -> Result<PathBuf, String> {
         let resolved = self.ensure_write(raw)?;
         if !resolved.is_dir() {
-            return Err("La ruta no es una carpeta válida".into());
+            return Err(tr("La ruta no es una carpeta válida").into());
         }
         Ok(resolved)
     }
