@@ -2,7 +2,7 @@
 
 Todos los cambios notables en Pulso Editor se documentan en este archivo.
 
-## [Sin publicar]
+## [0.2.0] - 2026-11-23
 
 ### Añadido
 - Asistente de IA con modelos locales mediante Ollama sin cuentas ni herramientas de terceros.
