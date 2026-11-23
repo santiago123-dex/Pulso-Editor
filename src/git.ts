@@ -1,4 +1,3 @@
-import { t } from "./i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { dirName } from "./util";
 
