@@ -16,7 +16,7 @@ Estas son propuestas, no funciones ya implementadas. El orden es una recomendaci
 2. Hecho: renombrado (F2) y panel de problemas de los archivos abiertos. Falta conectar acciones de código, formato y ayuda de firma mediante LSP, respetando las capacidades que anuncie cada servidor, y analizar el proyecto completo, no solo lo abierto.
 3. Ya hay indicador de estado, motivo y reinicio en la barra; falta registro de salida del servidor, configuración y límites de recursos.
 4. Diseñar un registro de servidores por lenguaje y carpeta antes de añadir Python, Rust u otros. Evaluar cómo distribuir o instalar servidores y cómo encontrar sus runtimes sin obligar a configurar cada proyecto manualmente.
-5. Decidir si se distribuye un runtime compatible o se mantiene Node como requisito explícito para TypeScript/JavaScript.
+5. Hecho: el servidor nativo de TypeScript 7 viene incluido y no necesita Node. Node solo hace falta en el modo compatible, para proyectos con TypeScript 5 o 6.
 
 La prueba `test:lsp:ui` ya comprueba una compilación de desarrollo en WebView2 con un alias, hover de símbolo y error, Ctrl+clic y reapertura del archivo. Falta verificar la versión instalada con proyectos reales y otros escenarios de Windows.
 
