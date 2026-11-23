@@ -258,7 +258,8 @@ fn spawn_piped(mut command: std::process::Command, root: &str) -> std::io::Resul
 }
 
 #[tauri::command]
-pub async fn lsp_start(window: tauri::WebviewWindow, app: AppHandle, root: String) -> Result<Started, String> {
+pub async fn lsp_start(window: tauri::WebviewWindow, app: AppHandle, guard: tauri::State<'_, crate::fsguard::WorkspaceGuard>, root: String) -> Result<Started, String> {
+    guard.ensure_dir(&root)?;
     let label = window.label().to_string();
     tauri::async_runtime::spawn_blocking(move || {
         if !Path::new(&root).is_dir() {

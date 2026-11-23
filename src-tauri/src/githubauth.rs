@@ -340,6 +340,9 @@ pub async fn github_api(
     base_url: Option<String>,
 ) -> Result<GithubApiResponse, String> {
     let base = resolve_api_base(base_url.as_deref())?;
+    // El token se pone aquí, así que solo salen las solicitudes que la interfaz de Pulso necesita (ver githubpolicy.rs).
+    crate::githubpolicy::check_request(&method, &path, body.as_deref())
+        .map_err(|()| tr("Pulso no permite esta solicitud a GitHub").to_string())?;
     let token = state.get_token();
     send_github_request(
         &state.client,

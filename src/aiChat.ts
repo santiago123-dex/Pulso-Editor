@@ -757,7 +757,7 @@ function accountStatusText(id: AiProvider, t: AiTool | null): string {
   const meta = PROVIDERS[id];
   const installable = !!(meta.npmPkg || meta.installCmdPs);
   if (!t.installed) return installable ? tr("CLI sin instalar · instalable aquí") : tr("CLI sin instalar");
-  if (!t.logged_in) return tr("Instalado · falta iniciar sesión");
+  if (!t.logged_in) return t.error ? tr("Instalado · no se pudo comprobar la sesión") : tr("Instalado · falta iniciar sesión");
   if (id === "claude") return t.plan ? tr("Conectado · Plan {plan}", { plan: planLabel(t.plan) }) : tr("Conectado · Suscripción Claude");
   if (id === "codex") {
     if (t.auth_method === "chatgpt") return t.plan && t.plan !== "ChatGPT" ? tr("Conectado · Plan {plan}", { plan: planLabel(t.plan) }) : tr("Conectado · Suscripción ChatGPT");
@@ -1874,8 +1874,11 @@ function renderBody() {
     const again = h("button", "foot-btn foot-btn-line", prov === "local" ? tr("Volver a comprobar") : tr("Ya inicié sesión: volver a comprobar")); again.type = "button"; again.onclick = recheck;
     const extraBtns: HTMLElement[] = [login, again];
     // Para Ollama «sin sesión» significa que no hay ningún modelo descargado.
-    const title = prov === "claude" ? tr("Inicia sesión para cargar tu plan") : prov === "local" ? tr("Descarga un modelo para Ollama") : tr("Inicia sesión en {provider}", { provider: meta.title });
-    const desc = prov === "local"
+    const couldNotCheck = !!curTool.error && prov !== "local";
+    const title = couldNotCheck ? tr("No se pudo comprobar tu sesión de {provider}", { provider: meta.title }) : prov === "claude" ? tr("Inicia sesión para cargar tu plan") : prov === "local" ? tr("Descarga un modelo para Ollama") : tr("Inicia sesión en {provider}", { provider: meta.title });
+    const desc = couldNotCheck
+      ? tr("{provider} está instalado, pero no se pudo comprobar si hay una sesión iniciada (puede ser algo puntual). Pulsa «volver a comprobar»; si sigue igual, inicia sesión de nuevo.", { provider: meta.title })
+      : prov === "local"
       ? tr("Ollama está en marcha pero no tiene ningún modelo. «Descargar un modelo» baja qwen2.5-coder:7b (unos 4,7 GB) en la terminal integrada; también puedes descargar otro con «ollama pull <modelo>».")
       : prov === "claude"
       ? tr("Claude Code está instalado pero no hay una sesión iniciada. Se abrirá el inicio de sesión y tu plan se cargará al instante.")

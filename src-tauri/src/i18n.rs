@@ -144,6 +144,8 @@ const EN: &[(&str, &str)] = &[
     ("No se pudo autorizar con GitHub. Comprueba que Git Credential Manager esté instalado (viene con Git para Windows) y vuelve a intentarlo", "Couldn't authorize with GitHub. Check that Git Credential Manager is installed (it comes with Git for Windows) and try again"),
     ("Git no tiene una sesión de GitHub guardada", "Git has no saved GitHub session"),
     ("Ruta de API de GitHub no válida", "Invalid GitHub API path"),
+    ("Pulso no permite esta solicitud a GitHub", "Pulso does not allow this request to GitHub"),
+    ("Tema de VS Code", "VS Code theme"),
     ("Dirección de API de GitHub no permitida", "GitHub API address not allowed"),
     ("Método HTTP no permitido", "HTTP method not allowed"),
     ("No se pudo contactar con GitHub: {e}", "Couldn't reach GitHub: {e}"),
