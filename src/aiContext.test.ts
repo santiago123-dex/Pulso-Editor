@@ -32,6 +32,12 @@ describe("buildPrompt", () => {
     const p = buildPrompt("¿qué ves?", { images: [{ path: "C:/data/ai-images/img_1.png", name: "captura.png" }] });
     expect(p).toBe("Contexto del editor de Pulso (lo ve la persona):\n- Imagen adjunta (captura.png): C:/data/ai-images/img_1.png\n\nMensaje:\n¿qué ves?");
   });
+  it("incluye notas de contexto adjuntas (issue, PR o cambios de Git)", () => {
+    const p = buildPrompt("revísalo", {
+      notes: [{ id: "issue:12", label: "Issue #12", title: "Issue #12: Error de login", body: "Falla al entrar." }],
+    });
+    expect(p).toBe("Contexto del editor de Pulso (lo ve la persona):\n- Issue #12: Error de login:\n```\nFalla al entrar.\n```\n\nMensaje:\nrevísalo");
+  });
 });
 
 describe("chipLabels", () => {
