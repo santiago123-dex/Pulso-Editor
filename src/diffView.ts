@@ -1,3 +1,4 @@
+import { t as tr } from "./i18n";
 import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
 import { openFile } from "./groups";
@@ -74,16 +75,16 @@ export async function openDiffRequest(t: DiffRequest) {
   const head = h("div", "diff-head");
   const title = h("span", "diff-title", t.title);
   const sub = h("span", "diff-sub", t.sub);
-  const toggle = h("button", "diff-btn", inline ? "Lado a lado" : "En línea");
+  const toggle = h("button", "diff-btn", inline ? tr("Lado a lado") : tr("En línea"));
   const close = h("button", "icon-btn diff-close");
-  close.title = "Cerrar (Esc)";
+  close.title = tr("Cerrar (Esc)");
   close.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
   close.onclick = closeDiff;
   head.append(title, sub, h("span", "grow"));
   if (t.note) head.append(h("span", "diff-sub", t.note));
   head.append(toggle);
   if (t.openPath) {
-    const open = h("button", "diff-btn", "Abrir archivo");
+    const open = h("button", "diff-btn", tr("Abrir archivo"));
     const p = t.openPath;
     open.onclick = () => { closeDiff(); void openFile(p); };
     head.append(open);
@@ -97,20 +98,20 @@ export async function openDiffRequest(t: DiffRequest) {
   head.append(close);
   const body = h("div", "diff-body");
   root.replaceChildren(head, body);
-  body.append(h("div", "diff-msg", "Cargando diferencias…"));
+  body.append(h("div", "diff-msg", tr("Cargando diferencias…")));
 
   let src: Sources;
   try {
     src = await t.load();
   } catch (e) {
-    if (mine === token) body.replaceChildren(h("div", "diff-msg", `No se pudo cargar la comparación: ${e instanceof Error ? e.message : e}`));
+    if (mine === token) body.replaceChildren(h("div", "diff-msg", tr("No se pudo cargar la comparación: {error}", { error: e instanceof Error ? e.message : String(e) })));
     return;
   }
   if (mine !== token) return;
-  if (src.binary) { body.replaceChildren(h("div", "diff-msg", "Archivo binario: no se muestran diferencias.")); return; }
+  if (src.binary) { body.replaceChildren(h("div", "diff-msg", tr("Archivo binario: no se muestran diferencias."))); return; }
 
   body.replaceChildren();
-  if (src.original === src.modified) body.append(h("div", "diff-msg", "Sin diferencias de contenido (por ejemplo, solo cambió el modo o el nombre)."));
+  if (src.original === src.modified) body.append(h("div", "diff-msg", tr("Sin diferencias de contenido (por ejemplo, solo cambió el modo o el nombre).")));
   const holder = h("div", "diff-editor");
   body.append(holder);
   const lang = languageOf(t.path);
@@ -129,15 +130,15 @@ export async function openDiffRequest(t: DiffRequest) {
   editor.setModel({ original: models[0], modified: models[1] });
   toggle.onclick = () => {
     inline = !inline;
-    toggle.textContent = inline ? "Lado a lado" : "En línea";
+    toggle.textContent = inline ? tr("Lado a lado") : tr("En línea");
     editor?.updateOptions({ renderSideBySide: !inline });
   };
-  setStatus(`Diferencias de ${baseName(t.path)}`, 2500);
+  setStatus(tr("Diferencias de {file}", { file: baseName(t.path) }), 2500);
 }
 
 /** Diferencias de un archivo del control de código (preparado o sin preparar). */
 export async function openDiff(t: DiffTarget) {
-  const where = t.staged ? "Preparado (HEAD ↔ índice)" : t.status === "U" ? "Archivo nuevo" : "Sin preparar (índice ↔ disco)";
+  const where = t.staged ? tr("Preparado (HEAD ↔ índice)") : t.status === "U" ? tr("Archivo nuevo") : tr("Sin preparar (índice ↔ disco)");
   await openDiffRequest({
     title: baseName(t.path),
     sub: `${t.path} — ${where}`,

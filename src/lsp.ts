@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -76,7 +77,7 @@ function notify(s: Session, method: string, params?: Json) {
 function request(s: Session, method: string, params: Json, token?: monaco.CancellationToken): Promise<Json> {
   const id = ++s.next;
   return new Promise((resolve, reject) => {
-    const timer = window.setTimeout(() => { s.pending.delete(id); reject(new Error(`LSP: tiempo agotado (${method})`)); }, 15000);
+    const timer = window.setTimeout(() => { s.pending.delete(id); reject(new Error(t("LSP: tiempo agotado ({method})", { method }))); }, 15000);
     s.pending.set(id, { resolve, reject, timer });
     token?.onCancellationRequested(() => { if (s.pending.delete(id)) { clearTimeout(timer); notify(s, "$/cancelRequest", { id }); resolve(null); } });
     void send(s, { jsonrpc: "2.0", id, method, params }).catch((e) => {
@@ -111,7 +112,7 @@ async function pullDiagnostics(s: Session, model: monaco.editor.ITextModel) {
 function clear(s: Session) {
   clearTimeout(s.pullTimer);
   s.pullQueue.clear();
-  for (const p of s.pending.values()) { clearTimeout(p.timer); p.reject(new Error("Servidor LSP cerrado")); }
+  for (const p of s.pending.values()) { clearTimeout(p.timer); p.reject(new Error(t("Servidor LSP cerrado"))); }
   s.pending.clear();
   for (const d of s.models.values()) d.dispose();
   s.models.clear();
@@ -123,7 +124,7 @@ function fail(s: Session, error: string) {
   clear(s);
   builtIn(true);
   setLspState({ kind: "stopped", reason: error });
-  setStatus(`Inteligencia de proyecto no disponible: ${error}`, 12000);
+  setStatus(t("Inteligencia de proyecto no disponible: {error}", { error }), 12000);
   transition = transition.catch(() => {}).then(async () => { if (!session) await invoke("lsp_stop"); });
 }
 function openModel(s: Session, model: monaco.editor.ITextModel) {
@@ -286,10 +287,10 @@ export function setLspWorkspace(root: string | null) {
       for (const model of monaco.editor.getModels()) openModel(s, model);
       if (started.notice) setStatus(started.notice, 15000);
       else setStatus(started.mode === "compat"
-        ? "Inteligencia de TypeScript y JavaScript activada (con el TypeScript del proyecto)"
-        : "Inteligencia de TypeScript y JavaScript activada");
+        ? t("Inteligencia de TypeScript y JavaScript activada (con el TypeScript del proyecto)")
+        : t("Inteligencia de TypeScript y JavaScript activada"));
     } catch (e) { fail(s, String(e)); }
-  }).catch((e) => { if (current === generation) { builtIn(true); setLspState({ kind: "stopped", reason: String(e) }); setStatus(String(e).startsWith("No se pudo iniciar") ? String(e) : `No se pudo iniciar LSP: ${e}`, 12000); } });
+  }).catch((e) => { if (current === generation) { builtIn(true); setLspState({ kind: "stopped", reason: String(e) }); setStatus(String(e).startsWith("No se pudo iniciar") ? String(e) : t("No se pudo iniciar LSP: {error}", { error: String(e) }), 12000); } });
 }
 
 function active(model: monaco.editor.ITextModel) { return session?.ready && language(model) && session.models.has(uri(model)) ? session : null; }
@@ -305,7 +306,7 @@ function locations(value: Json): monaco.languages.LocationLink[] {
 async function definition(model: monaco.editor.ITextModel, position: monaco.Position, indicate: boolean): Promise<monaco.languages.LocationLink[] | null> {
   const started = generation;
   if (!active(model) && language(model) && workspaceRoot) {
-    if (indicate) setStatus("Iniciando inteligencia de código…");
+    if (indicate) setStatus(t("Iniciando inteligencia de código…"));
     await transition;
   }
   if (started !== generation || model.isDisposed()) return null;
@@ -337,7 +338,7 @@ async function definition(model: monaco.editor.ITextModel, position: monaco.Posi
     if (s.definitions.size > 100) s.definitions.delete(s.definitions.keys().next().value!);
     void promise.then((found) => { if (!found.length && s.definitions.get(key) === promise) s.definitions.delete(key); }, () => { if (s.definitions.get(key) === promise) s.definitions.delete(key); });
   }
-  if (indicate) setStatus("Buscando definición…");
+  if (indicate) setStatus(t("Buscando definición…"));
   return promise;
 }
 
@@ -371,8 +372,8 @@ async function writeClosedEdits(closed: { path: string; text: string; mtime: num
   for (const f of closed) {
     try { await invoke("write_file", { path: f.path, contents: f.text, expectedMtime: f.mtime }); written.push(f.path); }
     catch (e) {
-      const done = written.length ? ` Ya se escribieron: ${written.map((w) => w.split("/").pop()).join(", ")}.` : "";
-      throw new Error(`No se pudo escribir ${f.path.split("/").pop()}: ${String(e).replace(/^CONFLICT$/, "cambió en el disco")}.${done}`);
+      const done = written.length ? " " + t("Ya se escribieron: {files}.", { files: written.map((w) => w.split("/").pop()).join(", ") }) : "";
+      throw new Error(t("No se pudo escribir {file}: {error}.", { file: f.path.split("/").pop()!, error: String(e).replace(/^CONFLICT$/, t("cambió en el disco")) }) + done);
     }
   }
 }
@@ -383,7 +384,7 @@ async function prepareWorkspaceEdits(workspaceEdit: Json) {
   const closed: { path: string; text: string; mtime: number }[] = [];
   for (const [u, list] of byUri) {
     const target = monaco.Uri.parse(u);
-    if (target.scheme !== "file") throw new Error(`El servidor pidió editar un recurso que no es un archivo (${u})`);
+    if (target.scheme !== "file") throw new Error(t("El servidor pidió editar un recurso que no es un archivo ({uri})", { uri: String(u) }));
     const path = slash(target.fsPath);
     const open = findOpenDoc(path);
     const model = open?.model ?? monaco.editor.getModel(target);
@@ -425,7 +426,9 @@ async function renameEdits(s: Session, model: monaco.editor.ITextModel, position
   if (token.isCancellationRequested) return { edits: [] };
   await writeClosedEdits(closed);
   const edits = openEdits.map((o) => o.edit);
-  setStatus(`Renombrado en ${files} archivo${files === 1 ? "" : "s"}${closed.length ? ` (${closed.length} guardado${closed.length === 1 ? "" : "s"} en disco)` : ""}${edits.length ? ". Los archivos abiertos quedan sin guardar" : ""}`, 6000);
+  setStatus((files === 1 ? t("Renombrado en 1 archivo") : t("Renombrado en {count} archivos", { count: files }))
+    + (closed.length ? " " + (closed.length === 1 ? t("(1 guardado en disco)") : t("({count} guardados en disco)", { count: closed.length })) : "")
+    + (edits.length ? ". " + t("Los archivos abiertos quedan sin guardar") : ""), 6000);
   return { edits };
 }
 
@@ -461,7 +464,7 @@ function toCodeAction(raw: Json): monaco.languages.CodeAction & { _lsp?: Json } 
     return { title: String(raw.title ?? raw.command), command: bridgeCommand(raw), _lsp: raw };
   }
   return {
-    title: String(raw?.title ?? "Acción"),
+    title: String(raw?.title ?? t("Acción")),
     kind: typeof raw?.kind === "string" ? raw.kind : undefined,
     isPreferred: raw?.isPreferred === true,
     disabled: typeof raw?.disabled?.reason === "string" ? raw.disabled.reason : undefined,
@@ -500,7 +503,7 @@ export function initLsp() {
     if (!result) return false;
     const target = result[0];
     if (!target || target.uri.scheme !== "file") {
-      setStatus("No se encontró una definición para este símbolo");
+      setStatus(t("No se encontró una definición para este símbolo"));
       return true;
     }
     const selection = target.targetSelectionRange ?? target.range;
@@ -513,7 +516,7 @@ export function initLsp() {
     const s = session;
     if (!s || !active(d.model) || !s.caps.formatting) return;
     const version = d.model.getVersionId();
-    const edits = await Promise.race([formatEdits(s, d.model), new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error("el servidor tardó demasiado")), 4000))]);
+    const edits = await Promise.race([formatEdits(s, d.model), new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error(t("el servidor tardó demasiado"))), 4000))]);
     if (!edits.length || d.model.getVersionId() !== version) return;
     d.model.pushEditOperations([], edits, () => null);
   });
@@ -535,21 +538,21 @@ export function initLsp() {
     monaco.languages.registerRenameProvider({ language: lang, scheme: "file", exclusive: true }, {
       resolveRenameLocation: async (model, position, token) => {
         const s = active(model);
-        if (!s) return { range: model.getWordAtPosition(position) ? { startLineNumber: position.lineNumber, endLineNumber: position.lineNumber, startColumn: model.getWordAtPosition(position)!.startColumn, endColumn: model.getWordAtPosition(position)!.endColumn } : new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column), text: "", rejectReason: "La inteligencia de lenguaje no está activa" };
+        if (!s) return { range: model.getWordAtPosition(position) ? { startLineNumber: position.lineNumber, endLineNumber: position.lineNumber, startColumn: model.getWordAtPosition(position)!.startColumn, endColumn: model.getWordAtPosition(position)!.endColumn } : new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column), text: "", rejectReason: t("La inteligencia de lenguaje no está activa") };
         const r = await safe(request(s, "textDocument/prepareRename", params(model, position), token), null);
         const target = r && (r.range ?? (r.start ? r : null));
-        if (!target) return { range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column), text: "", rejectReason: "No se puede renombrar lo que hay bajo el cursor" };
+        if (!target) return { range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column), text: "", rejectReason: t("No se puede renombrar lo que hay bajo el cursor") };
         const rg = range(target);
         return { range: rg, text: r.placeholder ?? model.getValueInRange(rg) };
       },
       provideRenameEdits: async (model, position, newName, token) => {
         const s = active(model);
-        if (!s) return { edits: [], rejectReason: "La inteligencia de lenguaje no está activa" };
+        if (!s) return { edits: [], rejectReason: t("La inteligencia de lenguaje no está activa") };
         try { return await renameEdits(s, model, position, newName, token); }
         catch (e) { return { edits: [], rejectReason: e instanceof Error ? e.message : String(e) }; }
       },
     });
-    monaco.languages.registerDocumentFormattingEditProvider(lang, { displayName: "Servidor de lenguaje", provideDocumentFormattingEdits: (model, _options, token) => { const s = active(model); return s && s.caps.formatting ? safe(formatEdits(s, model, token), []) : []; } });
+    monaco.languages.registerDocumentFormattingEditProvider(lang, { displayName: t("Servidor de lenguaje"), provideDocumentFormattingEdits: (model, _options, token) => { const s = active(model); return s && s.caps.formatting ? safe(formatEdits(s, model, token), []) : []; } });
     monaco.languages.registerSignatureHelpProvider?.(lang, {
       signatureHelpTriggerCharacters: ["(", ","],
       signatureHelpRetriggerCharacters: [","],
@@ -601,14 +604,14 @@ export function initLsp() {
       },
     }, { providedCodeActionKinds: ["quickfix", "refactor", "source", "source.organizeImports"] });
     monaco.languages.registerDocumentSymbolProvider?.(lang, {
-      displayName: "Servidor de lenguaje",
+      displayName: t("Servidor de lenguaje"),
       provideDocumentSymbols: (model, token) => {
         const s = active(model); if (!s || !s.caps.documentSymbol) return [];
         return safe(request(s, "textDocument/documentSymbol", { textDocument: { uri: uri(model) } }, token).then(toDocumentSymbols), []);
       },
     });
     monaco.languages.registerInlayHintsProvider?.(lang, {
-      displayName: "Servidor de lenguaje",
+      displayName: t("Servidor de lenguaje"),
       onDidChangeInlayHints: inlayRefresh?.event,
       provideInlayHints: (model, hintRange, token) => {
         const s = active(model); if (!s || !s.caps.inlayHint) return { hints: [], dispose() {} };

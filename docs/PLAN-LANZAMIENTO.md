@@ -57,9 +57,11 @@ Puntos fuertes:
 - [ ] **Almacenamiento repartido.** Diez módulos usan `localStorage` directamente, aunque existe `src/core/storage.ts`. Centralizarlo facilita las migraciones, los límites de tamaño y las pruebas.
 - [ ] **Interfaz en inglés (en curso).** Ya hay capa de traducciones (`src/i18n.ts`, `src/locales/en.ts`) y selector de idioma.
   - Primera tanda traducida: menús, paleta, barra de estado, inicio, diálogos, actualizaciones, configuración e `index.html`, unos 400 textos.
-  - Faltan unos 1.600 textos:
-    - [ ] explorador, búsqueda, pestañas y documentos;
-    - [ ] Git, historial y pull requests;
+  - Segunda tanda traducida, unos 260 textos:
+    - [x] explorador, búsqueda, pestañas y documentos;
+    - [x] Git, historial y pull requests;
+    - [x] servidor de lenguaje y panel de problemas.
+  - Faltan unos 1.350 textos:
     - [ ] issues, tablero y chat del equipo;
     - [ ] asistente de IA;
     - [ ] temas, atajos y terminal;
