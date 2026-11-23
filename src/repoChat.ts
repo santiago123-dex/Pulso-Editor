@@ -1,3 +1,4 @@
+import { lang, t as tr } from "./i18n";
 import { bus } from "./core/events";
 import { currentRepo } from "./core/repo";
 import { ago, buildItems, insertMention, lastSpoke, MAX_MESSAGE, mentionAt, mentionsPerson, mergeComments, splitBody, suggestMembers, unreadCount, type ChatComment, type ChatUser } from "./chatModel";
@@ -50,7 +51,7 @@ function setBadge(n: number) {
   const launch = document.querySelector<HTMLElement>('.act[data-view="chat"]')!;
   badge.textContent = n > 99 ? "99+" : String(n);
   badge.hidden = n <= 0;
-  launch.title = n > 0 ? `Chat del equipo · ${n} mensaje${n === 1 ? "" : "s"} nuevo${n === 1 ? "" : "s"}` : "Chat del equipo";
+  launch.title = n > 0 ? (n === 1 ? tr("Chat del equipo · 1 mensaje nuevo") : tr("Chat del equipo · {count} mensajes nuevos", { count: n })) : tr("Chat del equipo");
 }
 
 const sinceOf = (list: readonly ChatComment[]) => (list.length ? list[list.length - 1].created_at : "1970-01-01T00:00:00Z");
@@ -88,7 +89,7 @@ function applyMode() {
   // Con espacio de sobra la lista de personas va a la vista; en la barra lateral, plegada.
   v.querySelector(".chat-shell")?.classList.toggle("members-open", isFull());
   const expand = v.querySelector<HTMLElement>(".chat-expand");
-  if (expand) { expand.title = isFull() ? "Volver a la barra lateral (Esc)" : "Pantalla completa"; expand.setAttribute("aria-label", expand.title); expand.innerHTML = isFull() ? ICON_SHRINK : ICON_EXPAND; }
+  if (expand) { expand.title = isFull() ? tr("Volver a la barra lateral (Esc)") : tr("Pantalla completa"); expand.setAttribute("aria-label", expand.title); expand.innerHTML = isFull() ? ICON_SHRINK : ICON_EXPAND; }
 }
 
 function setFull(full: boolean) {
@@ -145,7 +146,7 @@ function shell(title: string, sub: string): { root: HTMLElement; head: HTMLEleme
   const t = h("div", "chat-titles");
   t.append(h("span", "chat-title", title), h("span", "chat-sub", sub));
   const tools = h("div", "chat-tools");
-  const expand = iconBtn(ICON_EXPAND, "Pantalla completa", "chat-expand");
+  const expand = iconBtn(ICON_EXPAND, tr("Pantalla completa"), "chat-expand");
   expand.onclick = () => setFull(!isFull());
   tools.append(expand);
   head.append(t, h("span", "grow"), tools);
@@ -167,18 +168,18 @@ export async function openChat(known?: ChatRoom) {
   const mine = session;
   if (isFull()) bus.emit("overlay", "chat");
   window.addEventListener("keydown", onKey, true);
-  const ui = shell("Chat del equipo", "Conversación del repositorio");
+  const ui = shell(tr("Chat del equipo"), tr("Conversación del repositorio"));
   viewEl().replaceChildren(ui.root);
   applyMode();
   const show = (...nodes: HTMLElement[]) => ui.body.replaceChildren(...nodes);
-  show(message("Buscando el chat del repositorio…"));
+  show(message(tr("Buscando el chat del repositorio…")));
 
   const repo = await currentRepo();
   if (mine !== session) return;
-  if (!repo) { show(message("Abre una carpeta cuyo remoto «origin» sea un repositorio de GitHub para chatear con su equipo.")); return; }
+  if (!repo) { show(message(tr("Abre una carpeta cuyo remoto «origin» sea un repositorio de GitHub para chatear con su equipo."))); return; }
   ui.root.querySelector(".chat-sub")!.textContent = `${repo.owner}/${repo.repo}`;
   if (!hasToken()) {
-    show(message("Conecta tu cuenta de GitHub para leer y escribir en el chat del equipo. Es un clic: se usa la sesión de Git de este equipo o se abre el navegador para autorizar.", connectButton(() => void openChat())));
+    show(message(tr("Conecta tu cuenta de GitHub para leer y escribir en el chat del equipo. Es un clic: se usa la sesión de Git de este equipo o se abre el navegador para autorizar."), connectButton(() => void openChat())));
     return;
   }
 
@@ -191,19 +192,19 @@ export async function openChat(known?: ChatRoom) {
   }
   if (mine !== session) return;
   if (!room) {
-    const create = h("button", "diff-btn primary", "Crear el chat del equipo");
+    const create = h("button", "diff-btn primary", tr("Crear el chat del equipo"));
     create.onclick = async () => {
       const r = await showDialog({
-        title: "Crear el chat del equipo",
-        message: `Se creará en ${repo.owner}/${repo.repo} una issue con la etiqueta «pulso-chat». Cada mensaje del chat será un comentario de esa issue, así que lo verá quien pueda ver el repositorio. Las demás personas que usen Pulso en este repositorio la encontrarán sola.`,
-        buttons: [{ label: "Cancelar", value: "cancel" }, { label: "Crear", value: "ok", primary: true }],
+        title: tr("Crear el chat del equipo"),
+        message: tr("Se creará en {repo} una issue con la etiqueta «pulso-chat». Cada mensaje del chat será un comentario de esa issue, así que lo verá quien pueda ver el repositorio. Las demás personas que usen Pulso en este repositorio la encontrarán sola.", { repo: `${repo.owner}/${repo.repo}` }),
+        buttons: [{ label: tr("Cancelar"), value: "cancel" }, { label: tr("Crear"), value: "ok", primary: true }],
       });
       if (r !== "ok" || mine !== session) return;
-      show(message("Creando el chat del equipo en GitHub…"));
+      show(message(tr("Creando el chat del equipo en GitHub…")));
       try { const made = await store.createRoom(repo); if (mine === session) void openChat(made); }
       catch (e) { if (mine === session) show(message(errorText(e), ...(isAuthProblem(e) ? [connectButton(() => void openChat())] : []))); }
     };
-    show(message("Todavía no hay chat para este repositorio. Quien lo cree lo deja disponible para todo el equipo.", create));
+    show(message(tr("Todavía no hay chat para este repositorio. Quien lo cree lo deja disponible para todo el equipo."), create));
     return;
   }
 
@@ -232,9 +233,9 @@ function mount(ui: { root: HTMLElement; head: HTMLElement; body: HTMLElement; to
   const { repo, room } = st;
   const alive = () => mine === session && ws.root !== null && current === st;
 
-  const people = iconBtn(ICON_PEOPLE, "Personas del repositorio", "chat-people");
+  const people = iconBtn(ICON_PEOPLE, tr("Personas del repositorio"), "chat-people");
   people.onclick = () => ui.root.classList.toggle("members-open");
-  const gh = iconBtn(ICON_LINK, "Abrir en GitHub la issue que guarda los mensajes");
+  const gh = iconBtn(ICON_LINK, tr("Abrir en GitHub la issue que guarda los mensajes"));
   gh.onclick = () => void openExternal(room.html_url);
   ui.tools.prepend(people, gh);
 
@@ -242,23 +243,23 @@ function mount(ui: { root: HTMLElement; head: HTMLElement; body: HTMLElement; to
   const scroll = h("div", "chat-scroll");
   scroll.tabIndex = 0;
   scroll.setAttribute("role", "log");
-  scroll.setAttribute("aria-label", "Mensajes");
-  const fresh = h("button", "chat-fresh", "↓ Mensajes nuevos");
+  scroll.setAttribute("aria-label", tr("Mensajes"));
+  const fresh = h("button", "chat-fresh", tr("↓ Mensajes nuevos"));
   fresh.hidden = true;
   const note = h("div", "chat-note");
   const compose = h("form", "chat-compose");
   const box = h("textarea", "chat-input");
-  box.rows = 1; box.placeholder = "Escribe un mensaje…"; box.maxLength = MAX_MESSAGE;
-  box.setAttribute("aria-label", "Mensaje");
+  box.rows = 1; box.placeholder = tr("Escribe un mensaje…"); box.maxLength = MAX_MESSAGE;
+  box.setAttribute("aria-label", tr("Mensaje"));
   const send = h("button", "chat-send");
-  send.type = "submit"; send.title = "Enviar (Enter)"; send.setAttribute("aria-label", "Enviar"); send.innerHTML = ICON_SEND;
+  send.type = "submit"; send.title = tr("Enviar (Enter)"); send.setAttribute("aria-label", tr("Enviar")); send.innerHTML = ICON_SEND;
   const mention = h("div", "chat-mention");
   mention.hidden = true;
   mention.setAttribute("role", "listbox");
   const field = h("div", "chat-field");
   field.append(box, send);
   compose.append(mention, field);
-  const privacy = h("div", "chat-privacy", "Enter envía · Mayús+Enter, nueva línea · @ menciona. Lo ve quien tenga acceso al repositorio; llega en unos segundos.");
+  const privacy = h("div", "chat-privacy", tr("Enter envía · Mayús+Enter, nueva línea · @ menciona. Lo ve quien tenga acceso al repositorio; llega en unos segundos."));
   main.append(scroll, fresh, note, compose, privacy);
 
   const side = h("aside", "chat-members");
@@ -276,13 +277,13 @@ function mount(ui: { root: HTMLElement; head: HTMLElement; body: HTMLElement; to
       else if (part.kind === "issue" && part.issue) {
         const a = h("button", "chat-ref", part.text);
         a.type = "button";
-        a.title = `Abrir issue #${part.issue} en GitHub`;
+        a.title = tr("Abrir issue #{number} en GitHub", { number: part.issue });
         a.onclick = () => void openExternal(`https://github.com/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/issues/${part.issue}`);
         b.append(a);
       } else if (part.kind === "file" && part.path && part.line) {
         const a = h("button", "chat-ref chat-file-ref", part.text);
         a.type = "button";
-        a.title = `Abrir ${part.path} en la línea ${part.line}`;
+        a.title = tr("Abrir {path} en la línea {line}", { path: part.path, line: part.line });
         a.onclick = () => {
           if (!ws.root) return;
           if (isFull()) setFull(false);
@@ -303,18 +304,18 @@ function mount(ui: { root: HTMLElement; head: HTMLElement; body: HTMLElement; to
     const stick = forceBottom || atBottom();
     const items = buildItems(st.comments, st.me);
     const nodes: HTMLElement[] = [];
-    if (st.comments.length >= 500) nodes.push(h("div", "chat-day", "Se muestran los últimos 500 mensajes; el resto está en GitHub"));
-    if (!items.length && !pending.length) nodes.push(h("div", "chat-empty", "Todavía no hay mensajes. Escribe el primero: lo verán todas las personas del repositorio."));
+    if (st.comments.length >= 500) nodes.push(h("div", "chat-day", tr("Se muestran los últimos 500 mensajes; el resto está en GitHub")));
+    if (!items.length && !pending.length) nodes.push(h("div", "chat-empty", tr("Todavía no hay mensajes. Escribe el primero: lo verán todas las personas del repositorio.")));
     for (const it of items) {
       if (it.type === "day") { nodes.push(h("div", "chat-day", it.label)); continue; }
       const row = h("div", `chat-row${it.mine ? " mine" : ""}${it.head ? " head" : ""}${it.tail ? " tail" : ""}`);
       if (!it.mine) row.append(it.head ? avatar({ login: it.login, avatar_url: it.avatar }) : h("span", "chat-avatar-gap"));
       const col = h("div", "chat-col");
-      const time = new Date(it.at).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" });
+      const time = new Date(it.at).toLocaleTimeString(lang(), { hour: "2-digit", minute: "2-digit" });
       if (it.head && !it.mine) col.append(h("div", "chat-who", it.login));
       const b = bubble(it.body);
       if (mentionsPerson(it.body, st.me) && !it.mine) b.classList.add("pings-me");
-      b.title = new Date(it.at).toLocaleString("es");
+      b.title = new Date(it.at).toLocaleString(lang());
       col.append(b);
       if (it.tail) col.append(h("div", "chat-time", time));
       row.append(col);
@@ -324,9 +325,9 @@ function mount(ui: { root: HTMLElement; head: HTMLElement; body: HTMLElement; to
       const row = h("div", "chat-row mine tail pending");
       const col = h("div", "chat-col");
       col.append(bubble(p.body));
-      const state = h("div", "chat-time", p.failed ? "No se envió · " : "Enviando…");
+      const state = h("div", "chat-time", p.failed ? tr("No se envió · ") : tr("Enviando…"));
       if (p.failed) {
-        const retry = h("button", "chat-retry", "Reintentar");
+        const retry = h("button", "chat-retry", tr("Reintentar"));
         retry.onclick = () => { pending = pending.filter((x) => x !== p); box.value = p.body; void submit(); };
         state.append(retry);
       }
@@ -354,19 +355,19 @@ function mount(ui: { root: HTMLElement; head: HTMLElement; body: HTMLElement; to
     const extra: ChatUser[] = [];
     for (const c of st.comments) if (c.user && !logins.has(c.user.login.toLowerCase())) { logins.add(c.user.login.toLowerCase()); extra.push(c.user); }
     const all = [...st.members, ...extra].sort((a, b) => (spoke.get(b.login.toLowerCase()) ?? 0) - (spoke.get(a.login.toLowerCase()) ?? 0) || a.login.localeCompare(b.login));
-    const title = st.kind === "contributors" ? `Contribuyentes · ${all.length}` : `Personas · ${all.length}`;
+    const title = st.kind === "contributors" ? tr("Contribuyentes · {count}", { count: all.length }) : tr("Personas · {count}", { count: all.length });
     const nodes: HTMLElement[] = [h("div", "chat-members-title", title)];
-    if (st.kind === "contributors") nodes.push(h("div", "chat-members-hint", "GitHub no dejó ver los colaboradores: se muestran quienes han contribuido, que no siempre tienen acceso."));
-    if (!all.length) nodes.push(h("div", "chat-members-hint", st.kind === "unknown" ? "Cargando personas…" : "Sin personas que mostrar."));
+    if (st.kind === "contributors") nodes.push(h("div", "chat-members-hint", tr("GitHub no dejó ver los colaboradores: se muestran quienes han contribuido, que no siempre tienen acceso.")));
+    if (!all.length) nodes.push(h("div", "chat-members-hint", st.kind === "unknown" ? tr("Cargando personas…") : tr("Sin personas que mostrar.")));
     for (const u of all) {
       const li = h("button", "chat-member");
       li.type = "button";
-      li.title = `Mencionar a @${u.login}`;
+      li.title = tr("Mencionar a @{login}", { login: u.login });
       const text = h("span", "chat-member-text");
       const me = u.login.toLowerCase() === st.me.toLowerCase();
-      text.append(h("span", "chat-member-name", u.login + (me ? " (tú)" : "")));
+      text.append(h("span", "chat-member-name", u.login + (me ? tr(" (tú)") : "")));
       const t = spoke.get(u.login.toLowerCase());
-      text.append(h("span", "chat-member-when", t ? `escribió ${ago(t)}` : "sin mensajes"));
+      text.append(h("span", "chat-member-when", t ? tr("escribió {when}", { when: ago(t) }) : tr("sin mensajes")));
       li.append(avatar(u, 26), text);
       li.onclick = () => { insertAtCaret(`@${u.login} `); };
       nodes.push(li);
@@ -399,7 +400,7 @@ function mount(ui: { root: HTMLElement; head: HTMLElement; body: HTMLElement; to
     } catch (e) {
       p.failed = true;
       if (!alive()) return;
-      note.textContent = `No se pudo enviar: ${errorText(e)}`;
+      note.textContent = tr("No se pudo enviar: {error}", { error: errorText(e) });
       render(true);
     }
   }
@@ -459,7 +460,7 @@ function mount(ui: { root: HTMLElement; head: HTMLElement; body: HTMLElement; to
         // Si la issue de la sala se cerró o se borró en GitHub, el chat ya no es esa sala: se vuelve a buscar u ofrecer crear otra.
         if ((await store.roomOpen(repo, room.number)) === false && alive()) {
           current = null; setBadge(0);
-          setStatus("La issue del chat se cerró o se borró en GitHub", 8000);
+          setStatus(tr("La issue del chat se cerró o se borró en GitHub"), 8000);
           void openChat();
           return;
         }
@@ -486,7 +487,7 @@ function mount(ui: { root: HTMLElement; head: HTMLElement; body: HTMLElement; to
       }
       note.textContent = "";
     } catch (e) {
-      if (alive()) note.textContent = `Sin conexión con GitHub (${errorText(e)}). Se reintenta solo.`;
+      if (alive()) note.textContent = tr("Sin conexión con GitHub ({error}). Se reintenta solo.", { error: errorText(e) });
     } finally { busy = false; }
   }
   pollTimer = window.setInterval(() => void tick(), POLL_MS);

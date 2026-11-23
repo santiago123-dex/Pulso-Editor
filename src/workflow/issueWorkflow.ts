@@ -1,3 +1,4 @@
+import { t as tr } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { ensureBoardLabel } from "../boardLabels";
 import { REVIEW_LABEL } from "../boardModel";
@@ -50,19 +51,19 @@ export function clearActiveIssueWork(): void {
  */
 export async function startWorkOnIssue(issue: Issue): Promise<boolean> {
   if (!ws.root) {
-    setStatus("Abre una carpeta de proyecto para trabajar en una issue");
+    setStatus(tr("Abre una carpeta de proyecto para trabajar en una issue"));
     return false;
   }
   const repo = await currentRepo();
   const suggested = branchNameForIssue(issue);
   const chosen = await promptText({
-    title: `Trabajar en #${issue.number}: ${issue.title}`,
+    title: tr("Trabajar en #{number}: {title}", { number: issue.number, title: issue.title }),
     value: suggested,
     placeholder: suggested,
     validate: (v) => {
       const t = v.trim();
-      if (!t) return "Escribe un nombre para la rama";
-      if (t.startsWith("-") || /\s/.test(t)) return "El nombre de la rama no puede tener espacios ni empezar por «-»";
+      if (!t) return tr("Escribe un nombre para la rama");
+      if (t.startsWith("-") || /\s/.test(t)) return tr("El nombre de la rama no puede tener espacios ni empezar por «-»");
       return null;
     },
   });
@@ -72,13 +73,13 @@ export async function startWorkOnIssue(issue: Issue): Promise<boolean> {
   // 1. Crear rama (o cambiar a ella si ya existe localmente).
   try {
     await invoke("git_switch", { root: ws.root, name: branch, create: true });
-    setStatus(`Rama «${branch}» creada para #${issue.number}`);
+    setStatus(tr("Rama «{branch}» creada para #{number}", { branch, number: issue.number }));
   } catch {
     try {
       await invoke("git_switch", { root: ws.root, name: branch, create: false });
-      setStatus(`Cambiado a la rama existente «${branch}» para #${issue.number}`);
+      setStatus(tr("Cambiado a la rama existente «{branch}» para #{number}", { branch, number: issue.number }));
     } catch (e) {
-      setStatus(`No se pudo preparar la rama «${branch}»: ${e}`, 7000);
+      setStatus(tr("No se pudo preparar la rama «{branch}»: {error}", { branch, error: String(e) }), 7000);
       return false;
     }
   }
@@ -121,8 +122,8 @@ export async function startWorkOnIssue(issue: Issue): Promise<boolean> {
 
 /** Aplica un cambio propuesto por la IA: si está abierto en el editor usa `pushEditOperations` (con Ctrl+Z); si no, escritura atómica. */
 export async function applyProposedEdit(edit: ProposedFileEdit): Promise<string> {
-  if (!ws.root) throw new Error("No hay ninguna carpeta abierta.");
-  if (!isSafeRelativeEditPath(edit.path)) throw new Error(`Ruta no permitida: ${edit.path}`);
+  if (!ws.root) throw new Error(tr("No hay ninguna carpeta abierta."));
+  if (!isSafeRelativeEditPath(edit.path)) throw new Error(tr("Ruta no permitida: {path}", { path: edit.path }));
   const fullPath = `${ws.root.replace(/\/+$/, "")}/${edit.path}`;
   const openDoc = findOpenDoc(fullPath);
   if (openDoc) {
@@ -134,7 +135,7 @@ export async function applyProposedEdit(edit: ProposedFileEdit): Promise<string>
     await refreshTree();
   }
   await refreshScm();
-  setStatus(`Cambio aplicado en ${edit.path}`, 4000);
+  setStatus(tr("Cambio aplicado en {path}", { path: edit.path }), 4000);
   return fullPath;
 }
 
@@ -148,18 +149,18 @@ export async function reviewProposedEdit(
   onRejected?: () => void,
 ): Promise<void> {
   if (!ws.root) {
-    setStatus("Abre una carpeta para revisar cambios propuestos");
+    setStatus(tr("Abre una carpeta para revisar cambios propuestos"));
     return;
   }
   if (!isSafeRelativeEditPath(edit.path)) {
-    setStatus(`Ruta rechazada por seguridad: ${edit.path}`);
+    setStatus(tr("Ruta rechazada por seguridad: {path}", { path: edit.path }));
     return;
   }
   const fullPath = `${ws.root.replace(/\/+$/, "")}/${edit.path}`;
 
   await openDiffRequest({
     title: baseName(edit.path),
-    sub: `${edit.path} — Revisión de propuesta de IA (Actual ↔ Propuesto)`,
+    sub: tr("{path} — Revisión de propuesta de IA (Actual ↔ Propuesto)", { path: edit.path }),
     path: edit.path,
     load: async () => {
       const openDoc = findOpenDoc(fullPath);
@@ -176,16 +177,16 @@ export async function reviewProposedEdit(
     },
     actions: [
       {
-        label: "Descartar",
+        label: tr("Descartar"),
         danger: true,
         run: () => {
           closeDiff();
           onRejected?.();
-          setStatus(`Propuesta descartada para ${edit.path}`, 3000);
+          setStatus(tr("Propuesta descartada para {path}", { path: edit.path }), 3000);
         },
       },
       {
-        label: "Aplicar cambio",
+        label: tr("Aplicar cambio"),
         primary: true,
         run: async () => {
           try {
@@ -193,7 +194,7 @@ export async function reviewProposedEdit(
             closeDiff();
             onApplied?.();
           } catch (e) {
-            setStatus(`No se pudo aplicar el cambio: ${e instanceof Error ? e.message : e}`, 6000);
+            setStatus(tr("No se pudo aplicar el cambio: {error}", { error: e instanceof Error ? e.message : String(e) }), 6000);
           }
         },
       },
@@ -229,7 +230,7 @@ export async function createPrForActiveIssue(touchedFiles: string[] = []): Promi
       const progress = state.settings.boardProgressLabel || "in progress";
       await removeLabel(work.owner, work.repo, work.number, progress).catch(() => {});
       bus.emit("issues-changed");
-      setStatus(`PR #${created.number} creada · Issue #${work.number} movida a «En revisión»`, 6000);
+      setStatus(tr("PR #{pr} creada · Issue #{issue} movida a «En revisión»", { pr: created.number, issue: work.number }), 6000);
     } catch { /* la PR ya fue creada */ }
   }
 }

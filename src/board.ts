@@ -1,3 +1,4 @@
+import { lang, t } from "./i18n";
 import { applyMove, COLUMNS, columnOf, groupIssues, labelsForNew, labelsText, parseLabels, planMove, refreshDue, REVIEW_LABEL, sameIssues, upsertIssue, type Column } from "./boardModel";
 import { ensureBoardLabel } from "./boardLabels";
 import { isChatRoom } from "./chatModel";
@@ -78,7 +79,7 @@ async function autoRefresh(trigger: "focus" | "timer") {
   if (sameIssues(before, issues)) { issues = before; return; }
   if (interacting()) return;
   paint();
-  setStatus("El tablero se actualizó con cambios de GitHub", 4000);
+  setStatus(t("El tablero se actualizó con cambios de GitHub"), 4000);
 }
 
 const onFocus = () => void autoRefresh("focus");
@@ -93,10 +94,10 @@ export async function openBoard(): Promise<boolean> {
   repo = null;
   root.hidden = false;
   window.addEventListener("keydown", onKey, true);
-  root.replaceChildren(shell("Cargando issues…"));
+  root.replaceChildren(shell(t("Cargando issues…")));
   const found = await currentRepo();
   if (session !== boardSession) return false;
-  if (!found) { root.replaceChildren(shell("Esta carpeta no tiene un remoto de GitHub, así que no hay issues que mostrar.")); return false; }
+  if (!found) { root.replaceChildren(shell(t("Esta carpeta no tiene un remoto de GitHub, así que no hay issues que mostrar."))); return false; }
   repo = found;
   const cached = cache.get(cacheKey(found));
   if (cached) { issues = cached.issues; truncated = cached.truncated; lastLoad = cached.at; paint(); }
@@ -106,7 +107,7 @@ export async function openBoard(): Promise<boolean> {
   catch (e) {
     if (session !== boardSession) return false;
     // Con una copia ya pintada se conserva y solo se avisa; sin ella se explica el fallo.
-    if (cached) { setStatus(`No se pudo actualizar el tablero: ${e instanceof Error ? e.message : e}`, 8000); }
+    if (cached) { setStatus(t("No se pudo actualizar el tablero: {error}", { error: e instanceof Error ? e.message : String(e) }), 8000); }
     else { root.replaceChildren(shell(String(e instanceof Error ? e.message : e), isAuthProblem(e) ? () => void openBoard() : undefined)); return false; }
   }
   if (session !== boardSession) return false;
@@ -123,9 +124,9 @@ export async function createIssueFromSidebar() {
 function shell(message: string, reconnect?: () => void): HTMLElement {
   const wrap = h("div", "board-shell");
   const head = h("div", "board-head");
-  head.append(h("span", "board-title", "Tablero de issues"), h("span", "grow"));
+  head.append(h("span", "board-title", t("Tablero de issues")), h("span", "grow"));
   const close = h("button", "icon-btn board-close");
-  close.title = "Cerrar (Esc)";
+  close.title = t("Cerrar (Esc)");
   close.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
   close.onclick = closeBoard;
   head.append(close);
@@ -193,12 +194,12 @@ function card(i: Issue): HTMLElement {
   const el = h("div", "board-card");
   el.tabIndex = 0;
   el.setAttribute("role", "button");
-  el.setAttribute("aria-label", `Editar issue #${i.number}: ${i.title}`);
+  el.setAttribute("aria-label", t("Editar issue #{number}: {title}", { number: i.number, title: i.title }));
   // Sin `draggable`: el arrastre nativo del navegador cancelaría los eventos de puntero con los que se mueve la tarjeta.
   el.draggable = false;
   el.ondragstart = (e) => e.preventDefault();
   el.dataset.number = String(i.number);
-  el.title = "Haz clic para editarla; arrástrala a otra columna para cambiar su estado en GitHub";
+  el.title = t("Haz clic para editarla; arrástrala a otra columna para cambiar su estado en GitHub");
   const top = h("div", "board-card-top");
   top.append(h("span", "issue-num", `#${i.number}`));
   const assigned = h("div", "board-avatars");
@@ -213,25 +214,25 @@ function card(i: Issue): HTMLElement {
   }
   top.append(assigned);
   const open = h("button", "icon-btn board-open");
-  open.title = "Abrir en GitHub";
+  open.title = t("Abrir en GitHub");
   open.innerHTML = '<svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5H5V6h5"/></svg>';
   open.onclick = (e) => { e.stopPropagation(); void openExternal(i.html_url); };
   const done = columnOf(i, progressLabel()) === "done";
   const toggle = h("button", "icon-btn board-open");
-  toggle.title = done ? "Reabrir la issue" : "Cerrar la issue";
+  toggle.title = done ? t("Reabrir la issue") : t("Cerrar la issue");
   toggle.innerHTML = done
     ? '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 1 2.3 5.7M4 18v-5h5"/></svg>'
     : '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></svg>';
   toggle.onclick = (e) => { e.stopPropagation(); void move(i.number, done ? "todo" : "done"); };
   const del = h("button", "icon-btn board-open board-del");
-  del.title = "Eliminar la issue";
+  del.title = t("Eliminar la issue");
   del.innerHTML = '<svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12M10 11v5M14 11v5"/></svg>';
   del.onclick = (e) => { e.stopPropagation(); void deleteCard(i.number); };
   const actions = h("div", "board-card-actions");
   if (!done) {
     const work = h("button", "icon-btn board-open board-work");
-    work.title = "Trabajar en esta issue (rama + contexto IA)";
-    work.setAttribute("aria-label", `Trabajar en la issue #${i.number}`);
+    work.title = t("Trabajar en esta issue (rama + contexto IA)");
+    work.setAttribute("aria-label", t("Trabajar en la issue #{number}", { number: i.number }));
     work.innerHTML = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
     work.onclick = (e) => {
       e.stopPropagation();
@@ -271,19 +272,19 @@ function paint(loading = false) {
   const root = $("board-view");
   const wrap = h("div", "board-shell");
   const head = h("div", "board-head");
-  const title = h("span", "board-title", "Tablero de issues");
+  const title = h("span", "board-title", t("Tablero de issues"));
   // Cómo se decide la columna: útil al configurar, ruido el resto del tiempo.
-  title.title = `Columnas: «En curso» = etiqueta ${progressLabel()} · «En revisión» = etiqueta ${REVIEW_LABEL} · «Hecho» = issue cerrada`;
+  title.title = t("Columnas: «En curso» = etiqueta {progress} · «En revisión» = etiqueta {review} · «Hecho» = issue cerrada", { progress: progressLabel(), review: REVIEW_LABEL });
   head.append(title, h("span", "board-repo", `${repo.owner}/${repo.repo}`), h("span", "grow"));
-  const fresh = h("button", "diff-btn primary", "+ Nueva issue");
-  fresh.title = "Crear una issue en «Por hacer»";
+  const fresh = h("button", "diff-btn primary", t("+ Nueva issue"));
+  fresh.title = t("Crear una issue en «Por hacer»");
   fresh.disabled = loading;
   fresh.onclick = () => void newIssue("todo");
-  const reload = h("button", "diff-btn", "Recargar");
-  reload.title = lastLoad ? `Última lectura: ${new Date(lastLoad).toLocaleTimeString()}` : "Recargar";
+  const reload = h("button", "diff-btn", t("Recargar"));
+  reload.title = lastLoad ? t("Última lectura: {time}", { time: new Date(lastLoad).toLocaleTimeString(lang()) }) : t("Recargar");
   reload.onclick = () => void refresh();
   const close = h("button", "icon-btn board-close");
-  close.title = "Cerrar (Esc)";
+  close.title = t("Cerrar (Esc)");
   close.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
   close.onclick = closeBoard;
   head.append(fresh, reload, close);
@@ -300,21 +301,21 @@ function paint(loading = false) {
     if (loading) {
       body.append(h("div", "board-skeleton"), h("div", "board-skeleton board-skeleton-short"));
     } else if (!groups[c.id].length) {
-      body.append(h("div", "board-empty", c.id === "done" ? "Sin issues cerradas" : "Arrastra una tarjeta aquí"));
+      body.append(h("div", "board-empty", c.id === "done" ? t("Sin issues cerradas") : t("Arrastra una tarjeta aquí")));
     }
     for (const i of groups[c.id]) body.append(card(i));
     col.append(ch, body);
     // El botón de añadir va fijo al pie de cada columna: siempre a la vista y en el mismo sitio, aunque haya muchas tarjetas.
     if (c.id !== "done" && !loading) {
-      const add = h("button", "board-add", "+ Nueva issue");
-      add.title = `Crear una issue en «${c.title}»`;
+      const add = h("button", "board-add", t("+ Nueva issue"));
+      add.title = t("Crear una issue en «{column}»", { column: c.title });
       add.onclick = () => void newIssue(c.id);
       col.append(add);
     }
     cols.append(col);
   }
   wrap.append(head, cols);
-  if (truncated) wrap.append(h("div", "board-note", "Se muestran las issues más recientes de cada estado (hasta 300 abiertas y 100 cerradas); hay más en GitHub."));
+  if (truncated) wrap.append(h("div", "board-note", t("Se muestran las issues más recientes de cada estado (hasta 300 abiertas y 100 cerradas); hay más en GitHub.")));
   root.replaceChildren(wrap);
 }
 
@@ -327,17 +328,17 @@ async function ensureCanWrite(): Promise<boolean> {
   if (!repo) return false;
   if (!hasToken()) {
     await showDialog({
-      title: "Falta el token de GitHub",
-      message: "Para crear o modificar issues hace falta un token con permiso de escritura en las issues. Configúralo en Configuración → GitHub.",
-      buttons: [{ label: "Entendido", value: "ok" }],
+      title: t("Falta el token de GitHub"),
+      message: t("Para crear o modificar issues hace falta un token con permiso de escritura en las issues. Configúralo en Configuración → GitHub."),
+      buttons: [{ label: t("Entendido"), value: "ok" }],
     });
     return false;
   }
   if (localStorage.getItem(confirmKey(repo))) return true;
   const r = await showDialog({
-    title: "El tablero modifica GitHub",
-    message: `Crear o editar una issue, y mover tarjetas entre columnas, modifica ${repo.owner}/${repo.repo} con tu token. El tablero puede crear etiquetas para los estados si no existen.`,
-    buttons: [{ label: "Cancelar", value: "cancel" }, { label: "Entendido, continuar", value: "ok", primary: true }],
+    title: t("El tablero modifica GitHub"),
+    message: t("Crear o editar una issue, y mover tarjetas entre columnas, modifica {repo} con tu token. El tablero puede crear etiquetas para los estados si no existen.", { repo: `${repo.owner}/${repo.repo}` }),
+    buttons: [{ label: t("Cancelar"), value: "cancel" }, { label: t("Entendido, continuar"), value: "ok", primary: true }],
   });
   if (r !== "ok") return false;
   localStorage.setItem(confirmKey(repo), "1");
@@ -351,31 +352,31 @@ async function deleteCard(number: number) {
   const current = issues.find((i) => i.number === number);
   if (!current || !repo || busy) return;
   const choice = await showDialog({
-    title: `Eliminar #${number}`,
-    message: `«${current.title}» se borrará para siempre de GitHub, con sus comentarios. No se puede deshacer.\n\nSi solo quieres sacarla del tablero, ciérrala: se conserva en «Hecho».`,
+    title: t("Eliminar #{number}", { number }),
+    message: t("«{title}» se borrará para siempre de GitHub, con sus comentarios. No se puede deshacer.", { title: current.title }) + "\n\n" + t("Si solo quieres sacarla del tablero, ciérrala: se conserva en «Hecho»."),
     buttons: [
-      { label: "Cancelar", value: "cancel" },
-      { label: "Cerrar en su lugar", value: "close" },
-      { label: "Eliminar para siempre", value: "delete", danger: true },
+      { label: t("Cancelar"), value: "cancel" },
+      { label: t("Cerrar en su lugar"), value: "close" },
+      { label: t("Eliminar para siempre"), value: "delete", danger: true },
     ],
   });
   if (choice === "close") { void move(number, "done"); return; }
   if (choice !== "delete") return;
   if (!(await ensureCanWrite())) return;
   if (!current.node_id) {
-    await showDialog({ title: `No se pudo eliminar #${number}`, message: "Falta el identificador de la issue. Pulsa «Recargar» e inténtalo de nuevo.", buttons: [{ label: "Entendido", value: "ok" }] });
+    await showDialog({ title: t("No se pudo eliminar #{number}", { number }), message: t("Falta el identificador de la issue. Pulsa «Recargar» e inténtalo de nuevo."), buttons: [{ label: t("Entendido"), value: "ok" }] });
     return;
   }
   busy = true;
-  setStatus(`Eliminando #${number} en GitHub…`, 30000);
+  setStatus(t("Eliminando #{number} en GitHub…", { number }), 30000);
   try {
     await deleteIssue(current.node_id);
     issues = issues.filter((i) => i.number !== number);
     paint();
-    setStatus(`#${number} eliminada de GitHub`);
+    setStatus(t("#{number} eliminada de GitHub", { number }));
     announceChange();
   } catch (e) {
-    await showDialog({ title: `No se pudo eliminar #${number}`, message: e instanceof Error ? e.message : String(e), buttons: [{ label: "Entendido", value: "ok" }] });
+    await showDialog({ title: t("No se pudo eliminar #{number}", { number }), message: e instanceof Error ? e.message : String(e), buttons: [{ label: t("Entendido"), value: "ok" }] });
   } finally {
     busy = false;
   }
@@ -388,30 +389,30 @@ export async function deleteIssueNumber(number: number) { if (await openBoard())
 async function newIssue(col: Column) {
   if (!repo || busy) return;
   const values = await showForm({
-    title: `Nueva issue en «${COLUMNS.find((c) => c.id === col)!.title}»`,
-    submitLabel: "Crear",
+    title: t("Nueva issue en «{column}»", { column: COLUMNS.find((c) => c.id === col)!.title }),
+    submitLabel: t("Crear"),
     fields: [
-      { key: "title", label: "Título", required: true, placeholder: "Qué hay que hacer" },
-      { key: "body", label: "Descripción (opcional)", multiline: true },
-      { key: "labels", label: "Etiquetas (separadas por comas)", placeholder: "bug, ui" },
+      { key: "title", label: t("Título"), required: true, placeholder: t("Qué hay que hacer") },
+      { key: "body", label: t("Descripción (opcional)"), multiline: true },
+      { key: "labels", label: t("Etiquetas (separadas por comas)"), placeholder: "bug, ui" },
     ],
-    hint: col === "doing" || col === "review" ? `Se usará la etiqueta «${col === "review" ? REVIEW_LABEL : progressLabel()}»; si no existe se creará en GitHub.` : undefined,
+    hint: col === "doing" || col === "review" ? t("Se usará la etiqueta «{label}»; si no existe se creará en GitHub.", { label: col === "review" ? REVIEW_LABEL : progressLabel() }) : undefined,
   });
   if (!values) return;
   if (!(await ensureCanWrite())) return;
   busy = true;
-  setStatus("Creando la issue en GitHub…", 30000);
+  setStatus(t("Creando la issue en GitHub…"), 30000);
   try {
-    if (progressLabel().trim().toLowerCase() === REVIEW_LABEL && (col === "doing" || col === "review")) throw new Error(`La etiqueta de progreso coincide con «${REVIEW_LABEL}». Cambia la etiqueta de progreso en Configuración.`);
+    if (progressLabel().trim().toLowerCase() === REVIEW_LABEL && (col === "doing" || col === "review")) throw new Error(t("La etiqueta de progreso coincide con «{label}». Cambia la etiqueta de progreso en Configuración.", { label: REVIEW_LABEL }));
     if (col === "doing" || col === "review") await ensureBoardLabel(repo.owner, repo.repo, col === "review" ? REVIEW_LABEL : progressLabel());
     const labels = parseLabels([values.labels, ...labelsForNew(col, progressLabel())].filter(Boolean).join(","));
     const created = await createIssue(repo.owner, repo.repo, { title: values.title, body: values.body, labels });
     issues = upsertIssue(issues, created);
     paint();
-    setStatus(`Issue #${created.number} creada en GitHub`);
+    setStatus(t("Issue #{number} creada en GitHub", { number: created.number }));
     announceChange();
   } catch (e) {
-    await showDialog({ title: "No se pudo crear la issue", message: e instanceof Error ? e.message : String(e), buttons: [{ label: "Entendido", value: "ok" }] });
+    await showDialog({ title: t("No se pudo crear la issue"), message: e instanceof Error ? e.message : String(e), buttons: [{ label: t("Entendido"), value: "ok" }] });
   } finally {
     busy = false;
   }
@@ -421,14 +422,14 @@ async function editCard(number: number) {
   const current = issues.find((i) => i.number === number);
   if (!current || !repo || busy) return;
   const values = await showForm({
-    title: `Editar #${number}`,
-    submitLabel: "Guardar",
+    title: t("Editar #{number}", { number }),
+    submitLabel: t("Guardar"),
     fields: [
-      { key: "title", label: "Título", value: current.title, required: true },
-      { key: "body", label: "Descripción", value: current.body ?? "", multiline: true },
-      { key: "labels", label: "Etiquetas (separadas por comas)", value: labelsText(current) },
+      { key: "title", label: t("Título"), value: current.title, required: true },
+      { key: "body", label: t("Descripción"), value: current.body ?? "", multiline: true },
+      { key: "labels", label: t("Etiquetas (separadas por comas)"), value: labelsText(current) },
     ],
-    hint: `Las etiquetas reemplazan a las actuales. Quitar o poner «${progressLabel()}» cambia la columna de la tarjeta.`,
+    hint: t("Las etiquetas reemplazan a las actuales. Quitar o poner «{label}» cambia la columna de la tarjeta.", { label: progressLabel() }),
   });
   if (!values) return;
   const patch: { title?: string; body?: string; labels?: string[] } = {};
@@ -439,15 +440,15 @@ async function editCard(number: number) {
   if (!Object.keys(patch).length) return;
   if (!(await ensureCanWrite())) return;
   busy = true;
-  setStatus(`Guardando #${number} en GitHub…`, 30000);
+  setStatus(t("Guardando #{number} en GitHub…", { number }), 30000);
   try {
     const updated = await updateIssue(repo.owner, repo.repo, number, patch);
     issues = upsertIssue(issues, { ...current, ...updated, labels: updated.labels ?? current.labels });
     paint();
-    setStatus(`#${number} actualizada en GitHub`);
+    setStatus(t("#{number} actualizada en GitHub", { number }));
     announceChange();
   } catch (e) {
-    await showDialog({ title: `No se pudo guardar #${number}`, message: e instanceof Error ? e.message : String(e), buttons: [{ label: "Entendido", value: "ok" }] });
+    await showDialog({ title: t("No se pudo guardar #{number}", { number }), message: e instanceof Error ? e.message : String(e), buttons: [{ label: t("Entendido"), value: "ok" }] });
   } finally {
     busy = false;
   }
@@ -463,22 +464,22 @@ async function move(number: number, to: Column) {
   // Se muestra el resultado esperado de inmediato; si GitHub falla se vuelve a leer el estado real.
   issues = issues.map((i) => (i.number === number ? applyMove(i, to, progressLabel()) : i));
   paint();
-  setStatus(`Moviendo #${number} a «${COLUMNS.find((c) => c.id === to)!.title}»…`, 30000);
+  setStatus(t("Moviendo #{number} a «{column}»…", { number, column: COLUMNS.find((c) => c.id === to)!.title }), 30000);
   try {
-    if (progressLabel().trim().toLowerCase() === REVIEW_LABEL) throw new Error(`La etiqueta de progreso coincide con «${REVIEW_LABEL}». Cambia la etiqueta de progreso en Configuración.`);
+    if (progressLabel().trim().toLowerCase() === REVIEW_LABEL) throw new Error(t("La etiqueta de progreso coincide con «{label}». Cambia la etiqueta de progreso en Configuración.", { label: REVIEW_LABEL }));
     for (const step of steps) if (step.op === "addLabel") await ensureBoardLabel(repo.owner, repo.repo, step.label!);
     for (const s of steps) {
       if (s.op === "addLabel") await addLabel(repo.owner, repo.repo, number, s.label!);
       else if (s.op === "removeLabel") await removeLabel(repo.owner, repo.repo, number, s.label!);
       else await setIssueState(repo.owner, repo.repo, number, s.op === "close" ? "closed" : "open");
     }
-    setStatus(`#${number} ahora está en «${COLUMNS.find((c) => columnOf(issues.find((i) => i.number === number)!, progressLabel()) === c.id)!.title}»`);
+    setStatus(t("#{number} ahora está en «{column}»", { number, column: COLUMNS.find((c) => columnOf(issues.find((i) => i.number === number)!, progressLabel()) === c.id)!.title }));
     announceChange();
   } catch (e) {
     await showDialog({
-      title: `No se pudo mover #${number}`,
-      message: `${e instanceof Error ? e.message : e}\n\nSe vuelve a leer el estado real desde GitHub.`,
-      buttons: [{ label: "Entendido", value: "ok" }],
+      title: t("No se pudo mover #{number}", { number }),
+      message: (e instanceof Error ? e.message : String(e)) + "\n\n" + t("Se vuelve a leer el estado real desde GitHub."),
+      buttons: [{ label: t("Entendido"), value: "ok" }],
     });
     await refresh();
   } finally {

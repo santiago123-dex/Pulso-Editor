@@ -1,8 +1,9 @@
+import { t } from "./i18n";
 import { explainStatus, githubFetch } from "./github";
 
 /** Las etiquetas de estado deben existir antes de asignarlas: GitHub puede ignorar etiquetas desconocidas. */
 export async function ensureBoardLabel(owner: string, repo: string, label: string): Promise<void> {
-  if (!label.trim()) throw new Error("Configura una etiqueta de progreso para usar esta columna.");
+  if (!label.trim()) throw new Error(t("Configura una etiqueta de progreso para usar esta columna."));
   const base = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/labels`;
   const existing = await githubFetch(`${base}/${encodeURIComponent(label)}`);
   if (existing.ok) return;
@@ -14,5 +15,5 @@ export async function ensureBoardLabel(owner: string, repo: string, label: strin
   if (created.ok) return;
   // Otra persona podría haber creado la etiqueta al mismo tiempo.
   if (created.status === 422 && (await githubFetch(`${base}/${encodeURIComponent(label)}`)).ok) return;
-  throw new Error(`No se pudo crear la etiqueta «${label}». ${explainStatus(created.status, true)}`);
+  throw new Error(t("No se pudo crear la etiqueta «{label}».", { label }) + " " + explainStatus(created.status, true));
 }

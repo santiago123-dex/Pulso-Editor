@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import { invoke } from "@tauri-apps/api/core";
 
 export interface Issue {
@@ -162,23 +163,23 @@ export async function githubFetch(
 
 /** Mensaje en español para un fallo de la API: dice qué hacer, no solo el código. */
 export function explainStatus(status: number, writing: boolean): string {
-  if (status === 401) return "GitHub rechazó el token (no es válido o caducó). Vuelve a conectar tu cuenta en Configuración → GitHub.";
+  if (status === 401) return t("GitHub rechazó el token (no es válido o caducó). Vuelve a conectar tu cuenta en Configuración → GitHub.");
   if (status === 403 || status === 429) {
     return writing
-      ? "GitHub no permitió el cambio: el token necesita permiso de escritura en las issues del repositorio, o se alcanzó el límite de uso de la API."
-      : "GitHub no permitió la consulta: puede faltar un token o se alcanzó el límite de uso de la API.";
+      ? t("GitHub no permitió el cambio: el token necesita permiso de escritura en las issues del repositorio, o se alcanzó el límite de uso de la API.")
+      : t("GitHub no permitió la consulta: puede faltar un token o se alcanzó el límite de uso de la API.");
   }
-  if (status === 404) return "GitHub no encontró el repositorio o la issue. Si el repositorio es privado, conecta tu cuenta de GitHub (debe tener acceso a él).";
-  if (status === 422) return "GitHub no pudo aplicar el cambio (datos no válidos).";
-  return `GitHub respondió ${status}`;
+  if (status === 404) return t("GitHub no encontró el repositorio o la issue. Si el repositorio es privado, conecta tu cuenta de GitHub (debe tener acceso a él).");
+  if (status === 422) return t("GitHub no pudo aplicar el cambio (datos no válidos).");
+  return t("GitHub respondió {status}", { status });
 }
 
 /** Explica un error de GraphQL al eliminar una issue. GitHub solo lo permite a quien administra el repositorio. */
 export function explainDeleteError(message: string): string {
   if (/admin|permission|access|forbidden|not authorized|insufficient|resource not accessible/i.test(message)) {
-    return "GitHub solo permite eliminar issues a quienes administran el repositorio. Puedes cerrarla en su lugar.";
+    return t("GitHub solo permite eliminar issues a quienes administran el repositorio. Puedes cerrarla en su lugar.");
   }
-  return `GitHub no pudo eliminar la issue: ${message}`;
+  return t("GitHub no pudo eliminar la issue: {reason}", { reason: message });
 }
 
 /** Elimina una issue para siempre (mutación GraphQL; la API REST no lo permite). */
