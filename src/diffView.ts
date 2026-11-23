@@ -2,6 +2,7 @@ import { t as tr } from "./i18n";
 import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
 import { openFile } from "./groups";
+import type { DiffHunk } from "./gitHunksModel";
 import { setStatus } from "./ui";
 import { $, baseName, h } from "./util";
 
@@ -136,14 +137,65 @@ export async function openDiffRequest(t: DiffRequest) {
   setStatus(tr("Diferencias de {file}", { file: baseName(t.path) }), 2500);
 }
 
-/** Diferencias de un archivo del control de código (preparado o sin preparar). */
-export async function openDiff(t: DiffTarget) {
+/** Diferencias de un archivo del control de código (preparado o sin preparar), con preparar/quitar por fragmento. */
+export async function openDiff(t: DiffTarget, onHunkApplied?: () => void | Promise<void>) {
   const where = t.staged ? tr("Preparado (HEAD ↔ índice)") : t.status === "U" ? tr("Archivo nuevo") : tr("Sin preparar (índice ↔ disco)");
+  let hunks: DiffHunk[] = [];
+  let hunkIdx = 0;
+
+  if (t.status !== "U") {
+    try {
+      hunks = await invoke<DiffHunk[]>("git_file_hunks", { root: t.root, path: t.path, staged: t.staged });
+    } catch {
+      hunks = [];
+    }
+  }
+
+  const actions: DiffAction[] = [];
+  if (hunks.length > 0) {
+    const revealHunk = (idx: number) => {
+      hunkIdx = ((idx % hunks.length) + hunks.length) % hunks.length;
+      const hk = hunks[hunkIdx];
+      editor?.getModifiedEditor().revealLineInCenter(Math.max(1, hk.new_start));
+      setStatus(
+        tr("Fragmento {n}/{total} (+{add} −{del})", {
+          n: hunkIdx + 1,
+          total: hunks.length,
+          add: hk.added,
+          del: hk.removed,
+        }),
+        2500
+      );
+    };
+    if (hunks.length > 1) {
+      actions.push({ label: tr("← Fragmento"), run: () => revealHunk(hunkIdx - 1) });
+      actions.push({ label: tr("Fragmento →"), run: () => revealHunk(hunkIdx + 1) });
+    }
+    actions.push({
+      label: t.staged ? tr("Quitar fragmento") : tr("Preparar fragmento"),
+      primary: true,
+      run: async () => {
+        const hk = hunks[hunkIdx];
+        if (!hk) return;
+        try {
+          await invoke("git_apply_hunk", { root: t.root, patch: hk.patch, reverse: t.staged });
+          setStatus(t.staged ? tr("Fragmento quitado de lo preparado") : tr("Fragmento preparado"), 2500);
+          await onHunkApplied?.();
+          await openDiff(t, onHunkApplied);
+        } catch (e) {
+          setStatus(e instanceof Error ? e.message : String(e), 4000);
+        }
+      },
+    });
+  }
+
   await openDiffRequest({
     title: baseName(t.path),
     sub: `${t.path} — ${where}`,
     path: t.path,
     openPath: `${t.top}/${t.path}`,
+    note: hunks.length > 0 ? tr("{n} fragmento(s)", { n: hunks.length }) : undefined,
+    actions,
     load: () => invoke<Sources>("git_diff_sources", { root: t.root, path: t.path, orig: t.orig, staged: t.staged }),
   });
 }
