@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { readStorage, writeStorage } from "./core/storage";
 import { terminalKeyAction } from "./terminalKeys";
 import { commit, currentTheme, state } from "./settings";
 import { detectPrefs, hasAnythingToAdapt, planAdaptation, resolveScheme, shellIdFor, type Adaptation, type Detected, type ShellInfo } from "./terminalPrefs";
@@ -204,8 +205,8 @@ export async function adaptToMyTerminal(): Promise<boolean> {
  */
 const AUTO_KEY = "pulso.terminalAutoAdapt";
 async function adaptOnce() {
-  if (localStorage.getItem(AUTO_KEY)) return;
-  localStorage.setItem(AUTO_KEY, "1");
+  if (readStorage(AUTO_KEY)) return;
+  writeStorage(AUTO_KEY, "1");
   const s = state.settings;
   const custom = !!(s.terminalFont || s.terminalShell || s.terminalScheme || s.terminalFontSize);
   if (custom) return;

@@ -1,5 +1,6 @@
 import { t } from "./i18n";
 import { invoke } from "@tauri-apps/api/core";
+import { readStorage, removeStorage } from "./core/storage";
 
 export interface Issue {
   number: number;
@@ -42,7 +43,7 @@ export async function initToken(): Promise<void> {
   } catch {
     connected = false;
   }
-  const legacy = localStorage.getItem(LEGACY_KEY);
+  const legacy = readStorage(LEGACY_KEY);
   if (legacy) {
     try {
       if (!connected) {
@@ -50,7 +51,7 @@ export async function initToken(): Promise<void> {
         connected = true;
         if (!saved) return;
       }
-      localStorage.removeItem(LEGACY_KEY);
+      removeStorage(LEGACY_KEY);
     } catch { /* se deja donde estaba para no perderlo */ }
   }
 }
@@ -82,10 +83,10 @@ export function parseRemote(url: string): { owner: string; repo: string } | null
  * Dirección de la API. Solo cambia con `pulso.githubApi` en localStorage, que usan las pruebas contra un servidor
  * local falso; en producción Rust ignora cualquier origen distinto de `https://api.github.com`.
  */
-export const apiBase = () => (localStorage.getItem("pulso.githubApi") || "https://api.github.com").replace(/\/+$/, "");
+export const apiBase = () => (readStorage("pulso.githubApi") || "https://api.github.com").replace(/\/+$/, "");
 
 function customApiBase(): string | null {
-  const raw = localStorage.getItem("pulso.githubApi")?.trim();
+  const raw = readStorage("pulso.githubApi")?.trim();
   return raw ? raw.replace(/\/+$/, "") : null;
 }
 
@@ -229,7 +230,7 @@ export interface DeviceCode { device_code: string; user_code: string; verificati
 
 /** Dirección web de GitHub; en desarrollo las pruebas la apuntan a un servidor simulado. */
 function customWebBase(): string | null {
-  const raw = localStorage.getItem("pulso.githubWeb")?.trim();
+  const raw = readStorage("pulso.githubWeb")?.trim();
   return raw ? raw.replace(/\/+$/, "") : null;
 }
 
@@ -257,7 +258,7 @@ export const deviceLoginCancel = () => invoke("github_device_cancel").catch(() =
 /** Al iniciar, si no hay token, adopta en silencio la sesión de GitHub que Git ya tiene. Devuelve el usuario o null. */
 export async function autoConnect(): Promise<string | null> {
   // `pulso.noAutoConnect` lo fijan las pruebas para que no adopten la sesión real de quien las ejecuta.
-  if (!inTauri() || hasToken() || localStorage.getItem("pulso.noAutoConnect")) return null;
+  if (!inTauri() || hasToken() || readStorage("pulso.noAutoConnect")) return null;
   try { return await connectGithub(false); } catch { return null; }
 }
 

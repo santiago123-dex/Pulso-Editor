@@ -1,5 +1,6 @@
 import { t } from "./i18n";
 import { invoke } from "@tauri-apps/api/core";
+import { readStorage, removeStorage, writeStorage } from "./core/storage";
 import type { AiProvider, Turn } from "./aiModel";
 
 /** Conversaciones guardadas en este equipo (en un archivo de los datos de la aplicación): lo justo para volver a verlas y reanudarlas con la sesión de la herramienta. */
@@ -48,7 +49,7 @@ async function flush(): Promise<void> {
 
 /** Guarda de inmediato en disco y en copia de respaldo síncrona (útil al cerrar mientras ejecuta). */
 export function flushHistoryNow(): void {
-  try { localStorage.setItem(EMERGENCY_KEY, cache); } catch { /* nada que hacer */ }
+  writeStorage(EMERGENCY_KEY, cache);
   void flush();
 }
 
@@ -62,10 +63,8 @@ export const historyStore: Store = {
 export async function initHistory(): Promise<void> {
   let fileText: string | null = null;
   try { fileText = await invoke<string>("ai_history_read"); } catch { /* sin archivo todavía */ }
-  let legacy: string | null = null;
-  try { legacy = localStorage.getItem(KEY); } catch { /* sin acceso */ }
-  let emergency: string | null = null;
-  try { emergency = localStorage.getItem(EMERGENCY_KEY); } catch { /* sin acceso */ }
+  const legacy = readStorage(KEY);
+  const emergency = readStorage(EMERGENCY_KEY);
   const pick = pickHistory(fileText, legacy);
   cache = pick.text;
   let dirty = pick.migrated;
@@ -75,8 +74,8 @@ export async function initHistory(): Promise<void> {
     dirty = true;
   }
   if (dirty) await flush();
-  if (legacy !== null) try { localStorage.removeItem(KEY); } catch { /* nada que hacer */ }
-  if (emergency !== null) try { localStorage.removeItem(EMERGENCY_KEY); } catch { /* nada que hacer */ }
+  if (legacy !== null) removeStorage(KEY);
+  if (emergency !== null) removeStorage(EMERGENCY_KEY);
   window.addEventListener("blur", () => { if (timer) void flush(); });
   window.addEventListener("pagehide", flushHistoryNow);
   window.addEventListener("beforeunload", flushHistoryNow);
