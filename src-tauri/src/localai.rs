@@ -101,26 +101,69 @@ pub fn parse_models(v: &Value) -> Vec<AiModelInfo> {
 
 // ---------- Herramientas (solo lectura, dentro de la carpeta) ----------
 
-fn tools_schema() -> Value {
-    json!([
-        { "type": "function", "function": {
+fn tools_schema(allow_propose: bool) -> Value {
+    let mut list = vec![
+        json!({ "type": "function", "function": {
             "name": "list_files",
             "description": "List the files and folders inside a folder of the project. Use \".\" for the project root.",
-            "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Folder path relative to the project root" } }, "required": ["path"] } } },
-        { "type": "function", "function": {
+            "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Folder path relative to the project root" } }, "required": ["path"] } } }),
+        json!({ "type": "function", "function": {
             "name": "read_file",
             "description": "Read a text file of the project. Lines are numbered. Use start_line and max_lines for long files.",
             "parameters": { "type": "object", "properties": {
                 "path": { "type": "string", "description": "File path relative to the project root" },
                 "start_line": { "type": "integer", "description": "First line to read (1-based)" },
-                "max_lines": { "type": "integer", "description": "How many lines to read (default 400)" } }, "required": ["path"] } } },
-        { "type": "function", "function": {
+                "max_lines": { "type": "integer", "description": "How many lines to read (default 400)" } }, "required": ["path"] } } }),
+        json!({ "type": "function", "function": {
             "name": "search_code",
             "description": "Search the project's text files for a word or phrase (case-insensitive). Returns file:line: text matches.",
             "parameters": { "type": "object", "properties": {
                 "query": { "type": "string", "description": "Text to search for" },
-                "path": { "type": "string", "description": "Optional folder to limit the search" } }, "required": ["query"] } } }
-    ])
+                "path": { "type": "string", "description": "Optional folder to limit the search" } }, "required": ["query"] } } }),
+    ];
+    if allow_propose {
+        list.push(json!({ "type": "function", "function": {
+            "name": "propose_edit",
+            "description": "Propose a full-file edit for the user to review in Pulso's interactive diff viewer before applying. Does not write to disk directly.",
+            "parameters": { "type": "object", "properties": {
+                "path": { "type": "string", "description": "File path relative to the project root (e.g. src/main.ts)" },
+                "content": { "type": "string", "description": "Complete proposed file contents" } }, "required": ["path", "content"] } } }));
+    }
+    Value::Array(list)
+}
+
+fn safe_rel_edit_path(raw: &str) -> Result<String, String> {
+    let clean = raw.trim().replace('\\', "/").trim_start_matches("./").to_string();
+    let p = Path::new(&clean);
+    if clean.is_empty() || p.is_absolute() || p.components().any(|c| matches!(c, Component::Prefix(_) | Component::RootDir | Component::ParentDir)) {
+        return Err(tr("Solo se pueden proponer cambios en rutas relativas dentro del proyecto.").into());
+    }
+    Ok(clean)
+}
+
+fn lang_for_path(path: &str) -> &'static str {
+    match Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase().as_str() {
+        "ts" | "mts" | "cts" => "ts",
+        "tsx" => "tsx",
+        "js" | "mjs" | "cjs" => "js",
+        "jsx" => "jsx",
+        "rs" => "rust",
+        "py" => "python",
+        "json" => "json",
+        "css" => "css",
+        "html" => "html",
+        "md" => "markdown",
+        _ => "text",
+    }
+}
+
+fn fence_for_content(content: &str) -> String {
+    let mut longest = 0usize;
+    let mut cur = 0usize;
+    for ch in content.chars() {
+        if ch == '`' { cur += 1; longest = longest.max(cur); } else { cur = 0; }
+    }
+    "`".repeat((longest + 1).max(3))
 }
 
 /// Ruta dentro de la carpeta del proyecto, o error. Rechaza rutas absolutas, `..` que salgan y enlaces que apunten fuera.
@@ -262,6 +305,14 @@ pub fn run_tool(root: &Path, name: &str, args: &Value) -> (&'static str, Value, 
             let path = s("path");
             ("Grep", json!({ "pattern": query }), search_code(root, &query, path.as_deref()))
         }
+        "propose_edit" => {
+            let path = s("path").unwrap_or_default();
+            let content = s("content").unwrap_or_default();
+            let res = safe_rel_edit_path(&path).map(|clean| {
+                trf("Propuesta preparada para {path}. La persona podrá revisarla y aplicarla en el visor de diferencias.", &[("path", &clean)])
+            });
+            ("Edit", json!({ "file_path": path, "bytes": content.len() }), res)
+        }
         other => ("Tool", json!({ "name": other }), Err(trf("Herramienta desconocida: {name}", &[("name", &other)]))),
     };
     match result {
@@ -272,14 +323,24 @@ pub fn run_tool(root: &Path, name: &str, args: &Value) -> (&'static str, Value, 
 
 // ---------- Agente ----------
 
-fn system_prompt(root: &Path) -> String {
+fn system_prompt(root: &Path, allow_propose: bool) -> String {
     let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    format!(
-        "You are the coding assistant inside Pulso Editor, working on the project folder \"{name}\". \
-         You can explore it with the tools list_files, read_file and search_code; use them to look at the real code before answering \
-         instead of guessing. You cannot modify files or run commands: if a change is needed, show it in your answer as a code block. \
-         Answer in the same language the user writes in, clearly and concisely."
-    )
+    if allow_propose {
+        format!(
+            "You are the coding assistant inside Pulso Editor, working on the project folder \"{name}\". \
+             You can explore it with list_files, read_file and search_code; always read the real code before proposing changes. \
+             When the user asks for code changes, propose each modified file either via the propose_edit tool OR as a complete fenced code block \
+             with `path=relative/path` on the opening fence (e.g. ```ts path=src/example.ts) so Pulso shows an interactive diff for the user to approve. \
+             Never assume files are written automatically. Answer in the same language the user writes in, clearly and concisely."
+        )
+    } else {
+        format!(
+            "You are the coding assistant inside Pulso Editor, working on the project folder \"{name}\". \
+             You can explore it with the tools list_files, read_file and search_code; use them to look at the real code before answering \
+             instead of guessing. You are in read-only mode and cannot modify files or run commands. \
+             Answer in the same language the user writes in, clearly and concisely."
+        )
+    }
 }
 
 /// Una llamada a `/api/chat` con streaming. Devuelve el texto y las herramientas pedidas.
@@ -288,10 +349,11 @@ async fn chat_round(
     base: &str,
     model: &str,
     messages: &[Value],
+    allow_propose: bool,
     cancel: &AtomicBool,
     mut on_text: impl FnMut(&str),
 ) -> Result<(String, Vec<(String, Value)>), String> {
-    let body = json!({ "model": model, "messages": messages, "tools": tools_schema(), "stream": true });
+    let body = json!({ "model": model, "messages": messages, "tools": tools_schema(allow_propose), "stream": true });
     let mut res = c
         .post(format!("{base}/api/chat"))
         .json(&body)
@@ -347,14 +409,16 @@ pub async fn run(
     history: Vec<HistoryMsg>,
     prompt: String,
     images: Vec<String>,
+    mode: String,
     cancel: Arc<AtomicBool>,
     emit: Arc<dyn Fn(String) + Send + Sync>,
 ) -> Result<(), String> {
     use base64::Engine;
+    let allow_propose = mode == "edit" || mode == "full";
     let started = Instant::now();
     let send = |v: Value| emit(v.to_string());
     send(json!({ "type": "system", "subtype": "init", "session_id": conversation, "model": model }));
-    let mut messages = vec![json!({ "role": "system", "content": system_prompt(&root) })];
+    let mut messages = vec![json!({ "role": "system", "content": system_prompt(&root, allow_propose) })];
     for m in history.iter().filter(|m| (m.role == "user" || m.role == "assistant") && !m.content.trim().is_empty()) {
         messages.push(json!({ "role": m.role, "content": m.content }));
     }
@@ -371,20 +435,50 @@ pub async fn run(
     let c = client(None);
     let stamp = started.elapsed().as_nanos() ^ (std::process::id() as u128) << 64;
     let mut final_text = String::new();
+    let mut proposed_edits: Vec<(String, String)> = Vec::new();
     for round in 0..MAX_ROUNDS {
         let turn = format!("local_{stamp:x}_{round}");
         send(json!({ "type": "stream_event", "event": { "type": "message_start", "message": { "id": turn } } }));
         send(json!({ "type": "stream_event", "event": { "type": "content_block_start", "index": 0, "content_block": { "type": "text", "text": "" } } }));
-        let (text, calls) = chat_round(&c, &base, &model, &messages, &cancel, |piece| {
+        let (mut text, calls) = chat_round(&c, &base, &model, &messages, allow_propose, &cancel, |piece| {
             send(json!({ "type": "stream_event", "event": { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": piece } } }));
         })
         .await?;
-        send(json!({ "type": "stream_event", "event": { "type": "content_block_stop", "index": 0 } }));
-        let mut content = vec![json!({ "type": "text", "text": text })];
         let mut runs = Vec::new();
+        let mut content = Vec::new();
+        if calls.is_empty() && !proposed_edits.is_empty() {
+            // Añadir las propuestas recogidas por herramienta en formato `path=...` para que Pulso muestre el botón de Diff Review.
+            let mut appendix = String::new();
+            for (p, body) in &proposed_edits {
+                if !text.contains(&format!("path={p}")) {
+                    let fence = fence_for_content(body);
+                    let lang = lang_for_path(p);
+                    appendix.push_str(&format!("\n\n{fence}{lang} path={p}\n{body}\n{fence}"));
+                }
+            }
+            if !appendix.is_empty() {
+                send(json!({ "type": "stream_event", "event": { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": appendix } } }));
+                text.push_str(&appendix);
+            }
+        }
+        send(json!({ "type": "stream_event", "event": { "type": "content_block_stop", "index": 0 } }));
+        content.push(json!({ "type": "text", "text": text }));
         for (k, (name, args)) in calls.iter().enumerate() {
             let id = format!("{turn}_t{k}");
-            let (ui_name, ui_input, result, is_error) = run_tool(&root, name, args);
+            let (ui_name, ui_input, result, is_error) = if name == "propose_edit" && !allow_propose {
+                ("Edit", json!({ "file_path": args["path"].as_str().unwrap_or("") }), tr("El modo actual es de solo lectura.").to_string(), true)
+            } else {
+                let out = run_tool(&root, name, args);
+                if name == "propose_edit" && !out.3 {
+                    if let (Some(raw_p), Some(body)) = (args["path"].as_str(), args["content"].as_str()) {
+                        if let Ok(clean) = safe_rel_edit_path(raw_p) {
+                            proposed_edits.retain(|(existing, _)| existing != &clean);
+                            proposed_edits.push((clean, body.to_string()));
+                        }
+                    }
+                }
+                out
+            };
             content.push(json!({ "type": "tool_use", "id": id, "name": ui_name, "input": ui_input }));
             runs.push((id, name.clone(), result, is_error));
         }
@@ -436,6 +530,11 @@ mod tests {
         assert!(resolve_in(&root, "src/main.ts").is_ok());
         let (_, _, msg, err) = run_tool(&root, "read_file", &json!({ "path": "../secreto.txt" }));
         assert!(err, "{msg}");
+        let (_, _, pmsg, perr) = run_tool(&root, "propose_edit", &json!({ "path": "../secreto.txt", "content": "x" }));
+        assert!(perr, "{pmsg}");
+        let (ename, _, emsg, eerr) = run_tool(&root, "propose_edit", &json!({ "path": "src/main.ts", "content": "export const x = 1;\n" }));
+        assert!(!eerr, "{emsg}");
+        assert_eq!(ename, "Edit");
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -510,6 +609,7 @@ mod tests {
             vec![HistoryMsg { role: "user".into(), content: "hola".into() }, HistoryMsg { role: "assistant".into(), content: "¿En qué ayudo?".into() }],
             "¿Qué hace sumar?".into(),
             vec![],
+            "read".into(),
             Arc::new(AtomicBool::new(false)),
             emit,
         ))

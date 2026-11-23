@@ -120,7 +120,7 @@ Puntos fuertes:
    - traducciones;
    - ~~incluir Node o adoptar `tsgo`~~ hecho: TypeScript 7 nativo incluido;
    - [x] inicio de sesión OAuth propio (por código de dispositivo, con la aplicación OAuth «Pulso Editor» registrada; ver [Distribución](DISTRIBUCION.md));
-   - [x] agente propio con modelos locales, primera parte: conversar y leer el proyecto con Ollama (ver [Asistente de IA](CHAT-IA.md)). Falta editar con aprobación de cada cambio como diferencia;
+   - [x] agente propio con modelos locales (Ollama): conversar, leer el proyecto, enviar imágenes y proponer ediciones revisables como diferencias antes de aplicarlas (ver [Asistente de IA](CHAT-IA.md));
    - diferencias antes de aplicar los cambios de la IA;
    - asistente de bienvenida.
 3. **Versión 1.0:**
