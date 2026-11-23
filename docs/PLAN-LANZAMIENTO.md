@@ -19,13 +19,14 @@ Puntos fuertes:
 - [x] **Licencia.** MIT en [`LICENSE`](../LICENSE), declarada en `package.json`, `Cargo.toml` y `tauri.conf.json`.
 - [x] **Avisos de terceros.** Están en [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md). Los 539 crates de Rust tienen licencias compatibles con MIT.
 - [x] **Integración continua.** `.github/workflows/ci.yml` ejecuta en Windows y Ubuntu las pruebas TypeScript y Rust, `tsc` con la compilación web y la prueba del arranque del LSP. Todavía no se ha ejecutado en GitHub.
-- [x] **Flujo de publicación.** `.github/workflows/release.yml` genera el instalador NSIS y los paquetes .deb, .rpm y AppImage al subir una etiqueta `vX.Y.Z`, y los deja en un borrador de release. Todavía no se ha ejecutado (ver [Distribución](DISTRIBUCION.md)).
+- [x] **Flujo de publicación.** `.github/workflows/release.yml` genera el instalador NSIS y los paquetes .deb, .rpm y AppImage al subir una etiqueta `vX.Y.Z`, y los deja en un borrador de release del repositorio público de releases. Todavía no se ha ejecutado (ver [Distribución](DISTRIBUCION.md)).
 - [ ] **Firma del instalador.** Sin firma, SmartScreen avisa de «aplicación no reconocida» y mucha gente no la instala. Opciones:
   - **SignPath:** gratis para proyectos de código abierto.
   - **Azure Trusted Signing:** de pago, con una cuota mensual baja.
 - [x] **Actualizaciones automáticas.** Usan `tauri-plugin-updater`, `latest.json` en GitHub Releases y paquetes firmados (ver [Distribución](DISTRIBUCION.md)). Para que funcionen faltan tres cosas:
   - [ ] guardar los secretos de la clave en GitHub;
-  - [ ] hacer público el repositorio o publicar las releases en uno público;
+  - [x] publicar las releases en un repositorio público aparte ([Pulso-Editor-releases](https://github.com/santiago123-dex/Pulso-Editor-releases)), porque este es privado;
+  - [ ] crear el secreto `RELEASES_TOKEN` con un token limitado a ese repositorio;
   - [ ] probar una actualización real entre dos versiones.
 - [x] **WebView2 garantizado.** El instalador ya lo instalaba si faltaba: es lo que hace Tauri por defecto, descargando el instalador de Microsoft sin preguntar. Ahora está fijado de forma explícita en `tauri.conf.json` (`downloadBootstrapper`). Necesita internet. Si hiciera falta instalar sin conexión, se puede publicar un segundo instalador con `offlineInstaller`, unos 127 MB más grande. Falta comprobarlo en un Windows sin WebView2 (punto siguiente).
 - [ ] **Probar en un Windows limpio**, en una máquina virtual sin Node, Git ni WebView2: instalar, abrir, desinstalar.

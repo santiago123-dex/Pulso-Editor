@@ -46,11 +46,13 @@ git tag v0.2.0
 git push origin v0.2.0
 ```
 
-Compila el instalador NSIS en Windows y los paquetes .deb, .rpm y AppImage en Linux (Ubuntu 22.04), y los adjunta a un **borrador** de release. Hay que revisarlo y publicarlo a mano en GitHub. Los instaladores no tienen firma de código (SmartScreen avisa). No se genera versión para macOS porque nunca se compiló ahí. Este flujo todavía no se ha ejecutado en GitHub.
+Compila el instalador NSIS en Windows y los paquetes .deb, .rpm y AppImage en Linux (Ubuntu 22.04), y los adjunta a un **borrador** de release en el repositorio público [Pulso-Editor-releases](https://github.com/santiago123-dex/Pulso-Editor-releases), no en este, que es privado. Hay que revisarlo y publicarlo a mano allí. Ese repositorio solo tiene un README y las releases. La etiqueta se crea en los dos: la que subes aquí dispara el flujo, y la de allí la crea el flujo sobre su rama `main`.
+
+Para publicar allí, el flujo necesita el secreto `RELEASES_TOKEN`, porque el token automático de GitHub solo vale para este repositorio. Es un *fine-grained personal access token* creado en GitHub (*Settings → Developer settings → Personal access tokens → Fine-grained tokens*), limitado al repositorio `Pulso-Editor-releases`, con el permiso *Contents: Read and write* y nada más. Caduca: hay que renovarlo antes de la fecha que se le ponga y actualizar el secreto. Los instaladores no tienen firma de código (SmartScreen avisa). No se genera versión para macOS porque nunca se compiló ahí. Este flujo todavía no se ha ejecutado en GitHub.
 
 ## Actualizaciones automáticas
 
-La versión instalada busca una versión nueva 8 s después de arrancar, y cuando se pide con «Ayuda: Buscar actualizaciones» (paleta o menú Ayuda). Lee `latest.json` de la última release publicada del repositorio (`plugins.updater.endpoints` en `tauri.conf.json`). Si hay una versión nueva, lo pregunta y muestra las notas de la release. Al aceptar:
+La versión instalada busca una versión nueva 8 s después de arrancar, y cuando se pide con «Ayuda: Buscar actualizaciones» (paleta o menú Ayuda). Lee `latest.json` de la última release publicada de `Pulso-Editor-releases` (`plugins.updater.endpoints` en `tauri.conf.json`). Si hay una versión nueva, lo pregunta y muestra las notas de la release. Al aceptar:
 
 1. Guarda los documentos con cambios. Si alguno no se puede guardar, no instala.
 2. Descarga el paquete y comprueba su firma con la clave pública de `tauri.conf.json`.
@@ -61,7 +63,8 @@ La búsqueda automática no avisa si falla, por ejemplo sin conexión. Las compi
 **Firma de las actualizaciones.** Es independiente de la firma de código del instalador. La clave privada está en `%USERPROFILE%\.tauri\pulso-updater.key`, fuera del repositorio. La pública está en `tauri.conf.json`. El flujo de publicación firma los paquetes con dos secretos del repositorio: `TAURI_SIGNING_PRIVATE_KEY` (el contenido del archivo `.key`) y `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Solo firma en GitHub, mediante `src-tauri/tauri.updater.conf.json`: las compilaciones locales no necesitan la clave. **Si se pierde la clave privada o su contraseña, las versiones ya instaladas no podrán actualizarse más.** Hay que guardar una copia de seguridad.
 
 **Requisitos para que funcione:**
-- El repositorio tiene que ser **público**, o las releases tienen que publicarse en otro repositorio público. Desde un repositorio privado, Pulso no puede descargar `latest.json`.
+- El repositorio de releases tiene que seguir siendo **público**. Desde un repositorio privado, Pulso no puede descargar `latest.json`.
+- El flujo necesita los secretos `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` y `RELEASES_TOKEN` en este repositorio.
 - La release tiene que estar **publicada**: ni borrador ni versión preliminar.
 - La versión nueva tiene que ser mayor que la instalada.
 

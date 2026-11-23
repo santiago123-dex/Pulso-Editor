@@ -1,5 +1,7 @@
-# Al subir una etiqueta vX.Y.Z genera los instaladores y los deja en un borrador de release de GitHub.
-# La versión de la etiqueta debe coincidir con la de src-tauri/tauri.conf.json.
+# Al subir una etiqueta vX.Y.Z genera los instaladores y los deja en un borrador de release del
+# repositorio público santiago123-dex/Pulso-Editor-releases (este es privado y Pulso no podría
+# descargar de aquí las actualizaciones). La versión de la etiqueta debe coincidir con la de
+# src-tauri/tauri.conf.json.
 name: Publicación
 
 on:
@@ -8,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -49,11 +51,18 @@ jobs:
       - name: Compilar y adjuntar a la release
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # El token del flujo solo sirve para este repositorio; para publicar en el de releases hace
+          # falta un token propio con permiso de escritura de contenidos solo en ese repositorio.
+          GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
           # Firma de los paquetes de actualización (ver docs/DISTRIBUCION.md). La clave privada solo vive en los secretos.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
+          owner: santiago123-dex
+          repo: Pulso-Editor-releases
+          # La etiqueta se crea en el repositorio de releases, sobre su rama principal: el commit de
+          # este repositorio no existe allí.
+          releaseCommitish: main
           tagName: v__VERSION__
           releaseName: Pulso Editor v__VERSION__
           releaseBody: Instaladores sin firmar. En Windows, SmartScreen mostrará una advertencia.
