@@ -294,6 +294,10 @@ const EN: &[(&str, &str)] = &[
     ("La imagen está vacía.", "The image is empty."),
     ("La imagen supera el límite de 10 MB.", "The image exceeds the 10 MB limit."),
     ("No se encontró la imagen adjunta.", "The attached image wasn't found."),
+    ("Todavía no hay ningún commit en este repositorio", "There are no commits in this repository yet"),
+    ("Todavía no hay ningún commit que corregir", "There is no commit to amend yet"),
+    ("Formato de imagen no soportado", "Unsupported image format"),
+    ("La imagen es demasiado grande (máximo 15 MB)", "The image is too large (15 MB maximum)"),
 ];
 
 #[cfg(test)]

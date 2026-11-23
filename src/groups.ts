@@ -4,6 +4,7 @@ import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
 import { cloneDoc, disposeDoc, docs, isDirty, loadDoc, onDocsChange, saveDoc, type Doc } from "./docs";
 import { fileIcon } from "./icons";
+import { isBinaryImageFile, isImageFile, isMarkdownFile, openImagePreview, openPreviewFor } from "./preview";
 import { editorOptions, state } from "./settings";
 import { setStatus, showDialog, showMenu, type MenuItem } from "./ui";
 import { $, baseName, dirName, fileKey, h } from "./util";
@@ -59,6 +60,7 @@ export const FILE_MIME = "application/x-pulso-file";
 const ICON_SPLIT = '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>';
 const ICON_SPLIT_DOWN = '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 12h18"/></svg>';
 const ICON_CLOSE = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+const ICON_PREVIEW = '<svg viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/></svg>';
 const ICON_PIN = '<svg viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M14 3l7 7-2 1-3 3 .5 4.5-1.5 1.5-4-4-5.5 5.5-1-1L10 14l-4-4 1.5-1.5L12 9l3-3z"/></svg>';
 
 // ---------- Creación y diseño ----------
@@ -307,6 +309,14 @@ function renderTabs(g: Group) {
   const split = h("button", "icon-btn");
   split.innerHTML = direction === "row" ? ICON_SPLIT : ICON_SPLIT_DOWN;
   split.title = t("Dividir el editor");
+  if (g.active && (isMarkdownFile(g.active) || isImageFile(g.active))) {
+    const prev = h("button", "icon-btn");
+    prev.innerHTML = ICON_PREVIEW;
+    prev.title = t("Vista previa (Ctrl+Shift+V)");
+    const target = g.active;
+    prev.onclick = () => { void openPreviewFor(target); };
+    actions.append(prev);
+  }
   split.onclick = () => { const n = splitGroup(g.active); n?.editor.focus(); };
   actions.append(split);
   if (groups.length > 1) {
@@ -364,6 +374,10 @@ export function activate(g: Group, path: string | null) {
 export interface OpenOpts { line?: number; col?: number; len?: number; group?: Group; focus?: boolean }
 
 export async function openFile(path: string, o: OpenOpts = {}): Promise<void> {
+  if (isBinaryImageFile(path)) {
+    await openImagePreview(path);
+    return;
+  }
   const g = o.group ?? focusedGroup;
   const root = ws.root;
   const request = (openRequests.get(g) ?? 0) + 1;

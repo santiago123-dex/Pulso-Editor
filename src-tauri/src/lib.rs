@@ -184,6 +184,49 @@ fn read_file_sync(path: &Path) -> Result<String, String> {
     fs::read_to_string(path).map_err(|e| e.to_string())
 }
 
+#[derive(Serialize)]
+struct ImagePreview {
+    data_url: String,
+    bytes: u64,
+    mime: String,
+}
+
+fn image_mime_for(path: &Path) -> Option<&'static str> {
+    match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "webp" => Some("image/webp"),
+        "gif" => Some("image/gif"),
+        "svg" => Some("image/svg+xml"),
+        "ico" => Some("image/x-icon"),
+        "bmp" => Some("image/bmp"),
+        _ => None,
+    }
+}
+
+#[tauri::command]
+async fn read_image_file(
+    guard: tauri::State<'_, fsguard::WorkspaceGuard>,
+    path: String,
+) -> Result<ImagePreview, String> {
+    use base64::Engine;
+    let safe = guard.ensure_read(&path)?;
+    let mime = image_mime_for(&safe).ok_or_else(|| tr("Formato de imagen no soportado").to_string())?;
+    let meta = fs::metadata(&safe).map_err(|e| e.to_string())?;
+    if meta.len() > 15 * 1024 * 1024 {
+        return Err(tr("La imagen es demasiado grande (máximo 15 MB)").into());
+    }
+    let bytes = meta.len();
+    let data = tauri::async_runtime::spawn_blocking(move || fs::read(&safe).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())??;
+    Ok(ImagePreview {
+        data_url: format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(&data)),
+        bytes,
+        mime: mime.to_string(),
+    })
+}
+
 #[tauri::command]
 async fn read_file(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: String) -> Result<String, String> {
     let safe = guard.ensure_read(&path)?;
@@ -1043,6 +1086,7 @@ pub fn run() {
             install_cli_command,
             list_files,
             read_file,
+            read_image_file,
             read_theme_file,
             write_file,
             file_mtime,
@@ -1080,6 +1124,10 @@ pub fn run() {
             gitops::git_stage,
             gitops::git_unstage,
             gitops::git_commit,
+            gitops::git_last_commit_message,
+            gitops::git_commit_amend,
+            gitops::git_delete_branch,
+            gitops::git_rename_branch,
             gitops::git_diff_sources,
             gitops::git_branches,
             gitops::git_switch,

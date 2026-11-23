@@ -28,6 +28,7 @@ import {
 import { fileIcon, loadIconManifest } from "./icons";
 import { closeBoard, openBoard } from "./board";
 import { closeDiff } from "./diffView";
+import { closePreview, openPreviewFor } from "./preview";
 import { initIssues, loadIssues } from "./issues";
 import { initProblems, setProblemsVisible } from "./problems";
 import { pickScript } from "./scripts";
@@ -39,7 +40,7 @@ import { customizeActivityBar, initActivityBar, resetActivityBar } from "./activ
 import { resetRepoChat, setChatVisible } from "./repoChat";
 import { initLsp, setLspWorkspace } from "./lsp";
 import { getLspState, lspDetail, lspLabel, onLspState } from "./lspState";
-import { commitStaged, initScm, pickBranch, pullChanges, pushChanges, refreshScm, resetScm, stage, unstage } from "./scm";
+import { amendLastCommit, commitStaged, deleteBranch, initScm, pickBranch, pullChanges, pushChanges, refreshScm, renameBranch, resetScm, stage, unstage } from "./scm";
 import { focusSearch, initSearch, resetSearch, searchInFolder } from "./search";
 import { allThemes, applyTheme, commit, onSettingsChange, setTheme, state, syntaxOptionsFor } from "./settings";
 import { adaptToMyTerminal, applyTerminalSettings, clearTerminal, initTerminal, killActiveTerminal, newTerminal, runInTerminal, toggleTerminal } from "./terminal";
@@ -192,6 +193,7 @@ async function openWorkspace(raw: string, layout?: Layout | null): Promise<boole
     resetAi();
     closeBoard();
     closeDiff();
+    closePreview();
     nav.reset();
     clearClosedTabs();
   }
@@ -242,6 +244,7 @@ async function closeWorkspace() {
   resetAi();
   closeBoard();
   closeDiff();
+  closePreview();
   nav.reset();
   clearClosedTabs();
   await refreshTree();
@@ -535,7 +538,10 @@ register(
   { id: "git.blame", label: t("Git: Alternar culpa (blame) en línea"), keywords: "git blame culpa autor linea quien", run: toggleBlame },
   { id: "git.fileHistory", label: t("Git: Historial del archivo activo"), keywords: "git historial archivo file history log", run: () => { showView("git"); showFileHistory(); } },
   { id: "git.commit", label: t("Git: Confirmar los cambios preparados (commit)"), keywords: "git commit confirmar", run: () => { showView("git"); void commitStaged(); } },
+  { id: "git.amend", label: t("Git: Corregir el último commit (amend)"), keywords: "git commit amend corregir ultimo", run: () => { showView("git"); void amendLastCommit(); } },
   { id: "git.branch", label: t("Git: Cambiar de rama o crear una nueva…"), keywords: "git branch rama checkout switch crear", run: () => void pickBranch() },
+  { id: "git.renameBranch", label: t("Git: Renombrar una rama local…"), keywords: "git branch rama rename renombrar", run: () => void renameBranch() },
+  { id: "git.deleteBranch", label: t("Git: Eliminar una rama local…"), keywords: "git branch rama delete eliminar borrar", run: () => void deleteBranch() },
   { id: "git.pull", label: t("Git: Traer cambios del remoto (pull)"), keywords: "git pull traer descargar", run: () => void pullChanges() },
   { id: "git.push", label: t("Git: Subir commits al remoto (push)"), keywords: "git push subir enviar", run: () => void pushChanges() },
   { id: "git.stageAll", label: t("Git: Preparar todos los cambios"), keywords: "git stage add preparar todo", run: () => void stage([]) },
@@ -550,6 +556,7 @@ register(
   { id: "view.problems", label: t("Ver: Problemas (errores y avisos)"), key: "Ctrl+Shift+M", keywords: "problems errores avisos diagnosticos", run: () => showView("problems") },
   { id: "view.issues", label: t("Ver: Issues de GitHub"), key: "Ctrl+Shift+I", run: () => showView("issues") },
   { id: "view.board", label: t("Issues: Abrir el tablero kanban"), keywords: "kanban tablero board issues github", run: () => void openBoard() },
+  { id: "view.preview", label: t("Ver: Vista previa de Markdown o imagen"), key: "Ctrl+Shift+V", keywords: "preview vista previa markdown imagen svg png", run: () => void openPreviewFor(activePath()) },
   { id: "view.settings", label: t("Ver: Configuración"), key: "Ctrl+,", run: () => showView("settings") },
   { id: "view.zoomIn", label: t("Ver: Aumentar la fuente"), key: "Ctrl+=", run: zoom(1) },
   { id: "view.zoomOut", label: t("Ver: Reducir la fuente"), key: "Ctrl+-", run: zoom(-1) },
