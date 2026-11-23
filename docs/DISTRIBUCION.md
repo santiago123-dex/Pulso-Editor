@@ -46,14 +46,35 @@ git tag v0.2.0
 git push origin v0.2.0
 ```
 
-Compila el instalador NSIS en Windows y los paquetes .deb, .rpm y AppImage en Linux (Ubuntu 22.04), y los adjunta a un **borrador** de release marcado como versión preliminar. Hay que revisarlo y publicarlo a mano en GitHub. Los instaladores no están firmados y no hay actualizaciones automáticas. No se genera versión para macOS porque nunca se compiló ahí. Este flujo todavía no se ha ejecutado en GitHub.
+Compila el instalador NSIS en Windows y los paquetes .deb, .rpm y AppImage en Linux (Ubuntu 22.04), y los adjunta a un **borrador** de release. Hay que revisarlo y publicarlo a mano en GitHub. Los instaladores no tienen firma de código (SmartScreen avisa). No se genera versión para macOS porque nunca se compiló ahí. Este flujo todavía no se ha ejecutado en GitHub.
+
+## Actualizaciones automáticas
+
+La versión instalada busca una versión nueva 8 s después de arrancar, y cuando se pide con «Ayuda: Buscar actualizaciones» (paleta o menú Ayuda). Lee `latest.json` de la última release publicada del repositorio (`plugins.updater.endpoints` en `tauri.conf.json`). Si hay una versión nueva, lo pregunta y muestra las notas de la release. Al aceptar:
+
+1. Guarda los documentos con cambios. Si alguno no se puede guardar, no instala.
+2. Descarga el paquete y comprueba su firma con la clave pública de `tauri.conf.json`.
+3. Detiene terminales, LSP y procesos de IA, instala sin pedir nada (modo `passive` en Windows) y vuelve a abrir Pulso.
+
+La búsqueda automática no avisa si falla, por ejemplo sin conexión. Las compilaciones de desarrollo no se actualizan nunca.
+
+**Firma de las actualizaciones.** Es independiente de la firma de código del instalador. La clave privada está en `%USERPROFILE%\.tauri\pulso-updater.key`, fuera del repositorio. La pública está en `tauri.conf.json`. El flujo de publicación firma los paquetes con dos secretos del repositorio: `TAURI_SIGNING_PRIVATE_KEY` (el contenido del archivo `.key`) y `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Solo firma en GitHub, mediante `src-tauri/tauri.updater.conf.json`: las compilaciones locales no necesitan la clave. **Si se pierde la clave privada o su contraseña, las versiones ya instaladas no podrán actualizarse más.** Hay que guardar una copia de seguridad.
+
+**Requisitos para que funcione:**
+- El repositorio tiene que ser **público**, o las releases tienen que publicarse en otro repositorio público. Desde un repositorio privado, Pulso no puede descargar `latest.json`.
+- La release tiene que estar **publicada**: ni borrador ni versión preliminar.
+- La versión nueva tiene que ser mayor que la instalada.
+
+En Linux solo se actualiza el AppImage. Los paquetes .deb y .rpm se actualizan reinstalando.
+
+Probado: se genera el instalador firmado (`.sig`) con una clave de prueba y la ruta de configuración que usa el flujo, y la compilación local sin clave sigue funcionando. No probado: una actualización real de principio a fin, que requiere publicar dos versiones.
 
 ## Qué NO se probó
 
 - Un Windows limpio o una máquina virtual (sin herramientas de desarrollo, sin WebView2 preinstalado).
 - El instalador MSI (solo se generó NSIS) y la desinstalación completa.
 - Firma de código: el instalador no está firmado, así que SmartScreen mostrará una advertencia.
-- Actualizaciones automáticas.
+- Una actualización automática real de una versión a otra.
 - La política de seguridad del contenido (`csp`) ya está acotada en `src-tauri/tauri.conf.json` (con `connect-src` restringido a IPC local; las llamadas a GitHub salen desde Rust).
 
 ## Datos de la versión instalada y de la de desarrollo

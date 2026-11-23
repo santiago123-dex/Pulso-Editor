@@ -21,6 +21,7 @@ pub mod termchat;
 pub mod termui;
 pub mod fsguard;
 pub mod procguard;
+mod updates;
 
 /// Los procesos auxiliares no deben abrir ventanas de consola en Windows.
 fn background_command(program: &str) -> Command {
@@ -974,6 +975,7 @@ pub fn run() {
         .manage(lsp::LspState::default())
         .manage(aichat::AiState::default())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             set_workspace_root,
             list_dir,
@@ -1041,7 +1043,9 @@ pub fn run() {
             aichat::ai_usage,
             aichat::ai_extra_usage,
             aichat::ai_send,
-            aichat::ai_stop
+            aichat::ai_stop,
+            updates::update_check,
+            updates::update_install
         ])
         .build(app_context())
         .expect("error al iniciar Pulso Editor")

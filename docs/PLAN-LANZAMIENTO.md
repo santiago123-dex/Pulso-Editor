@@ -23,7 +23,10 @@ Puntos fuertes:
 - [ ] **Firma del instalador.** Sin firma, SmartScreen avisa de «aplicación no reconocida» y mucha gente no la instala. Opciones:
   - **SignPath:** gratis para proyectos de código abierto.
   - **Azure Trusted Signing:** de pago, con una cuota mensual baja.
-- [ ] **Actualizaciones automáticas** con `tauri-plugin-updater`, usando GitHub Releases y un par de claves de firma de actualizaciones. La clave privada se guarda como secreto del repositorio y nunca se sube. Sin esto, cada persona se queda en la versión que instaló.
+- [x] **Actualizaciones automáticas.** Usan `tauri-plugin-updater`, `latest.json` en GitHub Releases y paquetes firmados (ver [Distribución](DISTRIBUCION.md)). Para que funcionen faltan tres cosas:
+  - [ ] guardar los secretos de la clave en GitHub;
+  - [ ] hacer público el repositorio o publicar las releases en uno público;
+  - [ ] probar una actualización real entre dos versiones.
 - [x] **WebView2 garantizado.** El instalador ya lo instalaba si faltaba: es lo que hace Tauri por defecto, descargando el instalador de Microsoft sin preguntar. Ahora está fijado de forma explícita en `tauri.conf.json` (`downloadBootstrapper`). Necesita internet. Si hiciera falta instalar sin conexión, se puede publicar un segundo instalador con `offlineInstaller`, unos 127 MB más grande. Falta comprobarlo en un Windows sin WebView2 (punto siguiente).
 - [ ] **Probar en un Windows limpio**, en una máquina virtual sin Node, Git ni WebView2: instalar, abrir, desinstalar.
 - [x] **Separar desarrollo y producción.** Las compilaciones de desarrollo usan el identificador `dev.pulso.editor.dev` y ya no comparten datos con la instalada (ver [Distribución](DISTRIBUCION.md)).

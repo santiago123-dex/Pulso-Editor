@@ -50,10 +50,16 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Firma de los paquetes de actualización (ver docs/DISTRIBUCION.md). La clave privada solo vive en los secretos.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: v__VERSION__
           releaseName: Pulso Editor v__VERSION__
           releaseBody: Instaladores sin firmar. En Windows, SmartScreen mostrará una advertencia.
+          # Borrador: hay que publicarlo a mano. No se marca como versión preliminar porque las
+          # actualizaciones leen latest.json de la última release publicada, que excluye las preliminares.
           releaseDraft: true
-          prerelease: true
-          args: --bundles ${{ matrix.bundles }}
+          prerelease: false
+          includeUpdaterJson: true
+          args: --bundles ${{ matrix.bundles }} --config src-tauri/tauri.updater.conf.json
