@@ -2,8 +2,9 @@
 
 Resultado de una revisión completa del proyecto hecha el 22/11/2026: qué falta para entregarlo al público, qué hay que arreglar, qué funciones añadir y cómo depender menos de servicios de terceros. Complementa la [Hoja de ruta](HOJA-DE-RUTA.md), que recoge los pendientes de cada área. Las casillas marcadas ya están hechas.
 
-Estado de partida:
-- Pruebas: 436 de TypeScript y 126 de Rust. Las de TypeScript pasan todas.
+Estado de partida (actualizado el 23/11/2026):
+- Pruebas: 481 de TypeScript y unas 230 de Rust. Las de TypeScript pasan todas.
+- El trabajo pendiente está repartido por frentes en el [Plan de trabajo en paralelo](PLAN-TRABAJO-PARALELO.md).
 - Las dos pruebas de Ctrl+C de la terminal fallan cuando las lanza una herramienta automatizada, pero pasan en una terminal normal (ver «Arreglos»).
 - `tsc` no da errores.
 
@@ -44,15 +45,7 @@ Puntos fuertes:
 - [ ] **Chat del equipo y notificaciones.** Cada mensaje es un comentario en una issue, así que GitHub probablemente envía un correo a cada persona suscrita a esa issue, en cada mensaje. Hay que comprobarlo con dos cuentas reales antes de promocionar la función. Si se confirma, hay que avisarlo en la interfaz o cambiar de transporte (ver sección 4).
 - [x] **Terminal: fin de sesión antes de tiempo.** Corregido en `src-tauri/src/term.rs`: el hilo de espera usa un canal con tiempo límite acotado (`120 ms`) para dejar drenar las últimas líneas antes de emitir `term-exit` sin bloquear ConPTY.
 - [ ] **Pruebas de Ctrl+C.** `ctrl_c_interrupts_a_running_command_in_shell` y `ctrl_c_interrupts_powershell_command` fallan cuando el proceso que las lanza no entrega Ctrl+C a la consola nueva. Desde la terminal de Pulso o desde PowerShell pasan. Si también fallan en los servidores de GitHub, se pueden marcar para saltarlas en la CI con una variable de entorno, sin quitarlas.
-- [ ] **Archivos demasiado grandes.** Dividirlos por responsabilidad facilitaría revisarlos y probarlos:
-
-  | Archivo | Líneas |
-  | --- | --- |
-  | `src/aiChat.ts` | 2082 |
-  | `src-tauri/src/aichat.rs` | 1352 |
-  | `src-tauri/src/bin/pulso.rs` | 1289 |
-  | `src-tauri/src/gitops.rs` | 1124 |
-  | `src-tauri/src/lib.rs` | 1044 |
+- [ ] **Archivos demasiado grandes.** Reparto y tamaños actuales en el frente G del [Plan de trabajo en paralelo](PLAN-TRABAJO-PARALELO.md).
 
 - [x] **Almacenamiento repartido.** Todos los módulos de interfaz usan ahora la capa segura `src/core/storage.ts` en lugar de acceder a `localStorage` directamente.
 - [x] **Interfaz en inglés.** Ya hay capa de traducciones (`src/i18n.ts`, `src/locales/en.ts`) y selector de idioma.
