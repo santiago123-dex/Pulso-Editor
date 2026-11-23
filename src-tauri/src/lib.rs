@@ -16,6 +16,7 @@ mod userconf;
 mod lsp;
 mod gitops;
 mod githubauth;
+mod githubpolicy;
 mod githubdevice;
 pub mod aichat;
 mod cli;
@@ -240,10 +241,28 @@ async fn read_file(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: Strin
 }
 
 /// Lectura acotada para importar archivos de tema `.json`/`.jsonc` elegidos con el diálogo del sistema.
+/// Abre el diálogo del sistema para elegir un tema de VS Code. La elección se hace aquí, no en la ventana, para que
+/// la ventana no pueda pedir que se lea una ruta inventada: solo se puede leer lo que la persona eligió.
 #[tauri::command]
-async fn read_theme_file(path: String) -> Result<String, String> {
+async fn pick_theme_file(app: tauri::AppHandle, guard: tauri::State<'_, fsguard::WorkspaceGuard>) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let name = tr("Tema de VS Code");
+    let picked = tauri::async_runtime::spawn_blocking(move || app.dialog().file().add_filter(name, &["json", "jsonc"]).blocking_pick_file())
+        .await
+        .map_err(|e| e.to_string())?;
+    let Some(file) = picked else { return Ok(None) };
+    let path = file.into_path().map_err(|e| e.to_string())?;
+    if let Some(dir) = path.parent() {
+        guard.allow_theme_dir(dir);
+    }
+    Ok(Some(norm(&path)))
+}
+
+#[tauri::command]
+async fn read_theme_file(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: String) -> Result<String, String> {
+    let safe = guard.ensure_theme_read(&path)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let p = Path::new(&path);
+        let p = safe.as_path();
         let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
         if ext != "json" && ext != "jsonc" {
             return Err(tr("Solo se pueden importar archivos de tema .json o .jsonc").into());
@@ -969,8 +988,12 @@ fn parse_git_status(text: &str, top: &str) -> GitInfo {
 
 /// Estado de Git de la carpeta: rama, adelantos y archivos cambiados. None si no es un repositorio.
 #[tauri::command]
-async fn git_status(path: String) -> Option<GitInfo> {
-    tauri::async_runtime::spawn_blocking(move || git_status_sync(path)).await.ok().flatten()
+async fn git_status(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: String) -> Result<Option<GitInfo>, String> {
+    // Solo carpetas abiertas como espacio de trabajo; para el resto, lo mismo que una carpeta que no es repositorio.
+    if guard.ensure_dir(&path).is_err() {
+        return Ok(None);
+    }
+    Ok(tauri::async_runtime::spawn_blocking(move || git_status_sync(path)).await.ok().flatten())
 }
 
 fn git_status_sync(path: String) -> Option<GitInfo> {
@@ -981,7 +1004,9 @@ fn git_status_sync(path: String) -> Option<GitInfo> {
 
 /// Devuelve la URL del remoto `origin` del repo en `path`.
 #[tauri::command]
-async fn git_remote(path: String) -> Result<String, String> {
+async fn git_remote(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: String) -> Result<String, String> {
+    // La dirección del remoto puede llevar un token incrustado: solo se entrega la de una carpeta abierta.
+    guard.ensure_dir(&path)?;
     tauri::async_runtime::spawn_blocking(move || git_remote_sync(path)).await.map_err(|e| e.to_string())?
 }
 
@@ -1092,6 +1117,7 @@ pub fn run() {
             read_file,
             read_image_file,
             read_theme_file,
+            pick_theme_file,
             write_file,
             file_mtime,
             backup_write,

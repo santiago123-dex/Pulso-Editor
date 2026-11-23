@@ -377,9 +377,12 @@ fn spawn_language_server(app: &AppHandle, root: &str, server_key: &str) -> Resul
 pub async fn lsp_start(
     window: tauri::WebviewWindow,
     app: AppHandle,
+    guard: tauri::State<'_, crate::fsguard::WorkspaceGuard>,
     root: String,
     server: Option<String>,
 ) -> Result<Started, String> {
+    // Solo carpetas abiertas como espacio de trabajo: la ventana no puede arrancar un servidor en cualquier ruta.
+    guard.ensure_dir(&root)?;
     let label = window.label().to_string();
     let server_key = server.unwrap_or_else(|| "typescript".to_string());
     tauri::async_runtime::spawn_blocking(move || {
