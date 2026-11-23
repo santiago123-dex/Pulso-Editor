@@ -1,6 +1,6 @@
 # Hoja de ruta y mejoras pendientes
 
-Estas son propuestas, no funciones ya implementadas. El orden es una recomendación y puede cambiar según el uso de Pulso. Lo necesario para publicar Pulso, con su orden, está en el [Plan para publicar](PLAN-LANZAMIENTO.md).
+Estas son propuestas, no funciones ya implementadas. El orden es una recomendación y puede cambiar según el uso de Pulso. Lo necesario para publicar Pulso, con su orden, está en el [Plan para publicar](PLAN-LANZAMIENTO.md). El reparto del trabajo pendiente por frentes, para varios agentes a la vez, está en el [Plan de trabajo en paralelo](PLAN-TRABAJO-PARALELO.md).
 
 ## Prioridad 1: confianza y pruebas en Windows
 
@@ -22,7 +22,7 @@ La prueba `test:lsp:ui` ya comprueba una compilación de desarrollo en WebView2 
 
 ## Prioridad 3: Git y flujo de trabajo
 
-1. Hecho: vista de diferencias, preparar/quitar, commits, ramas, descartar, push y pull, historial (de todo el repositorio y de un archivo) y culpa en línea (ver Funciones). Falta preparar por fragmentos, corregir el último commit y probar push/pull contra un remoto real con autenticación.
+1. Hecho: vista de diferencias, preparar/quitar, commits, ramas, descartar, push y pull, historial (de todo el repositorio y de un archivo) y culpa en línea (ver Funciones). Falta probar push/pull contra un remoto real con autenticación.
 2. Hecho: historial y culpa en línea, y pull requests (lista, detalle con diferencias y crear). Falta borrar y renombrar ramas, merge/rebase, asistencia para conflictos, y en las pull requests: fusionar, revisar, comentar, resultados de comprobaciones y forks.
 3. Tablero kanban hecho (ver Funciones; probado solo contra un GitHub simulado): faltan probarlo con GitHub real, columnas personalizadas o GitHub Projects, orden dentro de la columna, comentarios y asignados editables, y webhooks para sincronizar al instante. Además, paginación y filtros del listado lateral de issues, pull requests y la relación entre una issue y los cambios locales.
 4. Hecho: panel de problemas de los archivos abiertos, formateo por LSP y ejecución de scripts de package.json. Falta analizar el proyecto completo, formateadores y linters externos (Prettier, ESLint), una vista de resultados de pruebas y depuración.
@@ -34,5 +34,5 @@ La prueba `test:lsp:ui` ya comprueba una compilación de desarrollo en WebView2 
 - Hecho: política CSP estricta, guardián de archivos por ventana y lista de solicitudes permitidas a GitHub. Los comandos de Git, el agente de IA y el servidor de lenguaje solo aceptan carpetas abiertas. Falta que el espacio de trabajo lo fije solo el backend (hoy lo declara la ventana con `set_workspace_root`: una ventana comprometida podría declarar `C:\`), y revisar `search_files` y `replace_in_file` con enlaces simbólicos.
 - Perfiles, accesibilidad y pruebas de uso con distintos tamaños de ventana.
 - Sistema de extensibilidad definido y acotado antes de prometer compatibilidad con extensiones de VS Code.
-- Hecho: asistente de IA con Claude Code (ver Funciones). Falta Codex y otros proveedores, claves de API propias, aprobar permisos desde Pulso, mostrar los cambios propuestos como diferencias antes de aplicarlos, adjuntar issues, pull requests y diffs, y flujos como issue → plan → cambios → revisión.
+- Hecho: asistente de IA con Claude Code (ver Funciones). Hecho también: Codex, el agente propio con más de 300 proveedores de models.dev, claves en el almacén seguro y aprobación de comandos (ver [Agente](AGENTE.md)). Falta MCP, ganchos, memoria, adjuntar issues, pull requests y diffs, y flujos como issue → plan → cambios → revisión.
 - Hecho: licencia MIT, avisos de terceros, CI y un flujo que genera los instaladores en un borrador de release (ver [Distribución](DISTRIBUCION.md)). Falta firmar los instaladores, las actualizaciones automáticas, macOS y separar el identificador de la versión de desarrollo del de la instalada.
