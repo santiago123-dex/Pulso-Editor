@@ -1,3 +1,4 @@
+import { lang, t, t as tr } from "./i18n";
 /**
  * Modelo de una conversación con Claude Code a partir de su salida `stream-json`: una función pura que va
  * convirtiendo cada evento en mensajes, bloques de herramientas, uso del plan y resultado. Sin DOM ni procesos.
@@ -47,10 +48,10 @@ export const userEvent = (text: string): AiEvent => ({ type: "pulso_user", text 
 export function friendlyToolError(stderr: string): string {
   const s = stderr.trim();
   if (/IneligibleTierError|no longer supported for Gemini Code Assist/i.test(s)) {
-    return "Google ya no permite usar Gemini CLI con cuentas personales: lo migró a Antigravity. Para seguir usando Gemini aquí hace falta una clave de API de Gemini (variable GEMINI_API_KEY) o una cuenta de Workspace/Vertex.";
+    return t("Google ya no permite usar Gemini CLI con cuentas personales: lo migró a Antigravity. Para seguir usando Gemini aquí hace falta una clave de API de Gemini (variable GEMINI_API_KEY) o una cuenta de Workspace/Vertex.");
   }
   if (/not running in a trusted directory/i.test(s)) {
-    return "Gemini CLI no confía en esta carpeta. Ábrela una vez con `gemini` en una terminal y acepta la confianza.";
+    return t("Gemini CLI no confía en esta carpeta. Ábrela una vez con `gemini` en una terminal y acepta la confianza.");
   }
   return s;
 }
@@ -72,7 +73,7 @@ function parseJson(text: string): Record<string, unknown> {
 /** Contenido de un `tool_result`: texto, o lista de bloques de texto. */
 function resultText(content: unknown): string {
   const t = typeof content === "string" ? content : Array.isArray(content) ? content.map((c) => str(obj(c).text)).filter(Boolean).join("\n") : "";
-  return t.length > MAX_RESULT ? `${t.slice(0, MAX_RESULT)}\n… (recortado)` : t;
+  return t.length > MAX_RESULT ? `${t.slice(0, MAX_RESULT)}\n… ${tr("(recortado)")}` : t;
 }
 
 const windowOf = (v: unknown): UsageWindow | undefined => {
@@ -109,12 +110,12 @@ export function parseDeniedActions(raw: unknown): DeniedAction[] {
   const out: DeniedAction[] = [];
   for (const item of raw) {
     if (typeof item === "string" && item.trim()) {
-      out.push({ tool: "Acción bloqueada", detail: item.trim(), reason: "" });
+      out.push({ tool: t("Acción bloqueada"), detail: item.trim(), reason: "" });
       continue;
     }
     const o = obj(item);
     if (!Object.keys(o).length) continue;
-    const tool = str(o.tool_name) || str(o.tool) || str(o.name) || str(o.action) || "Acción bloqueada";
+    const tool = str(o.tool_name) || str(o.tool) || str(o.name) || str(o.action) || t("Acción bloqueada");
     const inp = obj(o.tool_input ?? o.input ?? o.parameters ?? o.arguments);
     const detail = str(o.command) || str(o.cmd) || str(o.CommandLine)
       || str(inp.command) || str(inp.cmd) || str(inp.CommandLine)
@@ -261,7 +262,7 @@ export function reduce(prev: Conversation, ev: AiEvent): Conversation {
           denials,
           ...(deniedActions.length ? { deniedActions } : {}),
         },
-        error: ok ? prev.error : str(ev.result) || "La herramienta terminó con un error.",
+        error: ok ? prev.error : str(ev.result) || t("La herramienta terminó con un error."),
         messages: markAllDone(prev.messages),
       };
     }
@@ -272,7 +273,7 @@ export function reduce(prev: Conversation, ev: AiEvent): Conversation {
         ...prev,
         running: false,
         messages: markAllDone(prev.messages),
-        error: ev.code === null ? "La conversación se detuvo." : friendlyToolError(stderr) || `La herramienta terminó con el código ${String(ev.code)} sin responder.`,
+        error: ev.code === null ? t("La conversación se detuvo.") : friendlyToolError(stderr) || t("La herramienta terminó con el código {code} sin responder.", { code: String(ev.code) }),
       };
     }
     default:
@@ -292,16 +293,16 @@ export function toolSummary(b: Extract<Block, { kind: "tool" }>): string {
   const pat = str(i.pattern) || str(i.Pattern) || str(i.Query);
   const cmd = str(i.command) || str(i.CommandLine);
   switch (b.name) {
-    case "Read": return file ? `Leyó ${baseName(file)}` : "Leyó un archivo";
-    case "Edit": case "MultiEdit": return file ? `Editó ${baseName(file)}` : "Editó un archivo";
-    case "Write": return file ? `Escribió ${baseName(file)}` : "Escribió un archivo";
-    case "NotebookEdit": return file ? `Editó ${baseName(file)}` : "Editó un cuaderno";
-    case "Glob": return pat ? `Buscó archivos «${pat}»` : file ? `Exploró ${baseName(file)}` : "Buscó archivos";
-    case "Grep": return `Buscó${pat ? ` «${pat}»` : " en los archivos"}`;
-    case "Bash": return "Quiso ejecutar un comando";
-    case "Command": return cmd ? `Ejecutó ${cmd}` : "Ejecutó un comando";
-    case "WebFetch": case "WebSearch": return "Consultó la web";
-    default: return b.name || "Usó una herramienta";
+    case "Read": return file ? t("Leyó {file}", { file: baseName(file) }) : t("Leyó un archivo");
+    case "Edit": case "MultiEdit": return file ? t("Editó {file}", { file: baseName(file) }) : t("Editó un archivo");
+    case "Write": return file ? t("Escribió {file}", { file: baseName(file) }) : t("Escribió un archivo");
+    case "NotebookEdit": return file ? t("Editó {file}", { file: baseName(file) }) : t("Editó un cuaderno");
+    case "Glob": return pat ? t("Buscó archivos «{pattern}»", { pattern: pat }) : file ? t("Exploró {file}", { file: baseName(file) }) : t("Buscó archivos");
+    case "Grep": return pat ? t("Buscó «{pattern}»", { pattern: pat }) : t("Buscó en los archivos");
+    case "Bash": return t("Quiso ejecutar un comando");
+    case "Command": return cmd ? t("Ejecutó {command}", { command: cmd }) : t("Ejecutó un comando");
+    case "WebFetch": case "WebSearch": return t("Consultó la web");
+    default: return b.name || t("Usó una herramienta");
   }
 }
 
@@ -420,9 +421,9 @@ export function createProviderNormalizer(provider: AiProvider, fallbackModel = "
           return out;
         }
         case "turn.failed":
-          return [{ type: "result", subtype: "error", is_error: true, result: str(obj(raw.error).message) || "La ejecución de Codex falló." }];
+          return [{ type: "result", subtype: "error", is_error: true, result: str(obj(raw.error).message) || t("La ejecución de Codex falló.") }];
         case "error":
-          return [{ type: "result", subtype: "error", is_error: true, result: str(raw.message) || "Error de Codex CLI." }];
+          return [{ type: "result", subtype: "error", is_error: true, result: str(raw.message) || t("Error de Codex CLI.") }];
         default:
           return [];
       }
@@ -497,8 +498,8 @@ export function createProviderNormalizer(provider: AiProvider, fallbackModel = "
           out.push({ type: "assistant", message: { id: `agy_final_${++agySeq}`, content: [{ type: "text", text: finalText }] } });
         }
         const errMsg = blockedHeadless
-          ? "Antigravity necesitó permiso para ejecutar un comando y no puede pedir confirmación en este modo."
-          : friendlyToolError(str(res.error) || "Antigravity terminó con error.");
+          ? t("Antigravity necesitó permiso para ejecutar un comando y no puede pedir confirmación en este modo.")
+          : friendlyToolError(str(res.error) || t("Antigravity terminó con error."));
         out.push({
           type: "result",
           subtype: ok ? "success" : "error",
@@ -627,14 +628,14 @@ export function pruneUsage(u: PlanUsage, nowMs = Date.now()): PlanUsage {
 export function resetClockText(w: UsageWindow | undefined, nowMs = Date.now()): string {
   if (!w?.resetsAt) return "";
   const targetMs = w.resetsAt * 1000;
-  if (targetMs <= nowMs) return "Se restablece ahora";
+  if (targetMs <= nowMs) return t("Se restablece ahora");
   const d = new Date(targetMs);
   const now = new Date(nowMs);
   const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
-  const time = d.toLocaleTimeString("es", { hour: "numeric", minute: "2-digit" });
-  if (sameDay) return `Se restablece a las ${time}`;
-  const day = d.toLocaleDateString("es", { weekday: "short" }).replace(/\.$/, "");
-  return `Se restablece el ${day}, ${time}`;
+  const time = d.toLocaleTimeString(lang(), { hour: "numeric", minute: "2-digit" });
+  if (sameDay) return t("Se restablece a las {time}", { time });
+  const day = d.toLocaleDateString(lang(), { weekday: "short" }).replace(/\.$/, "");
+  return t("Se restablece el {day}, {time}", { day, time });
 }
 
 /** Convierte un identificador técnico («claude-sonnet-5-5-20260514») en nombre específico legible («Claude Sonnet 5.5»). */
@@ -705,10 +706,10 @@ export function touchedFiles(messages: readonly Turn[]): string[] {
 export function resetIn(w: UsageWindow | undefined, nowMs = Date.now()): string {
   if (!w?.resetsAt) return "";
   const s = Math.round(w.resetsAt - nowMs / 1000);
-  if (s <= 0) return "ya";
-  if (s < 3600) return `en ${Math.max(1, Math.round(s / 60))} min`;
-  if (s < 86400) { const h = Math.floor(s / 3600); const m = Math.round((s % 3600) / 60); return m ? `en ${h} h ${m} min` : `en ${h} h`; }
-  return `en ${Math.round(s / 86400)} d`;
+  if (s <= 0) return t("ya");
+  if (s < 3600) return t("en {n} min", { n: Math.max(1, Math.round(s / 60)) });
+  if (s < 86400) { const h = Math.floor(s / 3600); const m = Math.round((s % 3600) / 60); return m ? t("en {h} h {m} min", { h, m }) : t("en {h} h", { h }); }
+  return t("en {n} d", { n: Math.round(s / 86400) });
 }
 
 /** Texto de un plan: «Pro», «Max»… */
@@ -749,14 +750,14 @@ export function activitySummary(items: Block[], running: boolean): { now: string
     else other++;
   }
   const parts: string[] = [];
-  const add = (n: number, one: string, many: string) => { if (n) parts.push(`${n} ${n === 1 ? one : many}`); };
-  add(reads, "archivo leído", "archivos leídos");
-  add(edits, "edición", "ediciones");
-  add(searches, "búsqueda", "búsquedas");
-  add(cmds, "comando", "comandos");
-  add(other, "acción", "acciones");
-  if (!parts.length && items.some((b) => b.kind === "thinking")) parts.push("razonamiento");
-  return { now: running ? now || "Leyendo tu mensaje" : "", counts: parts.join(" · ") };
+  const add = (n: number, one: string, many: string) => { if (n) parts.push(n === 1 ? one : many.replace("{n}", String(n))); };
+  add(reads, t("1 archivo leído"), t("{n} archivos leídos"));
+  add(edits, t("1 edición"), t("{n} ediciones"));
+  add(searches, t("1 búsqueda"), t("{n} búsquedas"));
+  add(cmds, t("1 comando"), t("{n} comandos"));
+  add(other, t("1 acción"), t("{n} acciones"));
+  if (!parts.length && items.some((b) => b.kind === "thinking")) parts.push(t("razonamiento"));
+  return { now: running ? now || t("Leyendo tu mensaje") : "", counts: parts.join(" · ") };
 }
 
 /** «8 s», «1 min 05 s». */

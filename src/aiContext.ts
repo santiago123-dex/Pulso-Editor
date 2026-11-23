@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 /** Contexto del editor que se adjunta a un mensaje. Siempre es visible antes de enviar (chips) y la persona puede quitarlo. */
 export interface EditorContext {
   /** Ruta del archivo abierto, relativa a la carpeta del proyecto si está dentro. */
@@ -37,5 +38,5 @@ export function buildPrompt(text: string, ctx: EditorContext): string {
 /** Texto corto de cada chip. */
 export const chipLabels = (ctx: EditorContext): { file?: string; selection?: string } => ({
   file: ctx.file ? ctx.file.split("/").pop() : undefined,
-  selection: ctx.selection?.text.trim() ? `Selección · ${ctx.selection.endLine - ctx.selection.startLine + 1} línea${ctx.selection.endLine === ctx.selection.startLine ? "" : "s"}` : undefined,
+  selection: ctx.selection?.text.trim() ? (ctx.selection.endLine === ctx.selection.startLine ? t("Selección · 1 línea") : t("Selección · {count} líneas", { count: ctx.selection.endLine - ctx.selection.startLine + 1 })) : undefined,
 });

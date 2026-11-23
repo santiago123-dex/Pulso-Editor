@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import { invoke } from "@tauri-apps/api/core";
 import type { AiProvider, Turn } from "./aiModel";
 
@@ -87,7 +88,7 @@ export const newChatId = (now = Date.now(), rnd = Math.random()) => `c${now.toSt
 export function titleFrom(messages: readonly Turn[]): string {
   const first = messages.find((m) => m.role === "user")?.blocks.find((b) => b.kind === "text");
   const text = first && first.kind === "text" ? first.text.replace(/\s+/g, " ").trim() : "";
-  return text ? (text.length > 60 ? `${text.slice(0, 57)}…` : text) : "Conversación nueva";
+  return text ? (text.length > 60 ? `${text.slice(0, 57)}…` : text) : t("Conversación nueva");
 }
 
 const sameDir = (a: string, b: string) => a.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase() === b.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
