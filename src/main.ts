@@ -12,7 +12,6 @@ import { showPermissionRules } from "./ai/permissions";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getVersion } from "@tauri-apps/api/app";
 import { checkForUpdates, initUpdates } from "./updates";
-import { open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 import { bus } from "./core/events";
 import { createPrForActiveIssue } from "./workflow/issueWorkflow";
@@ -272,7 +271,7 @@ async function closeWorkspace() {
 async function pickFolder() {
   if (!inTauri) { setStatus(t("Abrir carpeta solo funciona en la ventana de Pulso Editor (npx tauri dev).")); return; }
   try {
-    const dir = await open({ directory: true });
+    const dir = await invoke<string | null>("pick_workspace_folder");
     if (typeof dir === "string") await openWorkspace(dir);
   } catch (e) {
     setStatus(t("No se pudo abrir la carpeta: {error}", { error: String(e) }));
@@ -282,7 +281,7 @@ async function pickFolder() {
 async function pickFolderNewWindow() {
   if (!inTauri) { setStatus(t("Abrir carpeta solo funciona en la ventana de Pulso Editor (npx tauri dev).")); return; }
   try {
-    const dir = await open({ directory: true });
+    const dir = await invoke<string | null>("pick_workspace_folder");
     if (typeof dir === "string") await invoke("open_new_window", { path: dir });
   } catch (e) {
     setStatus(t("No se pudo abrir la nueva ventana: {error}", { error: String(e) }));
