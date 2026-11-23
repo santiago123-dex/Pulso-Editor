@@ -770,6 +770,14 @@ export const en: Record<string, string> = {
   "Conectando con GitHub… si no hay sesión, se abrirá el navegador para que autorices el acceso.": "Connecting to GitHub… if there's no session, the browser will open so you can authorize access.",
   "Conectado a GitHub como {login}": "Connected to GitHub as {login}",
   "No se pudo conectar con GitHub": "Couldn't connect to GitHub",
+  "Iniciar sesión con GitHub": "Sign in with GitHub",
+  "No se pudo iniciar sesión con GitHub": "Couldn't sign in with GitHub",
+  "Usar la sesión de Git": "Use the Git session",
+  "Escríbelo en {url} y autoriza a Pulso.": "Enter it at {url} and authorize Pulso.",
+  "Pulso te pedirá permiso para ver tus repositorios, issues y pull requests. El token se guarda en el almacén de credenciales del sistema.": "Pulso will ask for permission to see your repositories, issues and pull requests. The token is kept in the system credential store.",
+  "Copiar el código y abrir GitHub": "Copy the code and open GitHub",
+  "Esperando la autorización en GitHub…": "Waiting for authorization on GitHub…",
+  "El código ya está copiado. Pégalo en la página que se abrió y pulsa «Authorize». Esta ventana se cerrará sola.": "The code is already copied. Paste it on the page that opened and click “Authorize”. This window will close on its own.",
 
   // ---------- Chat del equipo ----------
   "Hoy": "Today",

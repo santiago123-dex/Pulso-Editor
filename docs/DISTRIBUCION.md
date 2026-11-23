@@ -50,6 +50,23 @@ Compila el instalador NSIS en Windows y los paquetes .deb, .rpm y AppImage en Li
 
 Para publicar allí, el flujo necesita el secreto `RELEASES_TOKEN`, porque el token automático de GitHub solo vale para este repositorio. Es un *fine-grained personal access token* creado en GitHub (*Settings → Developer settings → Personal access tokens → Fine-grained tokens*), limitado al repositorio `Pulso-Editor-releases`, con el permiso *Contents: Read and write* y nada más. Caduca: hay que renovarlo antes de la fecha que se le ponga y actualizar el secreto. Los instaladores no tienen firma de código (SmartScreen avisa). No se genera versión para macOS porque nunca se compiló ahí. Este flujo todavía no se ha ejecutado en GitHub.
 
+## Aplicación OAuth de GitHub (iniciar sesión con un código)
+
+El inicio de sesión por código necesita el identificador público (*Client ID*) de una aplicación OAuth de GitHub. **No** hace falta su secreto, y el identificador no es privado.
+
+Para registrarla:
+1. En GitHub, ve a *Settings → Developer settings → OAuth Apps → New OAuth App*.
+2. Rellena los campos:
+   - *Application name*: «Pulso Editor».
+   - *Homepage URL*: la del repositorio de releases.
+   - *Authorization callback URL*: GitHub la exige aunque este método no la usa; vale `http://127.0.0.1/`.
+3. Marca **Enable Device Flow**.
+4. Copia el *Client ID*.
+
+El identificador va en `CLIENT_ID` de `src-tauri/src/githubdevice.rs`, o en la variable `PULSO_GITHUB_CLIENT_ID` al compilar. Sin él, «Conectar con GitHub» usa la sesión de Git del equipo.
+
+Las organizaciones con restricciones para aplicaciones OAuth tendrán que aprobar «Pulso Editor» para que vea sus repositorios.
+
 ## Actualizaciones automáticas
 
 La versión instalada busca una versión nueva 8 s después de arrancar, y cuando se pide con «Ayuda: Buscar actualizaciones» (paleta o menú Ayuda). Lee `latest.json` de la última release publicada de `Pulso-Editor-releases` (`plugins.updater.endpoints` en `tauri.conf.json`). Si hay una versión nueva, lo pregunta y muestra las notas de la release. Al aceptar:

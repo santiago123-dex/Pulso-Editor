@@ -114,6 +114,20 @@ Límites: columnas fijas (no hay columnas personalizadas ni GitHub Projects), si
 
 **Abrir enlaces.** Pulsar una issue de la lista lateral (o el icono de enlace de una tarjeta) la abre en el navegador del sistema. La ventana de Pulso no abre ventanas nuevas, así que se usa un comando propio que solo acepta enlaces http y https. El botón **Tablero** de la cabecera de Issues abre el tablero kanban.
 
+**Iniciar sesión con GitHub con un código (sin Git).**
+Si la compilación trae el identificador de la aplicación OAuth de Pulso, «Conectar con GitHub» funciona así:
+1. Muestra un código corto («WDJB-MJHT»).
+2. «Copiar el código y abrir GitHub» lo copia y abre github.com/login/device.
+3. Lo pegas, pulsas «Authorize», y el diálogo se cierra solo con «Conectado a GitHub como …».
+
+Detalles:
+- Permisos que se piden: `repo` (repositorios, issues y pull requests, también privados) y `read:user`.
+- El token se comprueba con `/user` y se guarda en el almacén de credenciales del sistema, igual que con Git; nunca pasa por la interfaz.
+- El código caduca a los 15 minutos.
+- No hace falta tener Git ni Git Credential Manager.
+- Sin ese identificador, o con el botón «Usar la sesión de Git», se usa la conexión de siempre, descrita a continuación.
+- Push y pull siguen usando las credenciales de Git del equipo.
+
 **Conectar la cuenta de GitHub.** No hay que crear ni pegar ningún token. Con una carpeta con `origin` de GitHub, si la lista de issues o el tablero reciben 401, 403 o 404 (GitHub responde 404 a un repositorio privado al que no tienes acceso), aparece el botón **Conectar con GitHub**; también está en Configuración → GitHub, junto a «Volver a conectar» y «Desconectar». El botón pide a Git la credencial de GitHub (`git credential fill`): si Git Credential Manager ya tiene tu sesión se usa al instante; si no, el gestor abre el navegador para que autorices el acceso. Pulso comprueba la sesión con `GET /user`, muestra «Conectado como …» y guarda el token en el almacén de credenciales del sistema. Al iniciar, si no hay ningún token, Pulso adopta en silencio la sesión que Git ya tenga (nunca abre ventanas). Requisitos y límites: Git instalado y un gestor de credenciales (Git Credential Manager viene con Git para Windows); el permiso es el que concedió ese gestor (normalmente acceso a repositorios); si GitHub rechaza una sesión caducada, Pulso lo dice y no guarda nada. No se probó la autorización por navegador desde cero (sin sesión previa).
 
 Para repositorios privados también se puede configurar un token a mano en Ajustes (avanzado). Pulso intenta guardarlo en el almacén de credenciales del sistema y migra el token de la ubicación antigua; si el almacén falla, se conserva en memoria durante la sesión.
