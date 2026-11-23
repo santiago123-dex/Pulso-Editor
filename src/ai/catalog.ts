@@ -17,7 +17,7 @@ export interface AntigravityBucket { id: string; name: string; window: string; r
 export interface AntigravityQuotaGroup { name: string; description: string; buckets: AntigravityBucket[] }
 export interface AntigravityUsage { groups: AntigravityQuotaGroup[] }
 export interface ExtraUsage { codex?: CodexQuota; antigravity?: AntigravityUsage }
-export interface AllAiTools { claude: AiTool; codex: AiTool; antigravity: AiTool }
+export interface AllAiTools { claude: AiTool; codex: AiTool; antigravity: AiTool; local?: AiTool }
 
 export interface ModelOption {
   value: string;
@@ -108,6 +108,23 @@ export const PROVIDERS: Record<AiProvider, ProviderMeta> = {
     models: [
       { value: "", label: t("Predeterminado"), tier: t("Cuenta"), badge: "Auto", hint: t("Antigravity selecciona automáticamente el mejor modelo") },
     ],
+    specific: [],
+  },
+  local: {
+    id: "local",
+    short: "Local",
+    title: "Ollama (local)",
+    accountTitle: "Ollama",
+    installCmdPs: "winget install --id Ollama.Ollama -e",
+    installCmdSh: "curl -fsSL https://ollama.com/install.sh | sh",
+    loginCmd: "ollama pull qwen2.5-coder:7b",
+    loginBtn: t("Descargar un modelo"),
+    installHint: t("Instala Ollama, descarga un modelo (por ejemplo «ollama pull qwen2.5-coder:7b») y pulsa «Volver a comprobar». Todo se ejecuta en este equipo: sin cuenta, sin claves y sin enviar tu código a ningún servicio."),
+    docsUrl: "https://ollama.com/download",
+    modelKey: "pulso.ai.model.local",
+    supportsEffort: false,
+    // Los modelos salen de la instalación de Ollama (`ollama list`).
+    models: [],
     specific: [],
   },
 };

@@ -24,6 +24,17 @@ export function codeKeys(root = ".") {
   return keys;
 }
 
+/** `t("…")` metidos por error dentro de otra cadena (p. ej. un selector CSS): no se ejecutan y rompen el código. */
+export function misplacedCalls(root = ".") {
+  const found = [];
+  for (const file of sourceFiles(join(root, "src"))) {
+    readFileSync(file, "utf8").split("\n").forEach((line, i) => {
+      if (/'[^'\n]*\b(?:t|tr)\("[^'\n]*'/.test(line) || /\[[\w-]+=(?:t|tr)\(/.test(line)) found.push(`${file}:${i + 1}`);
+    });
+  }
+  return found;
+}
+
 /** Textos y atributos (title, placeholder, aria-label) de index.html que translateStatic traduce. */
 export function htmlKeys(root = ".") {
   const html = readFileSync(join(root, "index.html"), "utf8")

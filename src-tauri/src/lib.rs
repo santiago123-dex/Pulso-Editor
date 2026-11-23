@@ -24,6 +24,7 @@ pub mod termui;
 pub mod fsguard;
 pub mod procguard;
 pub mod i18n;
+pub mod localai;
 mod updates;
 
 /// Los procesos auxiliares no deben abrir ventanas de consola en Windows.

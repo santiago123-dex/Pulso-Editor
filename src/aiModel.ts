@@ -3,7 +3,7 @@ import { lang, t, t as tr } from "./i18n";
  * Modelo de una conversación con Claude Code a partir de su salida `stream-json`: una función pura que va
  * convirtiendo cada evento en mensajes, bloques de herramientas, uso del plan y resultado. Sin DOM ni procesos.
  */
-export type AiProvider = "claude" | "codex" | "antigravity";
+export type AiProvider = "claude" | "codex" | "antigravity" | "local";
 
 export type Block =
   | { kind: "text"; text: string }
@@ -324,7 +324,8 @@ function mapAgyToolName(raw: string): string {
  * Para Claude Code devuelve el evento original sin cambios.
  */
 export function createProviderNormalizer(provider: AiProvider, fallbackModel = ""): (raw: AiEvent) => AiEvent[] {
-  if (provider === "claude") return (raw) => [raw];
+  // El agente local (Ollama) ya emite el formato de Claude Code desde Rust.
+  if (provider === "claude" || provider === "local") return (raw) => [raw];
 
   let turnStart = Date.now();
   let agySeq = 0;

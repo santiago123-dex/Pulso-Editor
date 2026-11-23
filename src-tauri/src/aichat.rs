@@ -18,6 +18,8 @@ use tauri::{AppHandle, Emitter, Manager, State};
 enum AiSlot {
     Starting,
     Running(u32),
+    /// Agente local (Ollama) dentro de Pulso: se detiene con esta bandera, no matando un proceso.
+    Local(Arc<std::sync::atomic::AtomicBool>),
 }
 
 #[derive(Default)]
@@ -35,6 +37,10 @@ impl AiState {
                 m.drain()
                     .filter_map(|(_, slot)| match slot {
                         AiSlot::Running(p) => Some(p),
+                        AiSlot::Local(flag) => {
+                            flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                            None
+                        }
                         AiSlot::Starting => None,
                     })
                     .collect()
@@ -115,6 +121,7 @@ pub struct AllAiTools {
     pub claude: AiTool,
     pub codex: AiTool,
     pub antigravity: AiTool,
+    pub local: AiTool,
 }
 
 /// Lee la salida JSON de `claude auth status`. No se devuelve el correo ni la organización: Pulso no los necesita.
@@ -738,10 +745,12 @@ pub async fn ai_detect_all() -> Result<AllAiTools, String> {
         let t_claude = thread::spawn(detect_claude);
         let t_codex = thread::spawn(detect_codex);
         let t_agy = thread::spawn(detect_antigravity);
+        let t_local = thread::spawn(crate::localai::detect);
         AllAiTools {
             claude: t_claude.join().unwrap_or_default(),
             codex: t_codex.join().unwrap_or_default(),
             antigravity: t_agy.join().unwrap_or_default(),
+            local: t_local.join().unwrap_or_default(),
         }
     }).await.map_err(|e| e.to_string())
 }
@@ -1081,6 +1090,7 @@ pub async fn ai_send(
     effort: Option<String>,
     mode: String,
     provider: Option<String>,
+    history: Option<Vec<crate::localai::HistoryMsg>>,
 ) -> Result<(), String> {
     if !safe_token(&id) { return Err(tr("Identificador de conversación no válido").into()); }
     if !std::path::Path::new(&cwd).is_dir() { return Err(tr("Abre una carpeta de proyecto para hablar con la IA.").into()); }
@@ -1096,6 +1106,10 @@ pub async fn ai_send(
             return Err(tr("Esta conversación ya está respondiendo.").into());
         }
         map.insert(id.clone(), AiSlot::Starting);
+    }
+
+    if provider.as_deref() == Some("local") {
+        return start_local(app, &state, id, cwd, prompt, model, history.unwrap_or_default());
     }
 
     let opts = ChatOptions { session, model, effort, mode };
@@ -1162,12 +1176,51 @@ pub async fn ai_send(
     }
 }
 
+/// Agente local (Ollama): corre dentro de Pulso y emite los mismos eventos que las herramientas externas.
+fn start_local(
+    app: AppHandle,
+    state: &AiState,
+    id: String,
+    cwd: String,
+    prompt: String,
+    model: Option<String>,
+    history: Vec<crate::localai::HistoryMsg>,
+) -> Result<(), String> {
+    let model = model.map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).ok_or_else(|| tr("Elige un modelo de Ollama para conversar.").to_string())?;
+    let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    state.running.lock().map_err(|e| e.to_string())?.insert(id.clone(), AiSlot::Local(cancel.clone()));
+    let (emitter, id_line) = (app.clone(), id.clone());
+    let emit: Arc<dyn Fn(String) + Send + Sync> = Arc::new(move |line| {
+        let _ = emitter.emit("ai-line", AiLine { id: id_line.clone(), line });
+    });
+    tauri::async_runtime::spawn(async move {
+        let outcome = crate::localai::run(crate::localai::base_url(), model, PathBuf::from(&cwd), id.clone(), history, prompt, cancel.clone(), emit).await;
+        if let Some(st) = app.try_state::<AiState>() {
+            if let Ok(mut m) = st.running.lock() {
+                m.remove(&id);
+            }
+        }
+        let stopped = cancel.load(std::sync::atomic::Ordering::Relaxed);
+        let (code, stderr) = match outcome {
+            Ok(()) => (Some(0), String::new()),
+            Err(_) if stopped => (None, String::new()),
+            Err(e) => (Some(1), e),
+        };
+        let _ = app.emit("ai-exit", AiExit { id, code, stderr });
+    });
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn ai_stop(state: State<'_, AiState>, id: String) -> Result<(), String> {
     let pid = {
         let mut map = state.running.lock().map_err(|e| e.to_string())?;
         match map.remove(&id) {
             Some(AiSlot::Running(p)) => Some(p),
+            Some(AiSlot::Local(flag)) => {
+                flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                None
+            }
             _ => None,
         }
     };

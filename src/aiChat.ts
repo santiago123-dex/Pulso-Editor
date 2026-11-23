@@ -57,13 +57,14 @@ function savedProvider(): AiProvider {
   const p = readStorage("pulso.ai.provider");
   if (p === "codex") return "codex";
   if (p === "antigravity" || p === "gemini") return "antigravity";
+  if (p === "local") return "local";
   return "claude";
 }
 
 const lives = new Map<string, Live>();
 let activeProvider: AiProvider = savedProvider();
 let current: Live | null = null;
-const tools: Record<AiProvider, AiTool | null> = { claude: null, codex: null, antigravity: null };
+const tools: Record<AiProvider, AiTool | null> = { claude: null, codex: null, antigravity: null, local: null };
 let tool: AiTool | null = null;
 let toolAt = 0;
 let detectInFlight: Promise<void> | null = null;
@@ -209,7 +210,7 @@ function syncModelButton() {
 // ---------- Conversaciones ----------
 function fromSaved(c: SavedChat): Live {
   const rawProv = c.provider as string | undefined;
-  const prov: AiProvider = rawProv === "codex" ? "codex" : rawProv === "antigravity" || rawProv === "gemini" ? "antigravity" : "claude";
+  const prov: AiProvider = rawProv === "codex" ? "codex" : rawProv === "antigravity" || rawProv === "gemini" ? "antigravity" : rawProv === "local" ? "local" : "claude";
   return { id: c.id, provider: prov, normalize: createProviderNormalizer(prov, c.model || ""), cwd: c.cwd, title: c.title, convo: { ...emptyConversation(), messages: c.messages, sessionId: c.sessionId, model: c.model, usage: prov === "claude" ? usage : {} } };
 }
 
@@ -304,6 +305,7 @@ function refreshExtraUsage(): Promise<boolean> {
 function providerUsage(prov: AiProvider = activeProvider): Conversation["usage"] {
   if (prov === "claude") { usage = pruneUsage(usage); return usage; }
   if (prov === "codex") { codexUsage = pruneUsage(codexUsage); return codexUsage; }
+  if (prov === "local") return {};
   return agyPrimaryUsage();
 }
 
@@ -362,7 +364,7 @@ function apply(live: Live, ev: AiEvent) {
     persist(live, true);
     try { localStorage.removeItem(INTERRUPTED_KEY); } catch { /* sin acceso */ }
     if (live.convo.touched) refreshDisk();
-    if (live.provider !== "claude") void refreshExtraUsage();
+    if (live.provider === "codex" || live.provider === "antigravity") void refreshExtraUsage();
   } else if (ev.type === "pulso_user" || ev.type === "system" || now - lastPersistAt >= 1200) {
     lastPersistAt = now;
     persist(live);
@@ -686,7 +688,7 @@ function openPopover(anchor: HTMLElement, pop: HTMLElement, placement: "below" |
 
 function buildProviderTabs(onPick?: (p: AiProvider) => void): HTMLElement {
   const bar = h("div", "ai-prov-tabs");
-  for (const id of ["claude", "codex", "antigravity"] as const) {
+  for (const id of ["claude", "codex", "antigravity", "local"] as const) {
     const t = tools[id];
     const dotCls = t?.logged_in ? "on" : t?.installed ? "wait" : "off";
     const btn = h("button", `ai-prov-tab${activeProvider === id ? " active" : ""}`);
@@ -727,7 +729,10 @@ async function installAndConnect(prov: AiProvider, onDone?: () => void) {
     cmd = ps ? (meta.installCmdPs ?? meta.installCmdSh ?? "") : (meta.installCmdSh ?? meta.installCmdPs ?? "");
     if (cmd && meta.loginCmd) {
       cmd = ps
-        ? `${cmd}; if ($?) { $agy = "$env:LOCALAPPDATA\\agy\\bin\\agy.exe"; if (Test-Path $agy) { & $agy acp --login } }`
+        ? prov === "local"
+          // Tras instalar, la terminal abierta aún no tiene Ollama en el PATH: se usa su ruta.
+          ? `${cmd}; if ($?) { & "$env:LOCALAPPDATA\\Programs\\Ollama\\ollama.exe" pull qwen2.5-coder:7b }`
+          : `${cmd}; if ($?) { $agy = "$env:LOCALAPPDATA\\agy\\bin\\agy.exe"; if (Test-Path $agy) { & $agy acp --login } }`
         : `${cmd} && ${meta.loginCmd}`;
     }
   } else if (meta.npmPkg) {
@@ -750,7 +755,7 @@ async function installAndConnect(prov: AiProvider, onDone?: () => void) {
 
 function buildAccountsList(onClose?: () => void): HTMLElement {
   const list = h("div", "ai-acct-list");
-  for (const id of ["claude", "codex", "antigravity"] as const) {
+  for (const id of ["claude", "codex", "antigravity", "local"] as const) {
     const meta = PROVIDERS[id];
     const t = tools[id];
     const isCurrent = activeProvider === id;
@@ -1125,7 +1130,7 @@ function populateUsageContainer(pop: HTMLElement, onRefreshDone: () => void) {
   head.append(syncBtn);
   pop.append(head);
 
-  const order: AiProvider[] = [prov, ...(["claude", "codex", "antigravity"] as const).filter((p) => p !== prov && !!tools[p]?.logged_in)];
+  const order: AiProvider[] = [prov, ...(["claude", "codex", "antigravity", "local"] as const).filter((p) => p !== prov && !!tools[p]?.logged_in)];
   for (const id of order) {
     const t = tools[id] ?? (id === prov ? tool : null);
     if (id === "antigravity") {
@@ -1146,6 +1151,12 @@ function populateUsageContainer(pop: HTMLElement, onRefreshDone: () => void) {
       continue;
     }
     const sec = h("div", "ai-usage-section");
+    if (id === "local") {
+      // Un modelo local no tiene cuotas ni límites de plan.
+      sec.append(h("div", "ai-usage-sec-title", "Ollama (local)"), h("div", "ai-usage-note", tr("Se ejecuta en este equipo: sin límites de uso.")));
+      pop.append(sec);
+      continue;
+    }
     if (id === "claude") {
       const cur = providerUsage("claude");
       const title = t?.plan ? "Claude Code · " + tr("Plan {plan}", { plan: planLabel(t.plan) }) : "Claude Code";
@@ -1561,9 +1572,9 @@ function renderBody() {
       ? (curTool?.plan ? tr("Plan {plan}", { plan: planLabel(curTool.plan) }) : tr("Conectado"))
       : prov === "codex"
         ? (curTool?.auth_method === "api_key" ? "Codex API" : curTool?.plan && curTool.plan !== "ChatGPT" ? `ChatGPT ${planLabel(curTool.plan)}` : "ChatGPT")
-        : (curTool?.plan || "Antigravity");
+        : prov === "local" ? "Ollama" : (curTool?.plan || "Antigravity");
   }
-  const histBtn = q<HTMLButtonElement>('.ai-tools button[title=tr("Conversaciones anteriores")]');
+  const histBtn = q<HTMLButtonElement>(`.ai-tools button[title="${CSS.escape(tr("Conversaciones anteriores"))}"]`);
   if (histBtn) { histBtn.classList.toggle("active", historyOpen); histBtn.setAttribute("aria-pressed", String(historyOpen)); }
   renderIssueBanner();
   renderFoot();
@@ -1589,10 +1600,13 @@ function renderBody() {
     resetTurnCache();
     const login = h("button", "foot-btn ai-btn-primary", meta.loginBtn); login.type = "button";
     login.onclick = () => startLoginFlow(prov);
-    const again = h("button", "foot-btn foot-btn-line", tr("Ya inicié sesión: volver a comprobar")); again.type = "button"; again.onclick = recheck;
+    const again = h("button", "foot-btn foot-btn-line", prov === "local" ? tr("Volver a comprobar") : tr("Ya inicié sesión: volver a comprobar")); again.type = "button"; again.onclick = recheck;
     const extraBtns: HTMLElement[] = [login, again];
-    const title = prov === "claude" ? tr("Inicia sesión para cargar tu plan") : tr("Inicia sesión en {provider}", { provider: meta.title });
-    const desc = prov === "claude"
+    // Para Ollama «sin sesión» significa que no hay ningún modelo descargado.
+    const title = prov === "claude" ? tr("Inicia sesión para cargar tu plan") : prov === "local" ? tr("Descarga un modelo para Ollama") : tr("Inicia sesión en {provider}", { provider: meta.title });
+    const desc = prov === "local"
+      ? tr("Ollama está en marcha pero no tiene ningún modelo. «Descargar un modelo» baja qwen2.5-coder:7b (unos 4,7 GB) en la terminal integrada; también puedes descargar otro con «ollama pull <modelo>».")
+      : prov === "claude"
       ? tr("Claude Code está instalado pero no hay una sesión iniciada. Se abrirá el inicio de sesión y tu plan se cargará al instante.")
       : tr("{provider} está instalado pero no hay una sesión iniciada. Se abrirá el inicio de sesión en la terminal integrada.", { provider: meta.title });
     if (prov !== "claude") {
@@ -1790,6 +1804,7 @@ async function detect(force = false) {
       tools.claude = nextClaude;
       tools.codex = all.codex;
       tools.antigravity = all.antigravity;
+      tools.local = ("local" in all ? all.local : null) ?? null;
       tool = tools[activeProvider];
 
       if (nextClaude.logged_in) {
@@ -1827,6 +1842,14 @@ function autosize() {
   if (t) { t.style.height = "auto"; t.style.height = `${Math.min(t.scrollHeight, 160)}px`; }
 }
 
+/** Mensajes anteriores en texto para el agente local (sin el último, que es el que se envía ahora). */
+function localHistory(live: Live): { role: string; content: string }[] {
+  return live.convo.messages.slice(0, -1).map((m) => ({
+    role: m.role,
+    content: m.role === "assistant" ? splitAssistantTurn(m.blocks).final : m.blocks.filter((b) => b.kind === "text").map((b) => b.text).join("\n"),
+  })).filter((m) => m.content.trim()).slice(-30);
+}
+
 async function dispatchPrompt(live: Live, displayText: string, prompt: string, effectiveMode: AiMode) {
   if (!ws.root || live.convo.running) return;
   live.cwd = ws.root;
@@ -1840,7 +1863,10 @@ async function dispatchPrompt(live: Live, displayText: string, prompt: string, e
     : null;
   apply(live, userEvent(displayText));
   try {
-    await invoke("ai_send", { id: live.id, cwd: ws.root, prompt, session: live.convo.sessionId || null, model: model || null, effort: useEffort, mode: effectiveMode, provider: live.provider });
+    // El agente local no guarda sesiones: recibe la conversación anterior (solo el texto) desde aquí.
+    const sendModel = live.provider === "local" ? model || tools.local?.models?.[0]?.id || null : model || null;
+    const history = live.provider === "local" ? localHistory(live) : null;
+    await invoke("ai_send", { id: live.id, cwd: ws.root, prompt, session: live.convo.sessionId || null, model: sendModel, effort: useEffort, mode: effectiveMode, provider: live.provider, history });
   } catch (e) {
     apply(live, exitEvent(1, String(e)));
   }
