@@ -11,6 +11,36 @@ Resultado del análisis completo de `develop` del 23/11/2026 (v0.2.0 publicada).
 - **Zonas calientes** (las tocan casi todos; cambios mínimos, solo registrar lo nuevo): `src-tauri/src/lib.rs`, `src/main.ts`, `src/aiChat.ts`, `src-tauri/src/aichat.rs`, `src/locales/en.ts`, `src-tauri/src/i18n.rs`, `CHANGELOG.md`. Los conflictos en las tres últimas se resuelven conservando ambos lados.
 - No reconstruir el instalador (`.exe`) salvo que se pida: las releases se suben cada tanto. Ejecutar `cargo clean` tras compilar.
 
+## Quién hace qué
+
+Dos agentes trabajan a la vez: **Claude** y **Antigravity**. Cada uno hace solo sus frentes, cada frente termina en **su propio PR**, y al final se revisan entre ellos y con la persona antes de seguir.
+
+| Agente | Frentes | Orden | Rama |
+| --- | --- | --- | --- |
+| **Claude** | **A** Carpeta fijada por el backend y confianza | 1.º | `seguridad-workspace` |
+| **Claude** | **B** CI y calidad (solo en modo aviso, sin formatear) | 2.º | `ci-calidad` |
+| **Claude** | **F** Agente de IA, fase 4 | 3.º | `agente-fase4` |
+| **Antigravity** | **D** Depurador (DAP) | 1.º | `depurador` |
+| **Antigravity** | **I** Rendimiento y tamaño | 2.º | `rendimiento` |
+| **Antigravity** | **E** Extensiones | 3.º | `extensiones` |
+| La persona | **C** Distribución y **J** Comunidad | cuando pueda | — |
+| Segunda ronda | **H** Git avanzado y **G** dividir archivos | tras unir la primera ronda | por decidir |
+
+**Por qué así:** Claude se queda con lo que toca seguridad y el agente propio (`fsguard.rs`, `agent*.rs`, `src/ai/`), que ya conoce. Antigravity se queda con lo que va en **módulos nuevos** (`dap*.rs`, `debug*.ts`, `ext*.rs`, `ext*.ts`) y con `vite.config.ts`, así que casi no se cruzan.
+
+**Reglas de no pisarse:**
+- Claude no toca `dap*`, `debug*`, `ext*` ni `vite.config.ts`. Antigravity no toca `fsguard.rs`, `agent*.rs`, `src/ai/` ni la apertura de carpetas.
+- En las zonas calientes (`lib.rs`, `main.ts`, `en.ts`, `i18n.rs`, `CHANGELOG.md`) cada uno solo **añade** sus líneas, sin reordenar ni reformatear.
+- Si un agente necesita algo del otro, lo deja escrito en la sección «Notas entre agentes» del final y sigue con otra tarea.
+- Cada PR dice en su descripción qué se probó y qué no.
+
+**Después de los PR (verificación cruzada):**
+1. Cada agente termina un frente, deja su PR abierto y marca las casillas.
+2. **Claude revisa los PR de Antigravity y Antigravity los de Claude**: traer `develop`, ejecutar pruebas y buscar fallos. Los hallazgos van como comentarios en el PR.
+3. La persona decide qué se une, en este orden: A, luego el resto.
+4. Tras cada unión, el otro agente trae `develop` a su rama y vuelve a probar.
+5. Con la primera ronda unida, se reparte la segunda (H y G) y se hace al final el PR de formato.
+
 ## Mapa de frentes
 
 | # | Frente | Rama sugerida | Toca (zona propia) | Choca con | Tamaño |
@@ -146,17 +176,10 @@ Dividir por responsabilidad facilita revisar y evita que las ramas choquen. **Ha
 
 ---
 
-## Cómo repartirlo entre agentes
+## Mensaje de arranque para cada agente
 
-Reparto sugerido con cuatro agentes a la vez:
+> Lee `docs/PLAN-TRABAJO-PARALELO.md`. Eres **<Claude | Antigravity>**: haz solo los frentes que la sección «Quién hace qué» te asigna, en el orden indicado. Trabaja en una rama y una carpeta de trabajo propias creadas desde `origin/develop`, no toques archivos de otro agente salvo añadir líneas en las zonas calientes, trae `origin/develop` y vuelve a probar antes de subir, y deja un PR por frente. Marca las casillas hechas y anota lo que necesites del otro en «Notas entre agentes».
 
-1. **Agente 1 — seguridad:** A, y luego B.
-2. **Agente 2 — producto grande:** D (depurador).
-3. **Agente 3 — agente de IA:** F.
-4. **Agente 4 — extensiones:** E, o I y J si se prefiere algo más corto.
+## Notas entre agentes
 
-C y J los hace principalmente la persona (firmar, probar en una máquina limpia, publicar); un agente solo prepara la configuración y los textos.
-
-Cada agente debe empezar con este mensaje:
-
-> Lee `docs/PLAN-TRABAJO-PARALELO.md` y haz solo el frente **X**. Trabaja en una rama y una carpeta de trabajo propias creadas desde `origin/develop`, no toques archivos de otros frentes salvo registrar lo nuevo en las zonas calientes, trae `origin/develop` y vuelve a probar antes de subir, y no abras el PR hasta que te lo pida. Marca las casillas hechas en el plan.
+_(Vacío. Cada agente añade aquí una línea con fecha y lo que necesita del otro o lo que encontró.)_
