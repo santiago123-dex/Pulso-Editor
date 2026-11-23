@@ -258,7 +258,12 @@ fn detect_claude() -> AiTool {
         _ => return AiTool { error: tr("No se encontró Claude Code en este equipo.").into(), ..Default::default() },
     };
     let mut tool = AiTool { installed: true, version, ..Default::default() };
-    match capture(&program, &["auth", "status"], 20).ok().and_then(|t| parse_auth_status(&t)) {
+    // Un fallo puntual (la herramienta renovando la sesión, otro proceso ocupado) no significa «sin sesión»: se reintenta una vez.
+    let status = (0..2).find_map(|attempt| {
+        if attempt > 0 { thread::sleep(Duration::from_millis(1500)); }
+        capture(&program, &["auth", "status"], 20).ok().and_then(|t| parse_auth_status(&t))
+    });
+    match status {
         Some((logged, method, plan)) => { tool.logged_in = logged; tool.auth_method = method; tool.plan = plan; }
         None => tool.error = tr("No se pudo comprobar si hay una sesión iniciada.").into(),
     }
@@ -1241,6 +1246,7 @@ fn validate_images(images: Option<Vec<String>>) -> Result<Vec<String>, String> {
 pub async fn ai_send(
     app: AppHandle,
     state: State<'_, AiState>,
+    guard: tauri::State<'_, crate::fsguard::WorkspaceGuard>,
     id: String,
     cwd: String,
     prompt: String,
@@ -1253,7 +1259,8 @@ pub async fn ai_send(
     images: Option<Vec<String>>,
 ) -> Result<(), String> {
     if !safe_token(&id) { return Err(tr("Identificador de conversación no válido").into()); }
-    if !std::path::Path::new(&cwd).is_dir() { return Err(tr("Abre una carpeta de proyecto para hablar con la IA.").into()); }
+    // El agente lee (y edita, si se le deja) todo lo que haya bajo `cwd`: tiene que ser una carpeta abierta en Pulso.
+    guard.ensure_dir(&cwd).map_err(|_| tr("Abre una carpeta de proyecto para hablar con la IA."))?;
     if let Some(reason) = crate::termui::broad_dir_reason(Path::new(&cwd), user_home().as_deref()) {
         return Err(trf("No se permite lanzar la IA en esa carpeta ({reason}). Abre una carpeta de proyecto concreta.", &[("reason", &reason)]));
     }

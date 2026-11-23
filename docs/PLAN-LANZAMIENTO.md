@@ -9,7 +9,7 @@ Estado de partida:
 
 Puntos fuertes:
 - Una CSP estricta.
-- Archivos limitados a la carpeta de trabajo (`fsguard`).
+- Archivos limitados a la carpeta de trabajo (`fsguard`), también para Git, la IA y el LSP, y una lista de solicitudes permitidas a GitHub (`githubpolicy`).
 - Escritura atómica y copias de recuperación.
 - Tokens guardados en el almacén de credenciales del sistema.
 - Una documentación honesta sobre lo que no se ha probado.

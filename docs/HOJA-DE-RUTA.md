@@ -31,7 +31,7 @@ La prueba `test:lsp:ui` ya comprueba una compilación de desarrollo en WebView2 
 
 - Búsqueda que respete `.gitignore` y ofrezca filtros glob configurables.
 - Rendimiento: ya hay medición (`npm run perf`, ver [Rendimiento](RENDIMIENTO.md)). Falta perfilar los picos al escribir en archivos muy grandes, acotar la memoria del servidor de lenguaje y medir en compilación de producción y con proyectos reales antes de fijar metas.
-- Hecho: política CSP estricta. Falta acotar los comandos nativos de archivos (hoy aceptan cualquier ruta, como cualquier editor local) para reducir el impacto de una eventual inyección de código.
+- Hecho: política CSP estricta, guardián de archivos por ventana y lista de solicitudes permitidas a GitHub. Los comandos de Git, el agente de IA y el servidor de lenguaje solo aceptan carpetas abiertas. Falta que el espacio de trabajo lo fije solo el backend (hoy lo declara la ventana con `set_workspace_root`: una ventana comprometida podría declarar `C:\`), y revisar `search_files` y `replace_in_file` con enlaces simbólicos.
 - Perfiles, accesibilidad y pruebas de uso con distintos tamaños de ventana.
 - Sistema de extensibilidad definido y acotado antes de prometer compatibilidad con extensiones de VS Code.
 - Hecho: asistente de IA con Claude Code (ver Funciones). Falta Codex y otros proveedores, claves de API propias, aprobar permisos desde Pulso, mostrar los cambios propuestos como diferencias antes de aplicarlos, adjuntar issues, pull requests y diffs, y flujos como issue → plan → cambios → revisión.

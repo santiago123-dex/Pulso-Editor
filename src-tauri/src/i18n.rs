@@ -197,6 +197,8 @@ const EN: &[(&str, &str)] = &[
     ("Elige un modelo para conversar.", "Choose a model to chat with."),
     ("El modelo elegido ya no está en el catálogo.", "The chosen model is no longer in the catalog."),
     ("Falta la clave de {provider}.", "The {provider} key is missing."),
+    ("Pulso no permite esta solicitud a GitHub", "Pulso does not allow this request to GitHub"),
+    ("Tema de VS Code", "VS Code theme"),
     ("Dirección de API de GitHub no permitida", "GitHub API address not allowed"),
     ("Método HTTP no permitido", "HTTP method not allowed"),
     ("No se pudo contactar con GitHub: {e}", "Couldn't reach GitHub: {e}"),

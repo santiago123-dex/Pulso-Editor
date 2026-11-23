@@ -14,6 +14,8 @@ struct GuardInner {
     roots: HashMap<String, PathBuf>,
     extra_files: HashSet<PathBuf>,
     readonly_roots: Vec<PathBuf>,
+    /// Carpetas de archivos de tema que la persona eligió con el diálogo del sistema (para resolver su `include`).
+    theme_dirs: Vec<PathBuf>,
 }
 
 pub struct WorkspaceGuard {
@@ -36,6 +38,7 @@ impl Default for WorkspaceGuard {
                 roots: HashMap::new(),
                 extra_files: HashSet::new(),
                 readonly_roots,
+                theme_dirs: Vec::new(),
             }),
         }
     }
@@ -147,6 +150,32 @@ impl WorkspaceGuard {
             return Ok(resolved);
         }
         if g.readonly_roots.iter().any(|r| is_within(&resolved, r)) {
+            return Ok(resolved);
+        }
+        Err(tr("Acceso denegado: la ruta está fuera del espacio de trabajo abierto").into())
+    }
+
+    /// Recuerda la carpeta del tema que la persona acaba de elegir, para que se pueda leer él y lo que incluya.
+    pub fn allow_theme_dir(&self, dir: &Path) {
+        if let (Ok(canon), Ok(mut g)) = (resolve_safe(dir), self.inner.lock()) {
+            if !g.theme_dirs.contains(&canon) {
+                g.theme_dirs.push(canon);
+            }
+        }
+    }
+
+    /// Lectura de un archivo de tema: el espacio de trabajo, los temas de VS Code instalados o una carpeta elegida con el diálogo.
+    pub fn ensure_theme_read(&self, raw: &str) -> Result<PathBuf, String> {
+        if let Ok(p) = self.ensure_read(raw) {
+            return Ok(p);
+        }
+        let p = Path::new(raw);
+        if has_parent_traversal(p) {
+            return Err(tr("Acceso denegado: ruta fuera del espacio de trabajo").into());
+        }
+        let resolved = resolve_safe(p)?;
+        let g = self.inner.lock().map_err(|e| e.to_string())?;
+        if g.theme_dirs.iter().any(|d| is_within(&resolved, d)) {
             return Ok(resolved);
         }
         Err(tr("Acceso denegado: la ruta está fuera del espacio de trabajo abierto").into())

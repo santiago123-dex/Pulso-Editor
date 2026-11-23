@@ -135,7 +135,9 @@ pub(crate) fn tools_schema(allow_propose: bool) -> Value {
 pub(crate) fn safe_rel_edit_path(raw: &str) -> Result<String, String> {
     let clean = raw.trim().replace('\\', "/").trim_start_matches("./").to_string();
     let p = Path::new(&clean);
-    if clean.is_empty() || p.is_absolute() || p.components().any(|c| matches!(c, Component::Prefix(_) | Component::RootDir | Component::ParentDir)) {
+    // Una letra de unidad (`C:/x`) se rechaza en todos los sistemas: en Windows saldría del proyecto y en Linux sería una carpeta rara.
+    let drive_like = clean.len() >= 2 && clean.as_bytes()[0].is_ascii_alphabetic() && clean.as_bytes()[1] == b':';
+    if clean.is_empty() || drive_like || p.is_absolute() || p.components().any(|c| matches!(c, Component::Prefix(_) | Component::RootDir | Component::ParentDir)) {
         return Err(tr("Solo se pueden proponer cambios en rutas relativas dentro del proyecto.").into());
     }
     Ok(clean)

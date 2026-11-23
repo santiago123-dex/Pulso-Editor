@@ -10,6 +10,13 @@ Todos los cambios notables en Pulso Editor se documentan en este archivo.
 - **Instrucciones, skills, subagentes y comandos propios** para ese agente, con formato propio (`.pulso/`) y lectura de `AGENTS.md`, `CLAUDE.md`, `.claude/skills`, `.claude/agents` y `.claude/commands`. La herramienta `task` delega en subagentes (varios a la vez) con su propio contexto, sin más permisos que el agente que los lanza y, si se quiere, con otro modelo. «IA: Ver instrucciones, skills y agentes del proyecto…» muestra lo cargado.
 
 Ver [Agente propio](docs/AGENTE.md) para el diseño y las fases siguientes (aprobación de comandos, MCP y ganchos).
+### Seguridad
+- El acceso a la API de GitHub desde la ventana pasa por una lista de solicitudes permitidas (`src-tauri/src/githubpolicy.rs`): issues, etiquetas, pull requests, comentarios del chat, el usuario y el borrado de una issue. Se rechaza todo lo demás (borrar o transferir repositorios, claves, webhooks, notificaciones, otras cuentas), las rutas trucadas con `..` o `%2e`, los cuerpos que no son JSON y los de más de 256 KB. `/graphql` solo acepta la mutación de eliminar issue.
+- Los comandos de Git, el agente de IA y el servidor de lenguaje solo aceptan carpetas que estén abiertas como espacio de trabajo en alguna ventana. Antes aceptaban cualquier ruta que enviara la ventana.
+- La lectura de archivos de tema está limitada a los temas de VS Code instalados, al espacio de trabajo y a los archivos que la persona elige con el diálogo del sistema, que ahora abre Rust y no la ventana.
+
+### Corregido
+- La detección de la sesión de Claude Code reintenta una vez antes de rendirse y, si no puede comprobarla, lo dice («no se pudo comprobar la sesión») en lugar de pedir que se inicie sesión.
 
 ## [0.2.0] - 2026-11-23
 

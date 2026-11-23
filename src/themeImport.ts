@@ -1,6 +1,5 @@
 import { t as tr } from "./i18n";
 import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
 import { allThemes, commit, setTheme, state } from "./settings";
 import { parseJsonc, themeFromVSCode } from "./themes";
 import { quickPick, setStatus, type PickItem } from "./ui";
@@ -47,7 +46,8 @@ async function addTheme(path: string, label: string, ui?: string) {
 
 /** Importa un archivo .json de tema de VS Code. */
 export async function importFromFile() {
-  const file = await open({ filters: [{ name: tr("Tema de VS Code"), extensions: ["json", "jsonc"] }] });
+  // El diálogo lo abre Rust: la ventana no elige la ruta, solo recibe la que la persona escogió.
+  const file = await invoke<string | null>("pick_theme_file");
   if (typeof file === "string") await addTheme(norm(file), baseName(file).replace(/\.jsonc?$/i, ""));
 }
 
