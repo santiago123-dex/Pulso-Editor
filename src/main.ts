@@ -6,6 +6,9 @@ import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
 import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
 import { lang, t, translateStatic } from "./i18n";
+import { connectProvider } from "./ai/providers";
+import { showAgentConfig } from "./ai/agentConfig";
+import { showPermissionRules } from "./ai/permissions";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getVersion } from "@tauri-apps/api/app";
 import { checkForUpdates, initUpdates } from "./updates";
@@ -511,6 +514,9 @@ register(
   { id: "app.checkUpdates", label: t("Ayuda: Buscar actualizaciones"), keywords: "update actualizar versión nueva", run: () => checkForUpdates(true) },
   { id: "app.copyDiagnostics", label: t("Ayuda: Copiar información de diagnóstico"), keywords: "diagnostico log soporte bug error version", run: () => void copyDiagnostics() },
   { id: "app.onboarding", label: t("Ayuda: Asistente de bienvenida"), keywords: "bienvenida inicio configurar tema idioma github onboarding", run: () => openOnboarding({ onOpenFolder: pickFolder }) },
+  { id: "ai.permissionRules", label: t("IA: Comandos permitidos para este proyecto…"), keywords: "ai ia permisos comandos reglas permitir aprobar approve permissions", run: showPermissionRules },
+  { id: "ai.agentConfig", label: t("IA: Ver instrucciones, skills y agentes del proyecto…"), keywords: "ai ia agente skills subagentes instrucciones agents.md claude.md comandos", run: showAgentConfig },
+  { id: "ai.connectProvider", label: t("IA: Conectar un proveedor de modelos…"), keywords: "ai ia modelos provider proveedor api key clave openai anthropic openrouter models.dev", run: () => connectProvider() },
   { id: "file.openRecent", label: t("Archivo: Abrir carpeta reciente…"), run: pickRecent },
   { id: "file.closeFolder", label: t("Archivo: Cerrar carpeta"), run: closeWorkspace },
   { id: "file.newFile", label: t("Archivo: Nuevo archivo…"), key: "Ctrl+N", run: () => newEntry("file") },

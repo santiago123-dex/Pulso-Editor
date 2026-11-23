@@ -4,6 +4,12 @@ Todos los cambios notables en Pulso Editor se documentan en este archivo.
 
 ## [Sin publicar]
 
+### Añadido
+- **Modelos en la nube de más de 300 proveedores** con el catálogo de [models.dev](https://models.dev): OpenAI, Anthropic, Google, OpenRouter, Groq, Mistral, xAI, DeepSeek y los demás que usan el protocolo compatible con OpenAI o el de Anthropic. «IA: Conectar un proveedor de modelos…» guarda la clave en el almacén seguro del sistema (la ventana nunca la recibe) o la toma de la variable de entorno del proveedor.
+- Agente propio con esos modelos: lee y busca en el proyecto (`glob`, `grep`), edita con reemplazo exacto y crea archivos (como diferencias a revisar, o directamente en el modo Agente), ejecuta comandos (solo los de lectura fuera del modo Agente), lee páginas web y lleva una lista de tareas, con el coste de cada respuesta según el precio del catálogo. - **Aprobación de comandos:** en el modo Agente el agente se detiene y pregunta antes de ejecutar un comando o leer una página web (permitir una vez, siempre ese comando, todo en la conversación, o denegar). Lo de riesgo (`git push`, borrados recursivos, `sudo`…) siempre pregunta. Las reglas se guardan por proyecto fuera de él. «IA: Comandos permitidos para este proyecto…» las muestra.
+- **Instrucciones, skills, subagentes y comandos propios** para ese agente, con formato propio (`.pulso/`) y lectura de `AGENTS.md`, `CLAUDE.md`, `.claude/skills`, `.claude/agents` y `.claude/commands`. La herramienta `task` delega en subagentes (varios a la vez) con su propio contexto, sin más permisos que el agente que los lanza y, si se quiere, con otro modelo. «IA: Ver instrucciones, skills y agentes del proyecto…» muestra lo cargado.
+
+Ver [Agente propio](docs/AGENTE.md) para el diseño y las fases siguientes (aprobación de comandos, MCP y ganchos).
 ### Seguridad
 - El acceso a la API de GitHub desde la ventana pasa por una lista de solicitudes permitidas (`src-tauri/src/githubpolicy.rs`): issues, etiquetas, pull requests, comentarios del chat, el usuario y el borrado de una issue. Se rechaza todo lo demás (borrar o transferir repositorios, claves, webhooks, notificaciones, otras cuentas), las rutas trucadas con `..` o `%2e`, los cuerpos que no son JSON y los de más de 256 KB. `/graphql` solo acepta la mutación de eliminar issue.
 - Los comandos de Git, el agente de IA y el servidor de lenguaje solo aceptan carpetas que estén abiertas como espacio de trabajo en alguna ventana. Antes aceptaban cualquier ruta que enviara la ventana.

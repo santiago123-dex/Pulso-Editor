@@ -418,3 +418,15 @@ describe("agente local (Ollama)", () => {
     expect(c.outcome).toMatchObject({ ok: true, durationMs: 1200 });
   });
 });
+
+describe("herramientas del agente propio", () => {
+  const tool = (name: string, input: Record<string, unknown> = {}): Block => ({ kind: "tool", id: name, name, input, json: "" });
+
+  it("resume cada herramienta con algo legible", () => {
+    expect(toolSummary(tool("TodoWrite", { todos: [] }) as Extract<Block, { kind: "tool" }>)).toMatch(/tareas|task list/i);
+    expect(toolSummary(tool("Command", { command: "npm test" }) as Extract<Block, { kind: "tool" }>)).toContain("npm test");
+    expect(toolSummary(tool("Edit", { file_path: "src/a.ts" }) as Extract<Block, { kind: "tool" }>)).toContain("a.ts");
+    expect(toolSummary(tool("Grep", { pattern: "foo" }) as Extract<Block, { kind: "tool" }>)).toContain("foo");
+    expect(toolSummary(tool("WebFetch", { url: "https://x.test" }) as Extract<Block, { kind: "tool" }>).length).toBeGreaterThan(3);
+  });
+});

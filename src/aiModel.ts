@@ -3,7 +3,7 @@ import { lang, t, t as tr } from "./i18n";
  * Modelo de una conversación con Claude Code a partir de su salida `stream-json`: una función pura que va
  * convirtiendo cada evento en mensajes, bloques de herramientas, uso del plan y resultado. Sin DOM ni procesos.
  */
-export type AiProvider = "claude" | "codex" | "antigravity" | "local";
+export type AiProvider = "claude" | "codex" | "antigravity" | "local" | "cloud";
 
 export interface UserImage { path: string; name: string; preview?: string }
 
@@ -322,6 +322,9 @@ export function toolSummary(b: Extract<Block, { kind: "tool" }>): string {
     case "Bash": return t("Quiso ejecutar un comando");
     case "Command": return cmd ? t("Ejecutó {command}", { command: cmd }) : t("Ejecutó un comando");
     case "WebFetch": case "WebSearch": return t("Consultó la web");
+    case "TodoWrite": return t("Actualizó la lista de tareas");
+    case "Skill": return str(i.name) ? t("Usó la skill {name}", { name: str(i.name) }) : t("Usó una skill");
+    case "Task": return str(i.description) ? t("Subagente {agent}: {description}", { agent: str(i.agent), description: str(i.description) }) : t("Lanzó un subagente");
     default: return b.name || t("Usó una herramienta");
   }
 }
@@ -345,7 +348,7 @@ function mapAgyToolName(raw: string): string {
  */
 export function createProviderNormalizer(provider: AiProvider, fallbackModel = ""): (raw: AiEvent) => AiEvent[] {
   // El agente local (Ollama) ya emite el formato de Claude Code desde Rust.
-  if (provider === "claude" || provider === "local") return (raw) => [raw];
+  if (provider === "claude" || provider === "local" || provider === "cloud") return (raw) => [raw];
 
   let turnStart = Date.now();
   let agySeq = 0;
