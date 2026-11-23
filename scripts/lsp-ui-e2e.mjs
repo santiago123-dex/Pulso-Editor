@@ -120,7 +120,8 @@ try {
   assert.ok(!String(await run(`return document.getElementById('status-left').textContent`)).includes('already exists'));
   await run(`const item = [...document.querySelectorAll('.node')].find(e => e.querySelector('.name')?.textContent === 'other.ts'); if (!item) throw new Error('No aparece other.ts en el explorador'); item.click();`);
   await sleep(800);
-  assert.equal(await run(`return [...document.querySelectorAll('.tab .tlabel')].filter(e => e.textContent === 'other.ts').length`), 1, "el mismo archivo no debe duplicarse");
+  const otherTabs = await run(`return [...document.querySelectorAll('.tab')].filter(e => e.querySelector('.tlabel')?.textContent === 'other.ts').map(e => e.title)`);
+  assert.equal(otherTabs.length, 1, `el mismo archivo no debe duplicarse: ${JSON.stringify(otherTabs)}`);
   assert.ok(!String(await run(`return document.getElementById('status-left').textContent`)).includes('already exists'));
   // Panel de problemas: el error del servidor de lenguaje aparece en la barra de estado y en la lista, y la fila lleva a la línea.
   await waitFor(() => run(`const e = document.getElementById('status-problems'); return !e.hidden && e.textContent.includes('✖')`), "contador de errores en la barra de estado");
