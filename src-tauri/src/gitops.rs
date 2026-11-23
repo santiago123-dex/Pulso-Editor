@@ -191,6 +191,57 @@ fn commit_sync(root: &str, message: &str) -> Result<CommitResult, String> {
     Ok(CommitResult { hash, summary: message.lines().next().unwrap_or("").to_string() })
 }
 
+fn last_commit_message_sync(root: &str) -> Result<String, String> {
+    let top = top_of(root)?;
+    if !succeeds(&top, &["rev-parse", "--verify", "HEAD"]) {
+        return Err(tr("Todavía no hay ningún commit en este repositorio").into());
+    }
+    Ok(run(&top, &["log", "-1", "--pretty=%B"])?.trim().to_string())
+}
+
+fn amend_sync(root: &str, message: Option<&str>) -> Result<CommitResult, String> {
+    let top = top_of(root)?;
+    if !succeeds(&top, &["rev-parse", "--verify", "HEAD"]) {
+        return Err(tr("Todavía no hay ningún commit que corregir").into());
+    }
+    let clean = message.map(str::trim).filter(|m| !m.is_empty());
+    if let Some(msg) = clean {
+        let mut child = git_command(&top)
+            .args(["commit", "--amend", "-q", "-F", "-"])
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
+            .spawn().map_err(|e| trf("No se pudo ejecutar git: {e}", &[("e", &e)]))?;
+        let mut stdin = child.stdin.take().ok_or(tr("No se pudo enviar el mensaje a git"))?;
+        let msg_bytes = msg.as_bytes().to_vec();
+        let writer = std::thread::spawn(move || stdin.write_all(&msg_bytes));
+        let o = child.wait_with_output().map_err(|e| e.to_string())?;
+        if let Ok(Err(e)) = writer.join() {
+            if o.status.success() { return Err(e.to_string()); }
+        }
+        if !o.status.success() { return Err(text(&o)); }
+    } else {
+        run(&top, &["commit", "--amend", "--no-edit", "-q"])?;
+    }
+    let hash = run(&top, &["rev-parse", "--short", "HEAD"])?.trim().to_string();
+    let summary = run(&top, &["log", "-1", "--pretty=%s"])?.trim().to_string();
+    Ok(CommitResult { hash, summary })
+}
+
+fn delete_branch_sync(root: &str, name: &str, force: bool) -> Result<(), String> {
+    valid_branch_name(name)?;
+    let top = top_of(root)?;
+    run(&top, &["branch", if force { "-D" } else { "-d" }, name]).map(|_| ())
+}
+
+fn rename_branch_sync(root: &str, old_name: &str, new_name: &str) -> Result<(), String> {
+    valid_branch_name(old_name)?;
+    valid_branch_name(new_name)?;
+    let top = top_of(root)?;
+    if !succeeds(&top, &["check-ref-format", "--branch", new_name]) {
+        return Err(trf("«{name}» no es un nombre de rama válido", &[("name", &new_name)]));
+    }
+    run(&top, &["branch", "-m", old_name, new_name]).map(|_| ())
+}
+
 #[derive(Serialize, Debug, PartialEq)]
 pub struct DiffSources {
     pub original: String,
@@ -476,6 +527,26 @@ pub async fn git_unstage(root: String, paths: Vec<String>) -> Result<(), String>
 #[tauri::command]
 pub async fn git_commit(root: String, message: String) -> Result<CommitResult, String> {
     tauri::async_runtime::spawn_blocking(move || commit_sync(&root, &message)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_last_commit_message(root: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || last_commit_message_sync(&root)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_commit_amend(root: String, message: Option<String>) -> Result<CommitResult, String> {
+    tauri::async_runtime::spawn_blocking(move || amend_sync(&root, message.as_deref())).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_delete_branch(root: String, name: String, force: bool) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || delete_branch_sync(&root, &name, force)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_rename_branch(root: String, old_name: String, new_name: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || rename_branch_sync(&root, &old_name, &new_name)).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -1122,5 +1193,30 @@ mod tests {
         assert!(parse_log("\u{1e}solo-un-campo").is_empty());
         assert!(parse_name_status("").is_empty());
         assert!(parse_blame("basura\nsin formato").is_empty());
+    }
+
+    #[test]
+    fn amend_rename_and_delete_branch_work() {
+        let r = Repo::new();
+        r.write("a.txt", "uno\n");
+        stage_sync(&r.s(), vec!["a.txt".into()]).unwrap();
+        commit_sync(&r.s(), "mensaje inicial").unwrap();
+        assert_eq!(last_commit_message_sync(&r.s()).unwrap(), "mensaje inicial");
+
+        let amended = amend_sync(&r.s(), Some("mensaje corregido")).unwrap();
+        assert_eq!(amended.summary, "mensaje corregido");
+        assert_eq!(last_commit_message_sync(&r.s()).unwrap(), "mensaje corregido");
+
+        switch_sync(&r.s(), "rama-temp", true).unwrap();
+        rename_branch_sync(&r.s(), "rama-temp", "rama-renombrada").unwrap();
+        let names: Vec<String> = branches_sync(&r.s()).unwrap().into_iter().map(|b| b.name).collect();
+        assert!(names.contains(&"rama-renombrada".to_string()));
+        assert!(!names.contains(&"rama-temp".to_string()));
+
+        let main_branch = names.iter().find(|n| n.as_str() != "rama-renombrada").cloned().unwrap();
+        switch_sync(&r.s(), &main_branch, false).unwrap();
+        delete_branch_sync(&r.s(), "rama-renombrada", false).unwrap();
+        let after: Vec<String> = branches_sync(&r.s()).unwrap().into_iter().map(|b| b.name).collect();
+        assert!(!after.contains(&"rama-renombrada".to_string()));
     }
 }

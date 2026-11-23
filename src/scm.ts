@@ -238,6 +238,102 @@ export async function commitStaged() {
   });
 }
 
+/** Corrige el último commit (mensaje y/o cambios preparados actualmente). */
+export async function amendLastCommit() {
+  if (!ws.root || busy) { setStatus(t("Abre una carpeta para usar Git")); return; }
+  let prev = "";
+  try { prev = await invoke<string>("git_last_commit_message", { root: ws.root }); }
+  catch (e) { setStatus(String(e)); return; }
+  const currentDraft = msgBox().value.trim();
+  const next = await promptText({
+    title: t("Corregir el último commit (amend)"),
+    value: currentDraft || prev,
+    placeholder: prev,
+    validate: (v) => (v.trim() ? null : t("Escribe un mensaje")),
+  });
+  if (!next) return;
+  await run(t("No se pudo corregir el último commit"), async () => {
+    const r = await invoke<{ hash: string; summary: string }>("git_commit_amend", { root: ws.root, message: next.trim() });
+    msgBox().value = "";
+    setStatus(t("Commit corregido {hash}: {summary}", { hash: r.hash, summary: r.summary }));
+  });
+}
+
+/** Renombra una rama local. */
+export async function renameBranch() {
+  if (!ws.root) { setStatus(t("Abre una carpeta para ver sus ramas")); return; }
+  quickPick({
+    placeholder: t("Elige la rama local a renombrar"),
+    empty: t("No hay ramas locales"),
+    load: async () => {
+      let list: Branch[];
+      try { list = (await invoke<Branch[]>("git_branches", { root: ws.root })).filter((b) => !b.remote); }
+      catch (e) { setStatus(String(e)); return []; }
+      return list.map<PickItem>((b) => ({
+        label: b.name,
+        detail: b.current ? t("rama actual") : b.upstream ?? "",
+        current: b.current,
+        run: async () => {
+          const next = await promptText({
+            title: t("Renombrar rama «{name}»", { name: b.name }),
+            value: b.name,
+            validate: (v) => (v.trim() && v.trim() !== b.name ? null : t("Escribe un nombre distinto")),
+          });
+          if (!next) return;
+          await run(t("No se pudo renombrar la rama"), async () => {
+            await invoke("git_rename_branch", { root: ws.root, oldName: b.name, newName: next.trim() });
+            setStatus(t("Rama renombrada a «{name}»", { name: next.trim() }));
+          });
+        },
+      }));
+    },
+  });
+}
+
+/** Elimina una rama local (ofrece forzar si aún no está fusionada). */
+export async function deleteBranch() {
+  if (!ws.root) { setStatus(t("Abre una carpeta para ver sus ramas")); return; }
+  quickPick({
+    placeholder: t("Elige la rama local a eliminar"),
+    empty: t("No hay otras ramas locales que eliminar"),
+    load: async () => {
+      let list: Branch[];
+      try { list = (await invoke<Branch[]>("git_branches", { root: ws.root })).filter((b) => !b.remote && !b.current); }
+      catch (e) { setStatus(String(e)); return []; }
+      return list.map<PickItem>((b) => ({
+        label: b.name,
+        detail: b.upstream ?? "",
+        run: async () => {
+          const r = await showDialog({
+            title: t("Eliminar rama «{name}»", { name: b.name }),
+            message: t("Se eliminará la rama local «{name}». Si tiene commits sin fusionar, Git pedirá confirmación para forzar el borrado.", { name: b.name }),
+            buttons: [{ label: t("Cancelar"), value: "cancel" }, { label: t("Eliminar"), value: "ok", danger: true }],
+          });
+          if (r !== "ok") return;
+          try {
+            await invoke("git_delete_branch", { root: ws.root, name: b.name, force: false });
+            setStatus(t("Rama «{name}» eliminada", { name: b.name }));
+            await refreshScm();
+            void refreshGitDecorations();
+          } catch (e) {
+            const msg = String(e);
+            const forceRes = await showDialog({
+              title: t("La rama «{name}» no está fusionada", { name: b.name }),
+              message: `${msg}\n\n${t("¿Quieres forzar su eliminación igualmente?")}`,
+              buttons: [{ label: t("Cancelar"), value: "cancel" }, { label: t("Forzar eliminación"), value: "force", danger: true }],
+            });
+            if (forceRes !== "force") return;
+            await run(t("No se pudo eliminar la rama"), async () => {
+              await invoke("git_delete_branch", { root: ws.root, name: b.name, force: true });
+              setStatus(t("Rama «{name}» eliminada", { name: b.name }));
+            });
+          }
+        },
+      }));
+    },
+  });
+}
+
 export function initScm() {
   $("scm-commit").onclick = () => void commitStaged();
   $("scm-refresh").onclick = () => void refreshScm();
