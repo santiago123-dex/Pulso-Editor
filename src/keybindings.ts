@@ -1,12 +1,13 @@
+import { t } from "./i18n";
 /** Lógica de atajos de teclado (sin interfaz): conflictos, teclas reservadas y personalizaciones. */
 export interface KbCommand { id: string; label: string; key?: string }
 
 /** Teclas que el editor (Monaco) o el sistema ya usan; asignarlas a un comando las rompe dentro del editor. */
 export const RESERVED: Record<string, string> = {
-  "Ctrl+C": "copiar", "Ctrl+X": "cortar", "Ctrl+V": "pegar", "Ctrl+Z": "deshacer", "Ctrl+Y": "rehacer",
-  "Ctrl+A": "seleccionar todo", "Ctrl+F": "buscar en el archivo", "Ctrl+H": "reemplazar en el archivo",
-  "Ctrl+G": "ir a la línea", "Ctrl+D": "seleccionar la siguiente aparición", "Ctrl+/": "comentar la línea",
-  "Ctrl+Shift+O": "ir a un símbolo", "F12": "ir a la definición", "Alt+F4": "cerrar la ventana",
+  "Ctrl+C": t("copiar"), "Ctrl+X": t("cortar"), "Ctrl+V": t("pegar"), "Ctrl+Z": t("deshacer"), "Ctrl+Y": t("rehacer"),
+  "Ctrl+A": t("seleccionar todo"), "Ctrl+F": t("buscar en el archivo"), "Ctrl+H": t("reemplazar en el archivo"),
+  "Ctrl+G": t("ir a la línea"), "Ctrl+D": t("seleccionar la siguiente aparición"), "Ctrl+/": t("comentar la línea"),
+  "Ctrl+Shift+O": t("ir a un símbolo"), "F12": t("ir a la definición"), "Alt+F4": t("cerrar la ventana"),
 };
 
 /** Atajo vigente de un comando, dadas las personalizaciones. "" = sin atajo. */
@@ -49,12 +50,12 @@ export const isCustom = (overrides: Record<string, string>, id: string) => id in
 /** "Archivo: Guardar" -> categoría "Archivo", nombre "Guardar". Sin prefijo cae en "General". */
 export function splitLabel(label: string): { category: string; name: string } {
   const i = label.indexOf(": ");
-  return i > 0 && i < 20 ? { category: label.slice(0, i), name: label.slice(i + 2) } : { category: "General", name: label };
+  return i > 0 && i < 20 ? { category: label.slice(0, i), name: label.slice(i + 2) } : { category: t("General"), name: label };
 }
 
 const DISPLAY: Record<string, string> = {
   ArrowLeft: "←", ArrowRight: "→", ArrowUp: "↑", ArrowDown: "↓",
-  Escape: "Esc", Space: "Espacio", Tab: "Tab", Enter: "Intro", Backspace: "⌫", Delete: "Supr",
+  Escape: "Esc", Space: t("Espacio"), Tab: "Tab", Enter: t("Intro"), Backspace: "⌫", Delete: t("Supr"),
 };
 
 /** "Ctrl+Alt+ArrowRight" -> ["Ctrl", "Alt", "→"] para dibujar cada tecla por separado. */

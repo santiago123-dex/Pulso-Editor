@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 /** Lógica pura para ejecutar los scripts de package.json desde la terminal. */
 export interface ScriptItem { name: string; command: string }
 export type Manager = "npm" | "pnpm" | "yarn" | "bun";
@@ -29,6 +30,6 @@ export function detectManager(files: readonly string[]): Manager {
 
 /** Línea que se escribe en la terminal. Lanza si el nombre no es seguro. */
 export function scriptCommand(manager: Manager, name: string): string {
-  if (!SAFE_NAME.test(name)) throw new Error(`Nombre de script no válido: ${name}`);
+  if (!SAFE_NAME.test(name)) throw new Error(t("Nombre de script no válido: {name}", { name }));
   return `${manager} run ${name}`;
 }

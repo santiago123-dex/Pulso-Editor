@@ -119,7 +119,7 @@ function paintDetail() {
   const meta = h("div", "pr-meta", `#${pr.number} · ${pr.user?.login ?? "?"} · ${agoIso(pr.created_at)}`);
   const branch = h("div", "pr-branch", branchLabel(pr));
   const stats = h("div", "pr-stats");
-  stats.append(`${files.length} archivo${files.length === 1 ? "" : "s"} · `, h("span", "pr-add", `+${t.additions}`), " ", h("span", "pr-del", `−${t.deletions}`));
+  stats.append((files.length === 1 ? tr("1 archivo") : tr("{count} archivos", { count: files.length })) + " · ", h("span", "pr-add", `+${t.additions}`), " ", h("span", "pr-del", `−${t.deletions}`));
   const text = h("div", "pr-body", pr.body?.trim() ? pr.body : tr("Sin descripción."));
   const gh = h("button", "foot-btn foot-btn-line");
   gh.type = "button";

@@ -1,3 +1,4 @@
+import { t as tr } from "./i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { allThemes, commit, setTheme, state } from "./settings";
@@ -38,26 +39,26 @@ async function addTheme(path: string, label: string, ui?: string) {
     const id = "custom-" + theme.label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
     state.settings.customThemes[id] = theme;
     setTheme(id);
-    setStatus(`Tema «${theme.label}» importado y aplicado`);
+    setStatus(tr("Tema «{theme}» importado y aplicado", { theme: theme.label }));
   } catch (e) {
-    setStatus(`No se pudo importar el tema: ${errMsg(e)}`);
+    setStatus(tr("No se pudo importar el tema: {error}", { error: errMsg(e) }));
   }
 }
 
 /** Importa un archivo .json de tema de VS Code. */
 export async function importFromFile() {
-  const file = await open({ filters: [{ name: "Tema de VS Code", extensions: ["json", "jsonc"] }] });
+  const file = await open({ filters: [{ name: tr("Tema de VS Code"), extensions: ["json", "jsonc"] }] });
   if (typeof file === "string") await addTheme(norm(file), baseName(file).replace(/\.jsonc?$/i, ""));
 }
 
 /** Lista los temas de las extensiones instaladas en VS Code y permite importarlos. */
 export function importInstalled() {
   quickPick({
-    placeholder: "Temas instalados en VS Code…",
-    empty: "No se encontraron temas en VS Code",
+    placeholder: tr("Temas instalados en VS Code…"),
+    empty: tr("No se encontraron temas en VS Code"),
     load: async () => {
       const refs = await invoke<ThemeRef[]>("scan_vscode_themes");
-      if (!refs.length) setStatus("No se encontraron temas instalados en VS Code. Usa «Importar archivo de tema».");
+      if (!refs.length) setStatus(tr("No se encontraron temas instalados en VS Code. Usa «Importar archivo de tema»."));
       return refs.map<PickItem>((r) => ({
         label: r.label,
         detail: r.ext,
@@ -70,14 +71,14 @@ export function importInstalled() {
 /** Quita un tema importado. */
 export function removeImported() {
   quickPick({
-    placeholder: "Quitar un tema importado…",
-    empty: "No hay temas importados",
+    placeholder: tr("Quitar un tema importado…"),
+    empty: tr("No hay temas importados"),
     load: () => Object.entries(state.settings.customThemes).map<PickItem>(([id, t]) => ({
       label: t.label,
       run: () => {
         delete state.settings.customThemes[id];
         if (state.settings.theme === id) { setTheme("pulso-dark"); } else { commit(); }
-        setStatus(`Tema «${t.label}» quitado`);
+        setStatus(tr("Tema «{theme}» quitado", { theme: t.label }));
       },
     })),
   });

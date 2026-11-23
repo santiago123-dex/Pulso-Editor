@@ -1593,7 +1593,7 @@ function renderBody() {
     const extraBtns: HTMLElement[] = [login, again];
     const title = prov === "claude" ? tr("Inicia sesión para cargar tu plan") : tr("Inicia sesión en {provider}", { provider: meta.title });
     const desc = prov === "claude"
-      ? "Claude Code está instalado pero no hay una sesión iniciada. Se abrirá el inicio de sesión y tu plan se cargará al instante."
+      ? tr("Claude Code está instalado pero no hay una sesión iniciada. Se abrirá el inicio de sesión y tu plan se cargará al instante.")
       : tr("{provider} está instalado pero no hay una sesión iniciada. Se abrirá el inicio de sesión en la terminal integrada.", { provider: meta.title });
     if (prov !== "claude") {
       const back = h("button", "foot-btn foot-btn-line", tr("Volver a Claude Code")); back.type = "button"; back.onclick = () => switchProvider("claude");
@@ -1725,7 +1725,7 @@ function renderBody() {
         const secs = c.outcome.durationMs ? ` · ${seconds(c.outcome.durationMs)} s` : "";
         const modelTag = c.model ? ` · ${formatModelName(c.model)}` : "";
         const o = h("div", "ai-outcome", tr("Listo") + secs + modelTag);
-        if (c.touched) o.append(` · ${c.touched} archivo${c.touched === 1 ? "" : "s"} modificado${c.touched === 1 ? "" : "s"}`);
+        if (c.touched) o.append(" · " + (c.touched === 1 ? tr("1 archivo modificado") : tr("{count} archivos modificados", { count: c.touched })));
         if (c.outcome.denials) o.append(" · " + (c.outcome.denials === 1 ? tr("1 acción no permitida") : tr("{count} acciones no permitidas", { count: c.outcome.denials })));
         tailNodes.push(o);
       }

@@ -66,7 +66,7 @@ async function run() {
     }
     const files = results.size;
     summary.textContent = found.length
-      ? `${found.length} resultado(s) en ${files} archivo(s)${found.length >= 5000 ? " (se muestran los primeros 5000)" : ""}`
+      ? t("{count} resultado(s) en {files} archivo(s)", { count: found.length, files }) + (found.length >= 5000 ? " " + t("(se muestran los primeros 5000)") : "")
       : t("Sin resultados");
     paint();
   } catch (e) {

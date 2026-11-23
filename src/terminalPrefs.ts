@@ -2,6 +2,7 @@
  * Adaptación de la terminal a lo que cada usuario ya tiene: la configuración de VS Code y de
  * Windows Terminal (fuente, tamaño, esquema de colores, shell) y las fuentes instaladas.
  */
+import { t } from "./i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { parseJsonc, terminalTheme, type Theme } from "./themes";
 
@@ -173,8 +174,8 @@ export function resolveScheme(setting: string, det: Detected | null, editorTheme
 
 /** Lista para elegir en Configuración. */
 export function schemeOptions(det: Detected | null): { value: string; label: string }[] {
-  const opts = [{ value: "", label: "Igual que el tema del editor" }];
-  if (det?.wt?.scheme) opts.push({ value: "wt", label: `El de Windows Terminal (${det.wt.schemeName ?? "actual"})` });
+  const opts = [{ value: "", label: t("Igual que el tema del editor") }];
+  if (det?.wt?.scheme) opts.push({ value: "wt", label: t("El de Windows Terminal ({scheme})", { scheme: det.wt.schemeName ?? t("actual") }) });
   for (const [id, s] of Object.entries(BUILTIN_SCHEMES)) opts.push({ value: "builtin:" + id, label: s.label });
   return opts;
 }
@@ -195,9 +196,9 @@ export function planAdaptation(d: Detected, shells: ShellInfo[]): Adaptation {
   const size = d.wt?.size ?? d.vscode?.size;
   const scheme = d.wt?.scheme ? "wt" : undefined;
   const shell = shellIdFor(d.wt?.profile ?? d.vscode?.profile, shells);
-  if (font) summary.push(`Fuente: ${font}`);
-  if (size) summary.push(`Tamaño: ${size}`);
-  if (scheme) summary.push(`Colores: ${d.wt?.schemeName ?? "Windows Terminal"}`);
-  if (shell) summary.push(`Shell: ${shells.find((s) => s.id === shell)?.label ?? shell}`);
+  if (font) summary.push(t("Fuente: {font}", { font }));
+  if (size) summary.push(t("Tamaño: {size}", { size }));
+  if (scheme) summary.push(t("Colores: {scheme}", { scheme: d.wt?.schemeName ?? "Windows Terminal" }));
+  if (shell) summary.push(t("Shell: {shell}", { shell: shells.find((s) => s.id === shell)?.label ?? shell }));
   return { font, size, scheme, shell, cursor: d.vscode?.cursor, summary };
 }
