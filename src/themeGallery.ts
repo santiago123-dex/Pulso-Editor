@@ -1,3 +1,4 @@
+import { t as tr } from "./i18n";
 import { allThemes, applyTheme, commit, setTheme, state } from "./settings";
 import { importFromFile, importInstalled } from "./themeImport";
 import type { SyntaxColors, Theme } from "./themes";
@@ -66,10 +67,10 @@ export function openThemeGallery() {
   const back = h("div", "tg-back");
   const dlg = h("div", "tg-box");
   const head = h("div", "tg-head");
-  const title = h("div", "tg-title", "Tema de color");
+  const title = h("div", "tg-title", tr("Tema de color"));
   const input = h("input", "tg-search");
   input.type = "text";
-  input.placeholder = "Buscar tema…";
+  input.placeholder = tr("Buscar tema…");
   input.spellcheck = false;
   input.autocomplete = "off";
   const chips = h("div", "tg-chips");
@@ -77,9 +78,9 @@ export function openThemeGallery() {
 
   const grid = h("div", "tg-grid");
   const foot = h("div", "tg-foot");
-  const hint = h("span", "tg-hint", "Flechas para recorrer · Enter para aplicar · Esc para cancelar");
-  const importBtn = h("button", "mbtn", "Importar de VS Code…");
-  const fileBtn = h("button", "mbtn", "Archivo…");
+  const hint = h("span", "tg-hint", tr("Flechas para recorrer · Enter para aplicar · Esc para cancelar"));
+  const importBtn = h("button", "mbtn", tr("Importar de VS Code…"));
+  const fileBtn = h("button", "mbtn", tr("Archivo…"));
   const count = h("span", "tg-count");
   foot.append(hint, count, importBtn, fileBtn);
   dlg.append(head, grid, foot);
@@ -104,7 +105,7 @@ export function openThemeGallery() {
     clearTimeout(hoverTimer);
     setTheme(id);
     close(false);
-    setStatus(`Tema «${allThemes()[id]?.label ?? id}» aplicado`);
+    setStatus(tr("Tema «{theme}» aplicado", { theme: allThemes()[id]?.label ?? id }));
   };
 
   const refreshEntries = () => {
@@ -120,8 +121,8 @@ export function openThemeGallery() {
   const paintChips = () => {
     chips.replaceChildren();
     const hasCustom = Object.values(allThemes()).some((t) => t.custom);
-    const defs: [Filter, string][] = [["all", "Todos"], ["dark", "Oscuros"], ["light", "Claros"]];
-    if (hasCustom) defs.push(["custom", "Importados"]);
+    const defs: [Filter, string][] = [["all", tr("Todos")], ["dark", tr("Oscuros")], ["light", tr("Claros")]];
+    if (hasCustom) defs.push(["custom", tr("Importados")]);
     for (const [f, label] of defs) {
       const c = h("button", "tg-chip" + (filter === f ? " on" : ""), label);
       c.onmousedown = (e) => e.preventDefault();
@@ -132,19 +133,19 @@ export function openThemeGallery() {
 
   const paintGrid = () => {
     grid.replaceChildren();
-    if (!entries.length) { grid.append(h("div", "tg-empty", "No hay temas que coincidan")); return; }
+    if (!entries.length) { grid.append(h("div", "tg-empty", tr("No hay temas que coincidan"))); return; }
     entries.forEach(([id, t], i) => {
       const card = h("div", "tg-card" + (i === index ? " on" : "") + (id === original ? " current" : ""));
       card.setAttribute("role", "option");
       card.append(mock(t));
       const meta = h("div", "tg-meta");
       meta.append(h("span", "tg-name", t.label));
-      meta.append(h("span", "tg-kind", t.custom ? "Importado" : t.base === "vs" ? "Claro" : "Oscuro"));
+      meta.append(h("span", "tg-kind", t.custom ? tr("Importado") : t.base === "vs" ? tr("Claro") : tr("Oscuro")));
       if (id === original) meta.append(h("span", "tg-check", "✓"));
       card.append(meta);
       if (t.custom) {
         const del = h("button", "tg-del", "×");
-        del.title = "Quitar este tema importado";
+        del.title = tr("Quitar este tema importado");
         del.onmousedown = (e) => e.preventDefault();
         del.onclick = (e) => {
           e.stopPropagation();
@@ -171,7 +172,7 @@ export function openThemeGallery() {
     index = Math.min(index, Math.max(0, entries.length - 1));
     paintChips();
     paintGrid();
-    count.textContent = `${entries.length} tema${entries.length === 1 ? "" : "s"}`;
+    count.textContent = entries.length === 1 ? tr("1 tema") : tr("{count} temas", { count: entries.length });
   };
 
   const move = (to: number) => {

@@ -32,7 +32,7 @@ export function setTitleLabel(text: string) {
 export function setUnsaved(count: number) {
   const dot = $("tb-dirty");
   dot.hidden = count === 0;
-  dot.title = count === 1 ? "1 archivo sin guardar" : `${count} archivos sin guardar`;
+  dot.title = count === 1 ? t("1 archivo sin guardar") : t("{count} archivos sin guardar", { count });
   $("tb-title").classList.toggle("unsaved", count > 0);
 }
 

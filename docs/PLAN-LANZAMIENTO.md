@@ -63,9 +63,9 @@ Puntos fuertes:
     - [x] servidor de lenguaje y panel de problemas.
   - Tercera tanda traducida, unos 130 textos: [x] issues, tablero, chat del equipo y «trabajar en una issue». Quedan en español a propósito el título de la sala del chat y el texto de su issue (los comparte todo el equipo en GitHub) y las instrucciones que se envían a la IA.
   - Cuarta tanda traducida, unos 285 textos: [x] asistente de IA (modelos, cuentas, uso del plan, modos y permisos, acciones rápidas y resumen de lo que hizo la IA). Siguen en español a propósito los mensajes que Pulso envía a la IA para que continúe una tarea.
-  - Faltan unos 900 textos:
-    - [ ] temas, atajos y terminal;
-    - [ ] mensajes de error que llegan desde Rust y la herramienta de línea de comandos `pulso`.
+  - Quinta tanda traducida, unos 120 textos: [x] temas, atajos de teclado, terminal, scripts y los textos sueltos que quedaban. Con ella toda la interfaz web está traducida, salvo lo que se deja en español a propósito (lo que se envía a la IA o se publica en GitHub para todo el equipo).
+  - Falta:
+    - [ ] los mensajes de error que llegan desde Rust (archivos, Git, terminal, servidor de lenguaje) y la herramienta de línea de comandos `pulso`.
 
 ## 3. Funciones nuevas
 

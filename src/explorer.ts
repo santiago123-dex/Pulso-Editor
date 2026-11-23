@@ -25,7 +25,7 @@ function updateNodeLabel(node: HTMLElement, dirtyKeys?: Set<string>) {
   const doc = dirtyKeys ? undefined : findOpenDoc(path);
   const label = [node.classList.contains("dir") ? t("Carpeta") : t("Archivo"), baseName(path)].join(" ");
   const dirty = dirtyKeys ? dirtyKeys.has(fileKey(path)) : !!doc && isDirty(doc);
-  const suffix = [dirty ? "cambios sin guardar" : "", gitLabels[decorate(path, node.classList.contains("dir"))?.cls ?? ""] ?? ""].filter(Boolean);
+  const suffix = [dirty ? t("cambios sin guardar") : "", gitLabels[decorate(path, node.classList.contains("dir"))?.cls ?? ""] ?? ""].filter(Boolean);
   const text = suffix.length ? `${label}, ${suffix.join(", ")}` : label;
   if (node.getAttribute("aria-label") !== text) node.setAttribute("aria-label", text);
 }

@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import { captureKey, commands, keyOf, type Command } from "./commands";
 import {
   RESERVED, assignKey, duplicatedKeys, findConflicts, groupByCategory, isCustom, keyParts, matches, reservedFor, resetKey, splitLabel,
@@ -38,14 +39,14 @@ export function buildKeybindings() {
   const search = h("input", "kb-search");
   search.id = "kb-search";
   search.type = "text";
-  search.placeholder = "Buscar un comando o una tecla…";
+  search.placeholder = t("Buscar un comando o una tecla…");
   search.spellcheck = false;
-  const byKeyBtn = h("button", "kb-chip", "Buscar por tecla");
+  const byKeyBtn = h("button", "kb-chip", t("Buscar por tecla"));
   byKeyBtn.id = "kb-bykey";
-  byKeyBtn.title = "Pulsa una combinación para ver qué comando la usa";
-  const customBtn = h("button", "kb-chip", "Solo personalizados");
+  byKeyBtn.title = t("Pulsa una combinación para ver qué comando la usa");
+  const customBtn = h("button", "kb-chip", t("Solo personalizados"));
   customBtn.id = "kb-custom";
-  const resetAll = h("button", "mbtn danger kb-resetall", "Restablecer todos");
+  const resetAll = h("button", "mbtn danger kb-resetall", t("Restablecer todos"));
   resetAll.id = "kb-resetall";
   bar.append(search, byKeyBtn, customBtn, resetAll);
 
@@ -60,9 +61,9 @@ export function buildKeybindings() {
       const reserved = reservedFor(key);
       if (reserved) {
         const r = await showDialog({
-          title: "Tecla reservada del editor",
-          message: `${key} sirve en el editor para ${reserved}. Si se la asignas a «${name}», dejará de funcionar para eso dentro del editor.`,
-          buttons: [{ label: "Cancelar", value: "cancel" }, { label: "Asignar de todos modos", value: "ok", danger: true }],
+          title: t("Tecla reservada del editor"),
+          message: t("{key} sirve en el editor para {action}. Si se la asignas a «{command}», dejará de funcionar para eso dentro del editor.", { key, action: reserved, command: name }),
+          buttons: [{ label: t("Cancelar"), value: "cancel" }, { label: t("Asignar de todos modos"), value: "ok", danger: true }],
         });
         if (r !== "ok") return;
       }
@@ -70,9 +71,9 @@ export function buildKeybindings() {
       if (conflicts.length) {
         const names = conflicts.map((c) => `«${splitLabel(c.label).name}»`).join(", ");
         const r = await showDialog({
-          title: "Atajo en uso",
-          message: `${key} ya lo usa ${names}. Si lo reasignas a «${name}», ese comando se quedará sin atajo.`,
-          buttons: [{ label: "Cancelar", value: "cancel" }, { label: "Reasignar", value: "ok", primary: true }],
+          title: t("Atajo en uso"),
+          message: t("{key} ya lo usa {commands}. Si lo reasignas a «{command}», ese comando se quedará sin atajo.", { key, commands: names, command: name }),
+          buttons: [{ label: t("Cancelar"), value: "cancel" }, { label: t("Reasignar"), value: "ok", primary: true }],
         });
         if (r !== "ok") return;
       }
@@ -102,15 +103,15 @@ export function buildKeybindings() {
     if (custom) name.append(h("span", "kb-tag", "personalizado"));
     if (key && dup.has(key)) name.append(h("span", "kb-warn", "repetido"));
     const cell = h("div", "kb-key");
-    if (recording === cmd.id) cell.append(h("span", "kb-rec", "Pulsa la combinación…  (Esc cancela, ⌫ quita)"));
+    if (recording === cmd.id) cell.append(h("span", "kb-rec", t("Pulsa la combinación…  (Esc cancela, ⌫ quita)")));
     else if (key) cell.append(chips(key));
-    else cell.append(h("span", "kb-none", "Sin atajo"));
-    cell.title = "Clic para cambiar el atajo";
+    else cell.append(h("span", "kb-none", t("Sin atajo")));
+    cell.title = t("Clic para cambiar el atajo");
     cell.onclick = () => record(cmd);
     const actions = h("div", "kb-actions");
-    actions.append(iconBtn(ICON_EDIT, "Cambiar el atajo", () => record(cmd)));
-    if (key) actions.append(iconBtn(ICON_CLEAR, "Quitar el atajo", () => { void apply(cmd, "").then(render); }));
-    if (custom) actions.append(iconBtn(ICON_RESET, "Volver al atajo de fábrica", () => { state.settings.keybindings = resetKey(state.settings.keybindings, cmd.id); commit(); render(); }));
+    actions.append(iconBtn(ICON_EDIT, t("Cambiar el atajo"), () => record(cmd)));
+    if (key) actions.append(iconBtn(ICON_CLEAR, t("Quitar el atajo"), () => { void apply(cmd, "").then(render); }));
+    if (custom) actions.append(iconBtn(ICON_RESET, t("Volver al atajo de fábrica"), () => { state.settings.keybindings = resetKey(state.settings.keybindings, cmd.id); commit(); render(); }));
     r.append(name, cell, actions);
     return r;
   }
@@ -124,11 +125,11 @@ export function buildKeybindings() {
       list.append(h("div", "kb-cat", g.category));
       for (const c of g.items) list.append(row(c, dup));
     }
-    if (!shown.length) list.append(h("div", "kb-empty", byKey ? `Ningún comando usa ${byKey}` : "No hay comandos que coincidan"));
+    if (!shown.length) list.append(h("div", "kb-empty", byKey ? t("Ningún comando usa {key}", { key: byKey }) : t("No hay comandos que coincidan")));
 
     // Teclas fijas del editor, solo de consulta.
     if (!onlyCustom && !byKey && !query.trim()) {
-      list.append(h("div", "kb-cat", "Del editor (fijas)"));
+      list.append(h("div", "kb-cat", t("Del editor (fijas)")));
       for (const [key, what] of Object.entries(RESERVED)) {
         const r = h("div", "kb-row fixed");
         r.append(h("div", "kb-name", what[0].toUpperCase() + what.slice(1)), h("div", "kb-key"), h("div", "kb-actions"));
@@ -137,10 +138,10 @@ export function buildKeybindings() {
       }
     }
 
-    count.textContent = `${shown.length} de ${commands.length} comandos` + (Object.keys(o).length ? ` · ${Object.keys(o).length} personalizado(s)` : "");
+    count.textContent = t("{shown} de {total} comandos", { shown: shown.length, total: commands.length }) + (Object.keys(o).length ? " · " + t("{count} personalizado(s)", { count: Object.keys(o).length }) : "");
     customBtn.classList.toggle("on", onlyCustom);
     byKeyBtn.classList.toggle("on", byKey !== null || waitingFilterKey);
-    byKeyBtn.textContent = waitingFilterKey ? "Pulsa una combinación…" : byKey ? `Tecla: ${byKey}  ×` : "Buscar por tecla";
+    byKeyBtn.textContent = waitingFilterKey ? t("Pulsa una combinación…") : byKey ? t("Tecla: {key}", { key: byKey }) + "  ×" : t("Buscar por tecla");
     resetAll.disabled = Object.keys(o).length === 0;
   }
 
@@ -155,9 +156,9 @@ export function buildKeybindings() {
   };
   resetAll.onclick = async () => {
     const r = await showDialog({
-      title: "Restablecer los atajos",
-      message: "Todos los comandos volverán a su atajo de fábrica.",
-      buttons: [{ label: "Cancelar", value: "cancel" }, { label: "Restablecer", value: "ok", danger: true }],
+      title: t("Restablecer los atajos"),
+      message: t("Todos los comandos volverán a su atajo de fábrica."),
+      buttons: [{ label: t("Cancelar"), value: "cancel" }, { label: t("Restablecer"), value: "ok", danger: true }],
     });
     if (r !== "ok") return;
     state.settings.keybindings = {};
