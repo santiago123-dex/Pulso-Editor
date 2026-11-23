@@ -662,10 +662,10 @@
 .ai-denial-btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
 .ai-denial-btn.ghost:hover, .ai-denial-btn.ghost:focus-visible { color: var(--fg); border-color: var(--border); }
 
-/* Lo nuevo de la conversación entra con un desplazamiento corto: guía la mirada hacia lo que acaba de llegar. */
-.ai-turn-slot > .ai-user, .ai-turn-slot > .ai-assistant { animation: ai-arrive .24s var(--ease); }
+/* Lo nuevo de la conversación entra con un desplazamiento corto solo al crearse el turno (no en cada token). */
+.ai-turn-slot { animation: ai-arrive .24s var(--ease); }
 @keyframes ai-arrive { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { .ai-turn-slot > .ai-user, .ai-turn-slot > .ai-assistant { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .ai-turn-slot { animation: none; } }
 
 /* En pantalla completa la conversación es una columna de 820 px: el mensaje de la persona se alinea a su borde derecho. */
 .ai-full .ai-user { margin-left: auto; margin-right: max(0px, calc((100% - 820px) / 2)); }
@@ -690,6 +690,15 @@
 .ai-lightbox-name { font: 12px var(--mono); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ai-lightbox-close { font-size: 18px; line-height: 1; }
 .ai-lightbox-img { display: block; max-width: min(90vw, 1080px); max-height: calc(90vh - 52px); object-fit: contain; background: var(--bg); }
+
+/* Autocompletado @archivo sobre el cuadro del compositor */
+.ai-compose { position: relative; }
+.ai-mention { position: absolute; left: 10px; right: 10px; bottom: 100%; margin-bottom: 4px; max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 4px; border-radius: 8px; background: var(--sidebar); border: 1px solid var(--border); box-shadow: 0 10px 28px rgba(0, 0, 0, .36); z-index: 40; }
+.ai-full .ai-mention { left: max(28px, calc(50% - 500px)); right: max(28px, calc(50% - 500px)); }
+.ai-mention-item { display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 5px 8px; border: 0; border-radius: 5px; background: none; color: var(--fg); font: 12px var(--mono); text-align: left; cursor: pointer; }
+.ai-mention-item:hover, .ai-mention-item.active { background: var(--selected); color: var(--fg); }
+.ai-mention-name { flex-shrink: 0; font-weight: 500; }
+.ai-mention-dir { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* En la línea de tiempo el estado lo dice el nodo; el punto de la herramienta sobra. */
 .ai-act-item.tool .ai-tool-dot { display: none; }

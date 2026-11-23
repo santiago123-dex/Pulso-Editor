@@ -2,6 +2,7 @@
 use crate::i18n::{tr, trf};
 use serde::Serialize;
 use std::{
+    collections::HashMap,
     io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
     process::{Child, ChildStdin, Stdio},
@@ -22,21 +23,35 @@ struct Server {
 #[derive(Default)]
 pub struct LspState {
     next: AtomicU64,
-    server: Mutex<Option<Server>>,
+    servers: Mutex<HashMap<String, Server>>,
+}
+
+fn shutdown_server(mut server: Server) {
+    // Cerrar stdin primero permite una salida limpia antes de terminar el árbol.
+    drop(server.stdin);
+    crate::procguard::kill_tree(server.pid);
+    let _ = server.child.kill();
+    let _ = server.child.wait();
 }
 
 impl LspState {
-    pub fn stop(&self) {
-        let taken = match self.server.lock() {
-            Ok(mut guard) => guard.take(),
+    pub fn stop_window(&self, label: &str) {
+        let taken = match self.servers.lock() {
+            Ok(mut guard) => guard.remove(label),
             Err(_) => None,
         };
-        if let Some(mut server) = taken {
-            // Cerrar stdin primero permite una salida limpia antes de terminar el árbol.
-            drop(server.stdin);
-            crate::procguard::kill_tree(server.pid);
-            let _ = server.child.kill();
-            let _ = server.child.wait();
+        if let Some(server) = taken {
+            shutdown_server(server);
+        }
+    }
+
+    pub fn stop(&self) {
+        let all: Vec<Server> = match self.servers.lock() {
+            Ok(mut guard) => guard.drain().map(|(_, s)| s).collect(),
+            Err(_) => Vec::new(),
+        };
+        for server in all {
+            shutdown_server(server);
         }
     }
 }
@@ -243,13 +258,14 @@ fn spawn_piped(mut command: std::process::Command, root: &str) -> std::io::Resul
 }
 
 #[tauri::command]
-pub async fn lsp_start(app: AppHandle, root: String) -> Result<Started, String> {
+pub async fn lsp_start(window: tauri::WebviewWindow, app: AppHandle, root: String) -> Result<Started, String> {
+    let label = window.label().to_string();
     tauri::async_runtime::spawn_blocking(move || {
         if !Path::new(&root).is_dir() {
             return Err(tr("La carpeta de trabajo ya no existe").into());
         }
         let state = app.state::<LspState>();
-        state.stop();
+        state.stop_window(&label);
         let project = project_typescript(Path::new(&root));
         let (mut child, mode, tsserver, notice) = if wants_compat(project.as_ref()) {
             let (major, tsserver) = project.expect("comprobado en wants_compat");
@@ -277,9 +293,10 @@ pub async fn lsp_start(app: AppHandle, root: String) -> Result<Started, String> 
         let stdout = child.stdout.take().ok_or(tr("No se pudo abrir la salida del servidor"))?;
         let stderr = child.stderr.take().ok_or(tr("No se pudo leer el error del servidor"))?;
         let id = state.next.fetch_add(1, Ordering::SeqCst) + 1;
-        *state.server.lock().map_err(|e| e.to_string())? = Some(Server { id, pid, child, stdin });
+        state.servers.lock().map_err(|e| e.to_string())?.insert(label.clone(), Server { id, pid, child, stdin });
 
         let app_ev = app.clone();
+        let label_ev = label.clone();
         let stderr_reader = std::thread::spawn(move || {
             let mut reader = BufReader::new(stderr);
             let mut captured = Vec::new();
@@ -298,7 +315,7 @@ pub async fn lsp_start(app: AppHandle, root: String) -> Result<Started, String> 
             let error = loop {
                 match read_message(&mut reader) {
                     Ok(Some(message)) => {
-                        let _ = app_ev.emit("lsp-message", Message { id, message });
+                        let _ = app_ev.emit_to(&label_ev, "lsp-message", Message { id, message });
                     }
                     Ok(None) => break tr("El servidor de lenguaje se cerró").to_string(),
                     Err(e) => break e,
@@ -306,7 +323,7 @@ pub async fn lsp_start(app: AppHandle, root: String) -> Result<Started, String> 
             };
             let detail = stderr_reader.join().unwrap_or_default();
             let error = if detail.is_empty() { error } else { format!("{error}: {detail}") };
-            let _ = app_ev.emit("lsp-exit", Exit { id, error });
+            let _ = app_ev.emit_to(&label_ev, "lsp-exit", Exit { id, error });
         });
         Ok(Started { id, mode, tsserver, notice })
     })
@@ -316,15 +333,17 @@ pub async fn lsp_start(app: AppHandle, root: String) -> Result<Started, String> 
 
 #[tauri::command]
 pub async fn lsp_send(
+    window: tauri::WebviewWindow,
     state: State<'_, LspState>,
     id: u64,
     message: serde_json::Value,
 ) -> Result<(), String> {
+    let label = window.label().to_string();
     let bytes = serde_json::to_vec(&message).map_err(|e| e.to_string())?;
     let stdin = {
-        let guard = state.server.lock().map_err(|e| e.to_string())?;
+        let guard = state.servers.lock().map_err(|e| e.to_string())?;
         let server = guard
-            .as_ref()
+            .get(&label)
             .filter(|s| s.id == id)
             .ok_or(tr("El servidor LSP ya no está activo"))?;
         Arc::clone(&server.stdin)
@@ -341,9 +360,10 @@ pub async fn lsp_send(
 }
 
 #[tauri::command]
-pub async fn lsp_stop(app: AppHandle) -> Result<(), String> {
+pub async fn lsp_stop(window: tauri::WebviewWindow, app: AppHandle) -> Result<(), String> {
+    let label = window.label().to_string();
     tauri::async_runtime::spawn_blocking(move || {
-        app.state::<LspState>().stop();
+        app.state::<LspState>().stop_window(&label);
     })
     .await
     .map_err(|e| e.to_string())

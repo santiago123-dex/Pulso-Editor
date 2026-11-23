@@ -478,11 +478,26 @@ const selectionText = () => {
   return s && m && !s.isEmpty() && s.startLineNumber === s.endLineNumber ? m.getValueInRange(s) : "";
 };
 
+async function copyDiagnostics() {
+  try {
+    const s = getLspState();
+    const lsp = `${s.kind} (${lspLabel(s)})`;
+    const report = inTauri
+      ? await invoke<string>("diag_collect", { lspStatus: lsp, lang: lang() })
+      : `Pulso Editor (web)\nLanguage: ${lang()}\nLSP: ${lsp}\n`;
+    await navigator.clipboard.writeText(report);
+    setStatus(t("Información de diagnóstico copiada al portapapeles"), 4500);
+  } catch (e) {
+    setStatus(t("No se pudo copiar el diagnóstico: {error}", { error: String(e) }), 5000);
+  }
+}
+
 register(
   { id: "file.openFolder", label: t("Archivo: Abrir carpeta…"), key: "Ctrl+O", run: pickFolder },
   { id: "file.openFolderNewWindow", label: t("Archivo: Abrir carpeta en una nueva ventana…"), run: pickFolderNewWindow },
   { id: "cli.install", label: t("Instalar el comando «pulso» en la terminal"), run: installCliCommand },
   { id: "app.checkUpdates", label: t("Ayuda: Buscar actualizaciones"), keywords: "update actualizar versión nueva", run: () => checkForUpdates(true) },
+  { id: "app.copyDiagnostics", label: t("Ayuda: Copiar información de diagnóstico"), keywords: "diagnostico log soporte bug error version", run: () => void copyDiagnostics() },
   { id: "file.openRecent", label: t("Archivo: Abrir carpeta reciente…"), run: pickRecent },
   { id: "file.closeFolder", label: t("Archivo: Cerrar carpeta"), run: closeWorkspace },
   { id: "file.newFile", label: t("Archivo: Nuevo archivo…"), key: "Ctrl+N", run: () => newEntry("file") },
@@ -701,6 +716,7 @@ const MENUS: MenuDef[] = [
     { cmd: "palette.commands", label: t("Mostrar todos los comandos") },
     { cmd: "view.settings", label: t("Configuración y atajos de teclado") },
     { cmd: "app.checkUpdates", label: t("Buscar actualizaciones") },
+    { cmd: "app.copyDiagnostics", label: t("Copiar información de diagnóstico") },
     "sep",
     { label: t("Acerca de Pulso"), run: async () => { const version = inTauri ? await getVersion().catch(() => "") : ""; void showDialog({
       title: "Pulso Editor",

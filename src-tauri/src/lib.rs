@@ -26,6 +26,7 @@ pub mod procguard;
 pub mod i18n;
 pub mod localai;
 mod updates;
+mod diag;
 
 /// Los procesos auxiliares no deben abrir ventanas de consola en Windows.
 fn background_command(program: &str) -> Command {
@@ -1031,6 +1032,7 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 window.state::<fsguard::WorkspaceGuard>().remove_window(window.label());
+                window.state::<lsp::LspState>().stop_window(window.label());
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -1111,6 +1113,8 @@ pub fn run() {
             aichat::ai_prune_images,
             updates::update_check,
             updates::update_install,
+            diag::diag_log,
+            diag::diag_collect,
             i18n::i18n_set_lang
         ])
         .build(app_context())

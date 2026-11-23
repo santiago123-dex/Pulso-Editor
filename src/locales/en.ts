@@ -1289,4 +1289,9 @@ export const en: Record<string, string> = {
   "Archivo: Abrir carpeta en una nueva ventana…": "File: Open folder in a new window…",
   "Abrir carpeta en nueva ventana…": "Open folder in new window…",
   "No se pudo abrir la nueva ventana: {error}": "Couldn't open the new window: {error}",
+  "Ayuda: Copiar información de diagnóstico": "Help: Copy diagnostic information",
+  "Copiar información de diagnóstico": "Copy diagnostic information",
+  "Información de diagnóstico copiada al portapapeles": "Diagnostic information copied to clipboard",
+  "No se pudo copiar el diagnóstico: {error}": "Couldn't copy diagnostics: {error}",
+  "Mencionar archivo del proyecto": "Mention a project file",
 };

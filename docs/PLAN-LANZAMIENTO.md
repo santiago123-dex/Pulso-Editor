@@ -31,18 +31,18 @@ Puntos fuertes:
 - [x] **WebView2 garantizado.** El instalador ya lo instalaba si faltaba: es lo que hace Tauri por defecto, descargando el instalador de Microsoft sin preguntar. Ahora está fijado de forma explícita en `tauri.conf.json` (`downloadBootstrapper`). Necesita internet. Si hiciera falta instalar sin conexión, se puede publicar un segundo instalador con `offlineInstaller`, unos 127 MB más grande. Falta comprobarlo en un Windows sin WebView2 (punto siguiente).
 - [ ] **Probar en un Windows limpio**, en una máquina virtual sin Node, Git ni WebView2: instalar, abrir, desinstalar.
 - [x] **Separar desarrollo y producción.** Las compilaciones de desarrollo usan el identificador `dev.pulso.editor.dev` y ya no comparten datos con la instalada (ver [Distribución](DISTRIBUCION.md)).
-- [ ] **Documentos para el público:**
-  - un README pensado para quien instala, con capturas y enlace de descarga;
+- [x] **Documentos para el público:**
+  - `README.md` (pendiente añadir capturas finales y enlace de descarga tras la primera release);
   - `CHANGELOG.md`;
   - `CONTRIBUTING.md`;
-  - una plantilla para reportar errores;
-  - una nota de privacidad: qué envía la IA a su proveedor, qué se publica en GitHub y qué se guarda sin cifrar en el equipo.
-- [ ] **Diagnóstico local.** Un registro en archivo (con rotación) y un comando «Copiar información de diagnóstico»: versión, sistema, estado del LSP y de Git, sin datos personales. No hace falta ningún servicio externo de errores.
+  - plantilla para reportar errores (`.github/ISSUE_TEMPLATE/bug_report.md`);
+  - nota de privacidad (`PRIVACY.md`).
+- [x] **Diagnóstico local.** Registro rotativo en `logs/pulso.log` y comando «Ayuda: Copiar información de diagnóstico» (versión, sistema, estado del LSP y de Git, sin datos personales).
 
 ## 2. Arreglos detectados en la revisión
 
 - [ ] **Chat del equipo y notificaciones.** Cada mensaje es un comentario en una issue, así que GitHub probablemente envía un correo a cada persona suscrita a esa issue, en cada mensaje. Hay que comprobarlo con dos cuentas reales antes de promocionar la función. Si se confirma, hay que avisarlo en la interfaz o cambiar de transporte (ver sección 4).
-- [ ] **Terminal: fin de sesión antes de tiempo.** En `src-tauri/src/term.rs`, `drop(reader_done)` no espera a que el hilo lector termine, aunque el comentario lo diga: soltar un `JoinHandle` no lo une. El aviso de salida puede llegar antes que las últimas líneas de la shell. La solución no es un simple `join()`, porque con ConPTY el lector puede no recibir el fin de datos hasta que se cierra el maestro. Hay que esperar con un tiempo límite o cerrar el maestro antes.
+- [x] **Terminal: fin de sesión antes de tiempo.** Corregido en `src-tauri/src/term.rs`: el hilo de espera usa un canal con tiempo límite acotado (`120 ms`) para dejar drenar las últimas líneas antes de emitir `term-exit` sin bloquear ConPTY.
 - [ ] **Pruebas de Ctrl+C.** `ctrl_c_interrupts_a_running_command_in_shell` y `ctrl_c_interrupts_powershell_command` fallan cuando el proceso que las lanza no entrega Ctrl+C a la consola nueva. Desde la terminal de Pulso o desde PowerShell pasan. Si también fallan en los servidores de GitHub, se pueden marcar para saltarlas en la CI con una variable de entorno, sin quitarlas.
 - [ ] **Archivos demasiado grandes.** Dividirlos por responsabilidad facilitaría revisarlos y probarlos:
 

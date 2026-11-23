@@ -10,7 +10,7 @@ import {
 } from "./ai/catalog";
 import { applyAiAppearance, buildAppearancePopover } from "./ai/appearance";
 import { linkTarget, parseInline, parseMarkdown } from "./aiMarkdown";
-import { buildPrompt, chipLabels, type EditorContext } from "./aiContext";
+import { buildPrompt, chipLabels, fileMentionAt, filterProjectFiles, type EditorContext } from "./aiContext";
 import {
   activitySummary, createProviderNormalizer, elapsedLabel, emptyConversation, exitEvent, mergeAssistantRuns, formatModelName, isAuthError, needsCommandPermission, parseUsageText, planLabel, pruneUsage,
   reduce, remainingPercent, remainingRatio, resetClockText, resetCountdown, resetIn, resetTimeFromIso, splitAssistantTurn, toolSummary, touchedFiles,
@@ -86,6 +86,7 @@ let useFile = true;
 let useSel = true;
 let extraFiles: string[] = [];
 let attachedImages: UserImage[] = [];
+let mentionFiles: { root: string; list: string[] } | null = null;
 let lastFile = "";
 let usage: Conversation["usage"] = readStoredUsage();
 let closePopover: (() => void) | null = null;
@@ -1706,7 +1707,13 @@ function renderIssueBanner() {
 }
 
 /** Caché incremental de nodos renderizados por turno: evita reconstruir toda la conversación en cada token (O(1) por frame). */
-interface TurnCacheEntry { parts: Turn[]; active: boolean; slot: HTMLElement }
+interface TurnCacheEntry { parts: Turn[]; active: boolean; activitySig: string; slot: HTMLElement }
+
+const activitySignature = (t: Turn, active: boolean): string => {
+  if (t.role !== "assistant") return "";
+  const { activity } = splitAssistantTurn(t.blocks);
+  return `${active ? "1" : "0"}:${activity.length}:${activity.map((b) => (b.kind === "tool" ? `${b.id}:${b.result?.length ?? 0}:${b.error ? 1 : 0}` : b.kind === "image" ? b.name : `${b.kind}:${b.text.length}`)).join(",")}`;
+};
 
 /** ¿Son los mismos turnos originales, en el mismo orden? (si sí, el nodo ya pintado sirve) */
 const sameParts = (a: Turn[], b: Turn[]) => a.length === b.length && a.every((t, i) => t === b[i]);
@@ -1836,8 +1843,21 @@ function renderBody() {
       if (!existing) {
         turnsHost!.append(slot);
       }
-      slot.replaceChildren(...turnNodes(t, userNum, activeTurn));
-      renderedTurns[idx] = { parts: [...parts], active: activeTurn, slot };
+      const nextActSig = activitySignature(t, activeTurn);
+      if (existing && t.role === "assistant" && existing.activitySig === nextActSig) {
+        // Solo cambió el texto en curso: conservar la tarjeta de actividad para no reiniciar su pulso ni provocar saltos.
+        const { final } = splitAssistantTurn(t.blocks);
+        let wrap = slot.querySelector<HTMLElement>(":scope > .ai-assistant");
+        if (final.trim()) {
+          if (!wrap) { wrap = h("div", "ai-assistant"); slot.append(wrap); }
+          wrap.replaceChildren(...markdown(final));
+        } else {
+          wrap?.remove();
+        }
+      } else {
+        slot.replaceChildren(...turnNodes(t, userNum, activeTurn));
+      }
+      renderedTurns[idx] = { parts: [...parts], active: activeTurn, activitySig: nextActSig, slot };
     });
 
     const tailNodes: HTMLElement[] = [];
@@ -2159,6 +2179,10 @@ function build() {
   body.setAttribute("aria-label", tr("Conversación con la IA"));
 
   const compose = h("form", "ai-compose");
+  const mentionBox = h("div", "ai-mention");
+  mentionBox.hidden = true;
+  mentionBox.setAttribute("role", "listbox");
+  mentionBox.setAttribute("aria-label", tr("Mencionar archivo del proyecto"));
   const dock = h("div", "ai-dock");
   const dockCtx = h("div", "ai-dock-ctx"); dockCtx.hidden = true;
   const chips = h("div", "ai-chips"); chips.hidden = true;
@@ -2214,11 +2238,78 @@ function build() {
   rightBar.append(h("span", "ai-send-hint", "Enter ↵"), sendBtn);
   dockBar.append(leftBar, rightBar);
   dock.append(dockCtx, inputWrap, dockBar);
-  compose.append(dock);
+  compose.append(mentionBox, dock);
 
-  compose.onsubmit = (e) => { e.preventDefault(); void send(); };
-  input.oninput = autosize;
-  input.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); void send(); } };
+  let mentionItems: string[] = [];
+  let mentionIdx = 0;
+  let mentionStart = -1;
+  let mentionQuery = "";
+  const closeMention = () => { mentionBox.hidden = true; mentionItems = []; mentionStart = -1; };
+  const pickMention = (file: string) => {
+    if (mentionStart < 0) return;
+    const end = input.selectionStart ?? input.value.length;
+    const before = input.value.slice(0, mentionStart);
+    const after = input.value.slice(end);
+    const inserted = `@${file} `;
+    input.value = `${before}${inserted}${after}`;
+    input.selectionStart = input.selectionEnd = before.length + inserted.length;
+    if (!extraFiles.includes(file)) extraFiles.push(file);
+    closeMention();
+    renderChips();
+    autosize();
+    input.focus();
+  };
+  const paintMention = () => {
+    if (!mentionItems.length) { closeMention(); return; }
+    mentionBox.replaceChildren(...mentionItems.map((file, i) => {
+      const row = h("button", `ai-mention-item${i === mentionIdx ? " active" : ""}`);
+      row.type = "button";
+      row.setAttribute("role", "option");
+      row.setAttribute("aria-selected", String(i === mentionIdx));
+      row.append(h("span", "ai-mention-name", baseName(file)));
+      const dir = dirName(file);
+      if (dir) row.append(h("span", "ai-mention-dir", dir));
+      row.onmousedown = (e) => { e.preventDefault(); pickMention(file); };
+      return row;
+    }));
+    mentionBox.hidden = false;
+  };
+  const updateMention = async () => {
+    if (!ws.root) { closeMention(); return; }
+    const hit = fileMentionAt(input.value, input.selectionStart ?? input.value.length);
+    if (!hit) { closeMention(); return; }
+    mentionStart = hit.start;
+    mentionQuery = hit.query;
+    const root = ws.root;
+    if (!mentionFiles || mentionFiles.root !== root) {
+      try {
+        const raw = await invoke<string[]>("list_files", { path: root });
+        mentionFiles = { root, list: raw.map((p) => rel(p)).sort((a, b) => a.localeCompare(b)) };
+      } catch {
+        closeMention();
+        return;
+      }
+    }
+    if (ws.root !== root || mentionStart < 0) return;
+    const again = fileMentionAt(input.value, input.selectionStart ?? input.value.length);
+    if (!again || again.query !== mentionQuery) return;
+    mentionItems = filterProjectFiles(mentionFiles.list, again.query, 8);
+    mentionIdx = 0;
+    paintMention();
+  };
+
+  compose.onsubmit = (e) => { e.preventDefault(); closeMention(); void send(); };
+  input.oninput = () => { autosize(); void updateMention(); };
+  input.onblur = () => { window.setTimeout(closeMention, 120); };
+  input.onkeydown = (e) => {
+    if (!mentionBox.hidden && mentionItems.length) {
+      if (e.key === "ArrowDown") { e.preventDefault(); mentionIdx = (mentionIdx + 1) % mentionItems.length; paintMention(); return; }
+      if (e.key === "ArrowUp") { e.preventDefault(); mentionIdx = (mentionIdx - 1 + mentionItems.length) % mentionItems.length; paintMention(); return; }
+      if ((e.key === "Enter" || e.key === "Tab") && !e.isComposing) { e.preventDefault(); pickMention(mentionItems[mentionIdx]); return; }
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeMention(); return; }
+    }
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); void send(); }
+  };
   input.onpaste = (e) => {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -2365,6 +2456,7 @@ export function resetAi() {
   dismissPopover();
   extraFiles = [];
   attachedImages = [];
+  mentionFiles = null;
   lastFile = "";
   useFile = true;
   useSel = true;

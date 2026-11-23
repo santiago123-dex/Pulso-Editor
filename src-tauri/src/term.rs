@@ -68,7 +68,8 @@ pub fn spawn_session(
     let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
     let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
 
-    let reader_done = std::thread::spawn(move || {
+    let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+    std::thread::spawn(move || {
         let mut buf = [0u8; 8192];
         loop {
             match reader.read(&mut buf) {
@@ -76,11 +77,13 @@ pub fn spawn_session(
                 Ok(n) => on_data(buf[..n].to_vec()),
             }
         }
+        let _ = done_tx.send(());
     });
     std::thread::spawn(move || {
         let code = child.wait().map(|s| s.exit_code() as i32).unwrap_or(-1);
-        // Esperar brevemente a que drene el lector antes de emitir salida (sin sleep fijo de carrera).
-        drop(reader_done);
+        // Esperar con límite acotado a que drene el lector antes de emitir salida (en ConPTY el lector
+        // puede bloquearse hasta soltar el maestro en `on_exit`, así que nunca bloqueamos indefinidamente).
+        let _ = done_rx.recv_timeout(std::time::Duration::from_millis(120));
         on_exit(code);
     });
 
