@@ -28,6 +28,7 @@ import {
 import { fileIcon, loadIconManifest } from "./icons";
 import { closeBoard, openBoard } from "./board";
 import { closeDiff } from "./diffView";
+import { closePreview, openPreviewFor } from "./preview";
 import { initIssues, loadIssues } from "./issues";
 import { initProblems, setProblemsVisible } from "./problems";
 import { pickScript } from "./scripts";
@@ -192,6 +193,7 @@ async function openWorkspace(raw: string, layout?: Layout | null): Promise<boole
     resetAi();
     closeBoard();
     closeDiff();
+    closePreview();
     nav.reset();
     clearClosedTabs();
   }
@@ -242,6 +244,7 @@ async function closeWorkspace() {
   resetAi();
   closeBoard();
   closeDiff();
+  closePreview();
   nav.reset();
   clearClosedTabs();
   await refreshTree();
@@ -553,6 +556,7 @@ register(
   { id: "view.problems", label: t("Ver: Problemas (errores y avisos)"), key: "Ctrl+Shift+M", keywords: "problems errores avisos diagnosticos", run: () => showView("problems") },
   { id: "view.issues", label: t("Ver: Issues de GitHub"), key: "Ctrl+Shift+I", run: () => showView("issues") },
   { id: "view.board", label: t("Issues: Abrir el tablero kanban"), keywords: "kanban tablero board issues github", run: () => void openBoard() },
+  { id: "view.preview", label: t("Ver: Vista previa de Markdown o imagen"), key: "Ctrl+Shift+V", keywords: "preview vista previa markdown imagen svg png", run: () => void openPreviewFor(activePath()) },
   { id: "view.settings", label: t("Ver: Configuración"), key: "Ctrl+,", run: () => showView("settings") },
   { id: "view.zoomIn", label: t("Ver: Aumentar la fuente"), key: "Ctrl+=", run: zoom(1) },
   { id: "view.zoomOut", label: t("Ver: Reducir la fuente"), key: "Ctrl+-", run: zoom(-1) },

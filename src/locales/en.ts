@@ -1316,4 +1316,12 @@ export const en: Record<string, string> = {
   "¿Quieres forzar su eliminación igualmente?": "Do you want to force delete it anyway?",
   "Forzar eliminación": "Force delete",
   "No se pudo eliminar la rama": "Couldn't delete the branch",
+  "Vista previa (Ctrl+Shift+V)": "Preview (Ctrl+Shift+V)",
+  "Ver: Vista previa de Markdown o imagen": "View: Preview Markdown or image",
+  "Cargando imagen…": "Loading image…",
+  "No se pudo cargar la imagen: {error}": "Couldn't load the image: {error}",
+  "Volver al editor": "Back to editor",
+  "No se pudo leer el archivo: {error}": "Couldn't read the file: {error}",
+  "Abre un archivo Markdown o una imagen para previsualizar": "Open a Markdown file or an image to preview",
+  "La vista previa solo está disponible para Markdown e imágenes": "Preview is only available for Markdown and images",
 };
