@@ -179,7 +179,7 @@ function buildAppearance() {
 
 function buildEditor() {
   const font = selectCtl("st-font", () => Object.keys(FONTS).map((n) => [n, n]),
-    () => Object.keys(FONTS).find((n) => FONTS[n] === state.settings.fontFamily) ?? "Cascadia Code",
+    () => Object.keys(FONTS).find((n) => FONTS[n] === state.settings.fontFamily) ?? "Consolas",
     (v) => { state.settings.fontFamily = FONTS[v]; });
   addSection("editor", t("Editor"), t("Cómo se ve y se comporta el texto."), [
     row(t("Fuente"), t("Tipografía del editor."), font, "fuente font"),

@@ -22,7 +22,7 @@
   --edge-light: color-mix(in srgb, var(--fg) 12%, transparent);
   --sheet-drop: 0 14px 34px -18px color-mix(in srgb, #000 80%, transparent);
   --ease: cubic-bezier(.2, .7, .2, 1);
-  --mono: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  --mono: Consolas, "Courier New", monospace;
   --ui: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --z-diff: 20;
   --z-board: 25;
@@ -247,7 +247,7 @@ kbd { font: 11px var(--mono); background: var(--hover); border: 1px solid var(--
 .modal-msg { color: var(--muted); white-space: pre-wrap; line-height: 1.5; max-height: 40vh; overflow: auto; }
 /* Código para iniciar sesión en GitHub: grande, monoespaciado y fácil de copiar a mano. */
 .gh-device { display: grid; gap: 6px; justify-items: center; padding: 12px; background: var(--editor); border: 1px solid var(--border); border-radius: 6px; }
-.gh-device-code { font-family: var(--mono, "Cascadia Code", Consolas, monospace); font-size: 26px; font-weight: 600; letter-spacing: 0.12em; user-select: all; }
+.gh-device-code { font-family: var(--mono, Consolas, "Courier New", monospace); font-size: 26px; font-weight: 600; letter-spacing: 0.12em; user-select: all; }
 .gh-device-hint { color: var(--muted); font-size: 12px; text-align: center; }
 .modal-input { width: 100%; background: var(--editor); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 7px 10px; outline: none; }
 .modal-input:focus { border-color: var(--accent); }

@@ -20,7 +20,7 @@ Este documento reúne en un solo lugar la arquitectura completa de **Pulso Edito
 
 ### Identidad visual ([DESIGN.md](../DESIGN.md))
 - Superficies de grafito neutro (`#0e0e0f`, `#111111`, `#151515`, `#191919`, `#232323`), bordes finos (`#2a2a2a`) y un único acento azul (`#5b9cf5`) reservado para foco, estados activos y la acción principal.
-- Tipografía nativa de sistema (`Segoe UI Variable` / `Segoe UI`) para la interfaz y monoespaciada (`Cascadia Code`, `JetBrains Mono`, `Fira Code`, etc.) para código, rutas y metadatos técnicos.
+- Tipografía nativa de sistema (`Segoe UI Variable` / `Segoe UI`) para la interfaz y monoespaciada (`Consolas` de fábrica, como VS Code; también `Cascadia Code`, `JetBrains Mono` y `Fira Code` en Configuración) para código, rutas y metadatos técnicos.
 
 ---
 
