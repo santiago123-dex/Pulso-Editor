@@ -4,6 +4,9 @@ Todos los cambios notables en Pulso Editor se documentan en este archivo.
 
 ## [Sin publicar]
 
+### Cambiado
+- **La letra de fábrica del editor es Consolas** (con Courier New de reserva), la misma que usa VS Code en Windows, en lugar de Cascadia Code. Quien nunca cambió la letra pasa a Consolas; quien eligió una en Configuración (incluida Cascadia Code) la conserva. La terminal integrada y los textos técnicos del panel de IA siguen la letra del editor.
+
 ### Corregido
 - «IA: Servidores MCP…» sin una carpeta abierta solo mostraba un aviso pequeño en la barra de estado y parecía que no hacía nada. Ahora abre la lista y explica que hace falta abrir una carpeta de proyecto.
 

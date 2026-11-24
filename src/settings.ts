@@ -1,5 +1,6 @@
 import * as monaco from "monaco-editor";
 import { readJsonStorage, writeJsonStorage } from "./core/storage";
+import { CONSOLAS_STACK, dropOldFontDefault } from "./settingsFont";
 import { setIconMode } from "./icons";
 import { THEMES, tokenRules, type Theme } from "./themes";
 
@@ -53,7 +54,7 @@ export const DEFAULTS: Settings = {
   theme: "pulso-dark",
   accent: THEMES["pulso-dark"].accent,
   fontSize: 14,
-  fontFamily: '"Cascadia Code", "JetBrains Mono", Consolas, monospace',
+  fontFamily: CONSOLAS_STACK,
   ligatures: true,
   minimap: true,
   wordWrap: false,
@@ -81,7 +82,7 @@ export const FONTS: Record<string, string> = {
   "Cascadia Code": '"Cascadia Code", Consolas, monospace',
   "JetBrains Mono": '"JetBrains Mono", Consolas, monospace',
   "Fira Code": '"Fira Code", Consolas, monospace',
-  Consolas: "Consolas, monospace",
+  Consolas: CONSOLAS_STACK,
   "Courier New": '"Courier New", monospace',
 };
 
@@ -98,6 +99,8 @@ export function loadSettings(): Settings {
     }
     // El acento morado era el de fábrica del tema Pulso; quien no lo cambió pasa al nuevo (azul). Uno elegido a propósito se respeta.
     if ((saved.theme ?? DEFAULTS.theme) === "pulso-dark" && String(saved.accent).toLowerCase() === "#7c3aed") delete saved.accent;
+    // La letra de fábrica ahora es Consolas (como VS Code): quien no la cambió pasa a ella; quien eligió otra la conserva.
+    dropOldFontDefault(saved);
     return {
       ...DEFAULTS, ...saved, v: DEFAULTS.v,
       keybindings: { ...((saved.keybindings as Record<string, string>) ?? {}) },
