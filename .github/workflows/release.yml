@@ -49,7 +49,7 @@ jobs:
         run: npm ci
 
       - name: Compilar y adjuntar a la release
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           # El token del flujo solo sirve para este repositorio; para publicar en el de releases hace
           # falta un token propio con permiso de escritura de contenidos solo en ese repositorio.
