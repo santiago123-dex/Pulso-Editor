@@ -416,7 +416,7 @@ export async function startOrContinueDebug() {
     status = "running";
     renderDebug();
     await invoke("dap_launch", {
-      config: cfg,
+      configName: cfg.name,
       activeFile: activePath(),
       breakpoints: toDapBreakpoints(breakpoints),
     });
@@ -503,9 +503,10 @@ export function initDebug(onOpenFile: (path: string, line?: number) => Promise<v
     trustBtn.onclick = async () => {
       if (!inTauri) return;
       try {
-        await invoke("dap_trust_workspace");
+        // La pregunta la hace Rust con un diálogo nativo; la ventana no puede darse la confianza a sí misma.
+        const ok = await invoke<boolean>("project_trust_request", { cwd: ws.root });
         await refreshDebugConfigs();
-        setStatus(t("Carpeta marcada como de confianza para depurar."), 4000);
+        if (ok) setStatus(t("Carpeta marcada como de confianza para depurar."), 4000);
       } catch (e) {
         setStatus(String(e), 5000);
       }
