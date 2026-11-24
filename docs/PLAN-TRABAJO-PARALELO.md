@@ -204,7 +204,7 @@ Dividir por responsabilidad facilita revisar y evita que las ramas choquen. **Ha
 
 | Archivo | Líneas | Propuesta |
 | --- | --- | --- |
-| `src/aiChat.ts` | 2605 | **En curso:** ya salieron `ai/icons.ts`, `ai/modelLabels.ts`, `ai/images.ts` y `ai/markdownView.ts` (150 líneas, sin estado compartido). Lo que queda depende del estado del módulo (`activeProvider`, `model`, `tools`, `current`…): para dividirlo hace falta un módulo de estado compartido y una pasada con la aplicación compilada |
+| `src/aiChat.ts` | 2605 | **Hecho:** `aiChat.ts` queda en unas 870 líneas (el controlador: eventos, `renderBody`, acciones, construcción de la vista). El estado compartido vive en `ai/chatState.ts` (un objeto `S`, y `ctl` para las pocas funciones del controlador que otros módulos llaman) y el resto está en `ai/`: `modelOptions`, `conversations`, `usageSync`, `attachments`, `turnView`, `popoverBase`, `popovers`, `quota`, `lightbox`, `accountView`, `workbench` y `denials`, además de los que ya habían salido (`icons`, `modelLabels`, `images`, `markdownView`). Comprobado en el navegador con las pruebas de interfaz, sin errores al abrir cada popover |
 | `src-tauri/src/aichat.rs` | 1750 | **Hecho:** `aichat/` con `mod.rs` (estado y comandos de Tauri), `detect.rs`, `cli.rs`, `codex.rs`, `antigravity.rs`, `args.rs`, `stream.rs`, `images.rs`, `cloud.rs` y `tests.rs` |
 | `src-tauri/src/bin/pulso.rs` | 1295 | enrutado, trabajo de ventana, terminal |
 | `src-tauri/src/gitops.rs` | 1222 | **Hecho:** `gitops/` con `mod.rs` (ayudantes y comandos de Tauri), `changes.rs`, `branches.rs`, `remote.rs`, `history.rs` y `tests.rs` |
