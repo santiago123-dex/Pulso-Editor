@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createProviderNormalizer, emptyConversation, exitEvent, formatModelName, isAuthError, isFileChange, MAX_RESULT, needsCommandPermission, parseDeniedActions, percent, planLabel, friendlyToolError, parseResetText, parseUsageText, pruneUsage, reduce, remainingPercent, resetClockText, resetCountdown, resetIn, resetTimeFromIso, toolSummary, touchedFiles, usedPercent, usedRatio, userEvent, type AiEvent, type Block, type Conversation } from "./aiModel";
+import { createProviderNormalizer, emptyConversation, exitEvent, formatModelName, isAuthError, isFileChange, MAX_RESULT, needsCommandPermission, parseDeniedActions, percent, planLabel, friendlyToolError, parseResetText, parseUsageText, pruneUsage, reduce, remainingPercent, resetClockText, resetCountdown, resetIn, resetTimeFromIso, MAX_SUBAGENT_STEPS, stepSummary, toolSummary, touchedFiles, usedPercent, usedRatio, userEvent, type AiEvent, type Block, type Conversation } from "./aiModel";
 
 const run = (events: AiEvent[], start: Conversation = emptyConversation()) => events.reduce(reduce, start);
 const se = (event: unknown): AiEvent => ({ type: "stream_event", event });
@@ -428,5 +428,46 @@ describe("herramientas del agente propio", () => {
     expect(toolSummary(tool("Edit", { file_path: "src/a.ts" }) as Extract<Block, { kind: "tool" }>)).toContain("a.ts");
     expect(toolSummary(tool("Grep", { pattern: "foo" }) as Extract<Block, { kind: "tool" }>)).toContain("foo");
     expect(toolSummary(tool("WebFetch", { url: "https://x.test" }) as Extract<Block, { kind: "tool" }>).length).toBeGreaterThan(3);
+  });
+});
+
+describe("pasos de un subagente", () => {
+  const card = (id: string): AiEvent => ({ type: "assistant", message: { id: "m1", content: [{ type: "text", text: "Voy a delegar." }, { type: "tool_use", id, name: "Task", input: { agent: "general", description: "Buscar" } }] } });
+  const step = (parent: string, name: string, input: Record<string, unknown> = {}, error = false): AiEvent => ({ type: "pulso_subagent_step", parent, agent: "general", name, input, error });
+  const taskOf = (c: Conversation, id = "m1_t0") => c.messages.flatMap((m) => m.blocks).find((b) => b.kind === "tool" && b.id === id) as Extract<Block, { kind: "tool" }>;
+
+  it("cuelga cada paso de la tarjeta de su tarea, en orden, mientras la tarea sigue en marcha", () => {
+    const c = run([msgStart("m1"), card("m1_t0"), step("m1_t0", "Glob", { pattern: "**/*.ts" }), step("m1_t0", "Read", { path: "src/a.ts" }, true)]);
+    const t = taskOf(c);
+    expect(t.result).toBeUndefined();
+    expect(t.steps?.map((s) => [s.name, s.error])).toEqual([["Glob", false], ["Read", true]]);
+    expect(stepSummary(t.steps![1])).toContain("a.ts");
+    expect(stepSummary(t.steps![0])).toContain("**/*.ts");
+  });
+
+  it("separa los pasos de dos subagentes en paralelo", () => {
+    const two: AiEvent = { type: "assistant", message: { id: "m1", content: [{ type: "text", text: "" }, { type: "tool_use", id: "m1_t0", name: "Task", input: {} }, { type: "tool_use", id: "m1_t1", name: "Task", input: {} }] } };
+    const c = run([msgStart("m1"), two, step("m1_t1", "Grep", { pattern: "x" }), step("m1_t0", "Glob", { pattern: "*.rs" }), step("m1_t1", "Read", { path: "b.ts" })]);
+    expect(taskOf(c, "m1_t0").steps?.map((s) => s.name)).toEqual(["Glob"]);
+    expect(taskOf(c, "m1_t1").steps?.map((s) => s.name)).toEqual(["Grep", "Read"]);
+  });
+
+  it("conserva los pasos cuando llega el mensaje definitivo con el resultado de la tarea", () => {
+    const final: AiEvent = card("m1_t0");
+    const result: AiEvent = { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "m1_t0", content: "informe" }] } };
+    const c = run([msgStart("m1"), card("m1_t0"), step("m1_t0", "Glob", { pattern: "*.ts" }), final, result]);
+    const t = taskOf(c);
+    expect(t.steps?.length).toBe(1);
+    expect(t.result).toBe("informe");
+  });
+
+  it("ignora un paso sin tarjeta y no guarda más del tope", () => {
+    expect(run([step("no-existe", "Glob")]).messages).toEqual([]);
+    expect(run([msgStart("m1"), card("m1_t0"), { type: "pulso_subagent_step", name: "Glob" }]).messages[0].blocks.length).toBe(2);
+    const many = Array.from({ length: MAX_SUBAGENT_STEPS + 30 }, (_, i) => step("m1_t0", "Read", { path: `f${i}.ts` }));
+    const t = taskOf(run([msgStart("m1"), card("m1_t0"), ...many]));
+    expect(t.steps).toHaveLength(MAX_SUBAGENT_STEPS);
+    // Se quedan los más recientes.
+    expect(t.steps![MAX_SUBAGENT_STEPS - 1].input.path).toBe(`f${MAX_SUBAGENT_STEPS + 29}.ts`);
   });
 });

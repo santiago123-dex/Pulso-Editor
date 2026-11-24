@@ -290,6 +290,14 @@
 .ai-tool-chev svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .ai-tool[open] .ai-tool-chev { transform: rotate(90deg); }
 .ai-tool-detail { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); }
+.ai-tool-live { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; }
+.ai-subagent-steps { list-style: none; margin: 0 0 6px; padding: 0; max-height: 180px; overflow: auto; font-size: 11.5px; color: var(--fg); }
+.ai-subagent-steps li { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.ai-subagent-steps li > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-subagent-steps li.err { color: #f0616d; }
+.ai-step-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.ai-step-dot.ok { background: #4ec98b; }
+.ai-step-dot.bad { background: #f0616d; }
 .ai-tool-detail pre { margin: 4px 0; padding: 6px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; overflow: auto; max-height: 160px; font: 11px/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 
 .ai-working { color: var(--muted); font: 12px var(--mono); padding: 2px 0; }

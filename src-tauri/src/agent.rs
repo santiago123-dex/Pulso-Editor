@@ -95,6 +95,8 @@ pub struct AgentEnv {
     pub perms: Arc<Permissions>,
     /// Herramientas de los servidores MCP arrancados para esta conversación (vacío si no hay).
     pub mcp: Arc<McpTools>,
+    /// Por dónde los subagentes avisan al panel de cada paso mientras trabajan (`None` en pruebas sin panel).
+    pub live: Option<Arc<dyn Fn(Value) + Send + Sync>>,
 }
 
 /// Coste en dólares de los tokens usados según el precio del catálogo (0 si el catálogo no lo trae).
@@ -196,6 +198,23 @@ fn emit_notice(send: &dyn Fn(Value), id: &str, text: &str) {
     send(json!({ "type": "stream_event", "event": { "type": "message_stop" } }));
 }
 
+/// Cuántos pasos de un subagente se mandan al panel como máximo (el resto se sigue ejecutando, pero ya no se muestra).
+const MAX_LIVE_STEPS: usize = 200;
+
+/// De la entrada de una herramienta, solo lo corto que sirve para describir el paso («qué archivo», «qué comando»…): nunca contenidos enteros.
+fn slim_input(input: &Value) -> Value {
+    const KEYS: &[&str] = &["file_path", "path", "command", "pattern", "url", "name", "file", "query", "description", "agent", "tool", "server"];
+    let mut out = serde_json::Map::new();
+    if let Some(o) = input.as_object() {
+        for k in KEYS {
+            if let Some(s) = o.get(*k).and_then(Value::as_str) {
+                out.insert((*k).to_string(), Value::String(s.chars().take(200).collect()));
+            }
+        }
+    }
+    Value::Object(out)
+}
+
 fn clip(mut s: String, max: usize) -> String {
     if s.chars().count() > max {
         s = s.chars().take(max).collect();
@@ -235,7 +254,7 @@ struct TaskResult {
 }
 
 /// Ejecuta un subagente hasta que entrega su informe. Devuelve un futuro «en caja» porque `converse` y esta función se llaman entre sí.
-fn run_task(env: AgentEnv, mode: Mode, parent: CloudModel, args: Value) -> Pin<Box<dyn Future<Output = TaskResult> + Send>> {
+fn run_task(env: AgentEnv, mode: Mode, parent: CloudModel, args: Value, parent_id: String) -> Pin<Box<dyn Future<Output = TaskResult> + Send>> {
     Box::pin(async move {
         let agent_name = args["agent"].as_str().unwrap_or("").to_string();
         let description = args["description"].as_str().unwrap_or("").to_string();
@@ -263,7 +282,16 @@ fn run_task(env: AgentEnv, mode: Mode, parent: CloudModel, args: Value) -> Pin<B
             specs.extend(llm::specs_from_openai(&env.mcp.specs_json()));
         }
         let msgs = vec![Msg::User { text: prompt, images: vec![] }];
-        match converse(&env, &model, &system, &specs, mode, msgs, false, MAX_SUBAGENT_ROUNDS, &def.name, None).await {
+        // Cada herramienta que termina el subagente se avisa al panel, colgada de la tarjeta de su tarea (`parent_id`).
+        let (live, agent_label, sent) = (env.live.clone(), def.name.clone(), std::sync::atomic::AtomicUsize::new(0));
+        let step = move |o: &Outcome| {
+            if let Some(l) = &live {
+                if sent.fetch_add(1, Ordering::Relaxed) < MAX_LIVE_STEPS {
+                    l(json!({ "type": "pulso_subagent_step", "parent": parent_id, "agent": agent_label, "name": o.ui_name, "input": slim_input(&o.ui_input), "error": o.is_error }));
+                }
+            }
+        };
+        match converse(&env, &model, &system, &specs, mode, msgs, false, MAX_SUBAGENT_ROUNDS, &def.name, None, Some(&step)).await {
             Ok(c) => {
                 let report = if c.final_text.trim().is_empty() { tr("(El subagente terminó sin informe.)").to_string() } else { c.final_text };
                 let header = trf("[Subagente {name}: {n} llamadas a herramientas]", &[("name", &def.name), ("n", &c.tool_calls)]);
@@ -315,6 +343,7 @@ async fn converse(
     max_rounds: usize,
     agent: &str,
     events: Events<'_>,
+    steps: Option<&(dyn Fn(&Outcome) + Send + Sync)>,
 ) -> Result<Converse, String> {
     let emit = |v: Value| {
         if let Some(e) = events {
@@ -378,15 +407,17 @@ async fn converse(
         // Cada llamada: o ya tiene resultado, o es un subagente en marcha. Los subagentes de una misma respuesta corren a la vez.
         enum Slot {
             Done(Outcome),
+            /// Un subagente pedido pero todavía sin lanzar: se lanza cuando su tarjeta ya está en el panel.
+            Queued(Value),
             Task(tauri::async_runtime::JoinHandle<TaskResult>),
         }
         let mut slots: Vec<Slot> = Vec::new();
-        for call in &r.calls {
+        for call in r.calls.iter() {
             out.tool_calls += 1;
             let slot = if guard.blocked(&call.name, &call.args) {
                 Slot::Done(Outcome { ui_name: "Tool", ui_input: json!({ "name": call.name }), result: tr("Ya hiciste exactamente esta llamada varias veces seguidas. Prueba otra cosa o responde con lo que tienes.").to_string(), is_error: true })
             } else if call.name == "task" && can_task {
-                Slot::Task(tauri::async_runtime::spawn(run_task(env.clone(), mode, model.clone(), call.args.clone())))
+                Slot::Queued(call.args.clone())
             } else if call.name == "use_skill" && !env.config.skills.is_empty() {
                 Slot::Done(use_skill(&env.config, &call.args))
             } else {
@@ -406,13 +437,40 @@ async fn converse(
                     }
                 }
             };
+            // Un subagente avisa de cada herramienta en cuanto termina, no al final.
+            if let (Some(s), Slot::Done(o)) = (steps, &slot) {
+                s(o);
+            }
             slots.push(slot);
         }
+        // Si hay subagentes por lanzar, primero se muestran sus tarjetas (con el mismo orden que tendrá el mensaje final) para que sus
+        // pasos tengan dónde colgarse mientras trabajan; el mensaje definitivo de abajo las completa con los resultados.
+        if slots.iter().any(|s| matches!(s, Slot::Queued(_))) {
+            let mut early = content.clone();
+            for (k, (call, slot)) in r.calls.iter().zip(&slots).enumerate() {
+                let (name, input) = match slot {
+                    Slot::Done(o) => (o.ui_name, o.ui_input.clone()),
+                    _ => ("Task", json!({ "agent": call.args["agent"].as_str().unwrap_or(""), "description": call.args["description"].as_str().unwrap_or("") })),
+                };
+                early.push(json!({ "type": "tool_use", "id": format!("{turn}_t{k}"), "name": name, "input": input }));
+            }
+            emit(json!({ "type": "assistant", "message": { "id": turn, "content": early } }));
+        }
+        // Los subagentes de una misma respuesta corren a la vez.
+        let slots: Vec<Slot> = slots
+            .into_iter()
+            .enumerate()
+            .map(|(k, s)| match s {
+                Slot::Queued(args) => Slot::Task(tauri::async_runtime::spawn(run_task(env.clone(), mode, model.clone(), args, format!("{turn}_t{k}")))),
+                other => other,
+            })
+            .collect();
         let mut results: Vec<(String, String, String, String, bool)> = Vec::new();
         for (k, (call, slot)) in r.calls.iter().zip(slots).enumerate() {
             let ui_id = format!("{turn}_t{k}");
             let outcome = match slot {
                 Slot::Done(o) => o,
+                Slot::Queued(_) => unreachable!("los subagentes en cola se lanzan antes"),
                 Slot::Task(handle) => match handle.await {
                     Ok(t) => {
                         out.input += t.input;
@@ -509,7 +567,11 @@ async fn run_with_mcp(
     for (i, note) in mcp.notes.iter().enumerate() {
         emit_notice(&send, &format!("cloud_mcp_{i}_{:x}", rand_part()), note);
     }
-    let env = AgentEnv { root: root.clone(), config: config.clone(), resolver, cancel, perms, mcp: mcp.clone() };
+    let live: Arc<dyn Fn(Value) + Send + Sync> = {
+        let emit = emit.clone();
+        Arc::new(move |v: Value| emit(v.to_string()))
+    };
+    let env = AgentEnv { root: root.clone(), config: config.clone(), resolver, cancel, perms, mcp: mcp.clone(), live: Some(live) };
 
     let system = format!("{}{}", agenttools::system_prompt(&root, mode), config.prompt_addendum(true));
     let mut specs = llm::specs_from_openai(&agenttools::schema(mode));
@@ -534,7 +596,7 @@ async fn run_with_mcp(
     msgs.push(Msg::User { text: format!("{prompt}{note}"), images: urls });
 
     let sink = |v: Value| emit(v.to_string());
-    let c = converse(&env, &model, &system, &specs, mode, msgs, true, MAX_ROUNDS, "", Some(&sink)).await?;
+    let c = converse(&env, &model, &system, &specs, mode, msgs, true, MAX_ROUNDS, "", Some(&sink), None).await?;
     send(json!({
         "type": "result", "subtype": "success", "is_error": false, "session_id": conversation,
         "duration_ms": started.elapsed().as_millis() as u64, "total_cost_usd": c.cost, "result": c.final_text,
@@ -1035,6 +1097,42 @@ mod tests {
         assert_eq!(asked[0].agent, "general");
         assert!(dir.join("marca.txt").exists());
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn los_pasos_de_un_subagente_llegan_al_panel_colgados_de_su_tarjeta_antes_de_que_termine() {
+        let dir = project("pasos-sub");
+        let principal1 = tool_reply(&[("t1", "task", json!({ "agent": "general", "description": "Buscar tests", "prompt": "busca los tests" }))]);
+        let sub1 = tool_reply(&[("c1", "glob", json!({ "pattern": "**/*.ts" })), ("c2", "read_file", json!({ "path": "src/no-existe.ts" }))]);
+        let (ev, _) = go(model(), &dir, "full", vec![principal1, sub1, text_reply("Encontré todo."), text_reply("Hecho.")]);
+        let pos = |f: &dyn Fn(&Value) -> bool| ev.iter().position(|e| f(e));
+        // La tarjeta de la tarea sale antes que cualquier paso, con el id al que los pasos se cuelgan.
+        let card = pos(&|e| e["type"] == "assistant" && e["message"]["content"].as_array().is_some_and(|c| c.iter().any(|b| b["name"] == "Task"))).expect("tarjeta de la tarea");
+        let parent = ev[card]["message"]["content"].as_array().unwrap().iter().find(|b| b["name"] == "Task").unwrap()["id"].as_str().unwrap().to_string();
+        let steps: Vec<(usize, &Value)> = ev.iter().enumerate().filter(|(_, e)| e["type"] == "pulso_subagent_step").collect();
+        assert_eq!(steps.len(), 2, "{steps:?}");
+        assert!(steps.iter().all(|(i, e)| *i > card && e["parent"] == parent.as_str() && e["agent"] == "general"));
+        assert_eq!((steps[0].1["name"].as_str(), steps[0].1["input"]["pattern"].as_str(), steps[0].1["error"].as_bool()), (Some("Glob"), Some("**/*.ts"), Some(false)));
+        assert_eq!((steps[1].1["name"].as_str(), steps[1].1["error"].as_bool()), (Some("Read"), Some(true)));
+        // Los pasos llegan antes que el resultado de la tarea.
+        let result = pos(&|e| e["type"] == "user").unwrap();
+        assert!(steps.iter().all(|(i, _)| *i < result));
+        // El mensaje final conserva el mismo id de tarjeta (así los pasos ya colgados no se pierden).
+        let last = ev.iter().rev().find(|e| e["type"] == "assistant" && e["message"]["content"].as_array().is_some_and(|c| c.iter().any(|b| b["name"] == "Task"))).unwrap();
+        assert!(last["message"]["content"].as_array().unwrap().iter().any(|b| b["id"] == parent.as_str()));
+        // El contenido de archivos o comandos no viaja en los pasos: solo lo corto que los describe.
+        assert!(steps.iter().all(|(_, e)| e["input"].as_object().unwrap().values().all(|v| v.as_str().is_some_and(|s| s.chars().count() <= 200))));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn slim_input_deja_solo_lo_corto_que_describe_el_paso() {
+        let big = "x".repeat(500);
+        let s = slim_input(&json!({ "path": "a.ts", "content": big, "command": big, "n": 3, "old": "viejo" }));
+        assert_eq!(s["path"], "a.ts");
+        assert!(s.get("content").is_none() && s.get("n").is_none() && s.get("old").is_none());
+        assert_eq!(s["command"].as_str().unwrap().chars().count(), 200);
+        assert_eq!(slim_input(&json!("no es objeto")), json!({}));
     }
 
     /// Servidores MCP simulados en memoria con las herramientas `echo`, `echo` (repetida) y `falla.mal nombre`, del servidor «docs».

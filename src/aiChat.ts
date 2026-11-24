@@ -15,7 +15,7 @@ import { applyAiAppearance, buildAppearancePopover } from "./ai/appearance";
 import { buildPrompt, chipLabels, fileMentionAt, filterProjectFiles, type ContextNote, type EditorContext } from "./aiContext";
 import {
   activitySummary, createProviderNormalizer, elapsedLabel, emptyConversation, exitEvent, mergeAssistantRuns, formatModelName, isAuthError, needsCommandPermission, parseUsageText, planLabel, pruneUsage,
-  reduce, remainingPercent, remainingRatio, resetClockText, resetCountdown, resetIn, resetTimeFromIso, splitAssistantTurn, toolSummary, touchedFiles,
+  reduce, remainingPercent, remainingRatio, resetClockText, resetCountdown, resetIn, resetTimeFromIso, splitAssistantTurn, stepSummary, toolSummary, touchedFiles,
   userEvent, type AiEvent, type AiProvider, type Block, type Conversation, type DeniedAction, type Turn, type UsageWindow, type UserImage,
 } from "./aiModel";
 import { chatsFor, deleteChat, flushHistoryNow, initHistory, loadChats, newChatId, sameDir, saveChat, titleFrom, type SavedChat } from "./aiStore";
@@ -426,6 +426,9 @@ function toolRow(b: Extract<Block, { kind: "tool" }>): HTMLElement {
   const s = h("summary", "");
   const state = b.result === undefined ? "run" : b.error ? "bad" : "ok";
   s.append(h("span", `ai-tool-dot ${state}`), h("span", "ai-tool-text", toolSummary(b)));
+  // Un subagente trabajando: en la línea se ve lo último que hizo, y al desplegar la tarjeta, todos sus pasos.
+  const last = b.steps?.[b.steps.length - 1];
+  if (last && state === "run") s.append(h("span", "ai-tool-live", `· ${stepSummary(last)}`));
   const filePath = resolveToolFile(b.input.file_path ?? b.input.notebook_path ?? b.input.path ?? b.input.Path ?? b.input.TargetFile);
   if (filePath && ["Read", "Edit", "MultiEdit", "Write", "NotebookEdit"].includes(b.name)) {
     const open = h("button", "ai-tool-open", tr("Abrir"));
@@ -444,6 +447,16 @@ function toolRow(b: Extract<Block, { kind: "tool" }>): HTMLElement {
   s.append(chev);
   d.append(s);
   const detail = h("div", "ai-tool-detail");
+  if (b.steps?.length) {
+    const list = h("ol", "ai-subagent-steps");
+    list.setAttribute("aria-label", tr("Pasos del subagente"));
+    for (const st of b.steps) {
+      const li = h("li", st.error ? "err" : "");
+      li.append(h("span", `ai-step-dot ${st.error ? "bad" : "ok"}`), h("span", "", stepSummary(st)));
+      list.append(li);
+    }
+    detail.append(list);
+  }
   const input = Object.entries(b.input).map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`).join("\n");
   if (input) detail.append(h("pre", "", input.length > 1500 ? `${input.slice(0, 1500)}…` : input));
   if (b.result) detail.append(h("pre", "ai-tool-result", b.result.length > 1200 ? `${b.result.slice(0, 1200)}…` : b.result));

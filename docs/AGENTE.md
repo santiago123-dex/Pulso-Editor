@@ -98,7 +98,7 @@ Hecho en `src-tauri/src/agentconfig.rs` (descubrimiento) y `agent.rs` (subagente
 - [x] **Comandos con `/`:** `.pulso/commands/nombre.md` (o `.claude/commands`). `/nombre a b c` pone la plantilla con `$ARGUMENTS`, `$1`, `$2`…; la persona sigue viendo lo que escribió.
 - [x] **Ver lo cargado:** comando de la paleta «IA: Ver instrucciones, skills y agentes del proyecto…», con el archivo de cada cosa (se abre para editarlo).
 - [ ] **Sin comprobar en pantalla ni con una clave real.** Hay pruebas con servidores simulados de: delegar a un subagente, varios en paralelo, otro modelo en otro servidor, permisos heredados, skills, comandos e instrucciones.
-- [ ] Progreso en vivo de un subagente en el panel: hoy se ve la herramienta «Task» en marcha y, al terminar, su informe; no sus pasos intermedios.
+- [x] **Progreso en vivo de un subagente:** la tarjeta de la tarea sale en cuanto el modelo la pide, y cada herramienta que el subagente termina (archivo leído, búsqueda, comando…) se cuelga de esa tarjeta en el momento (evento `pulso_subagent_step`). Mientras trabaja, la línea de la tarjeta muestra lo último que hizo; al desplegarla, la lista de pasos con su estado. Solo viaja lo corto que describe el paso (ruta, comando, patrón: 200 caracteres como máximo), nunca contenidos de archivos; se guardan hasta 200 pasos por tarea. Con varios subagentes a la vez, cada paso va a la tarjeta de su tarea. Sigue sin comprobarse en pantalla.
 - [ ] Una skill puede declarar `allowed-tools`; hoy se ignora.
 - [ ] Instrucciones en carpetas superiores a la del proyecto y `@archivo` dentro de las instrucciones.
 

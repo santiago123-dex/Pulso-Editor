@@ -11,7 +11,13 @@ export type Block =
   | { kind: "text"; text: string }
   | { kind: "image"; path: string; name: string; preview?: string }
   | { kind: "thinking"; text: string }
-  | { kind: "tool"; id: string; name: string; input: Record<string, unknown>; json: string; result?: string; error?: boolean };
+  | { kind: "tool"; id: string; name: string; input: Record<string, unknown>; json: string; result?: string; error?: boolean; steps?: SubagentStep[] };
+
+/** Una herramienta que usó un subagente mientras trabajaba (se cuelga de la tarjeta de su tarea). */
+export interface SubagentStep { name: string; input: Record<string, unknown>; error: boolean }
+
+/** Cuántos pasos de un subagente se guardan en la tarjeta. */
+export const MAX_SUBAGENT_STEPS = 200;
 
 export interface Turn { id: string; role: "user" | "assistant"; blocks: Block[]; done: boolean }
 
@@ -226,7 +232,7 @@ export function reduce(prev: Conversation, ev: AiEvent): Conversation {
         if (!b) return;
         const old = blocks[i];
         if (b.kind === "tool" && old?.kind === "tool" && old.id === b.id) {
-          blocks[i] = { ...b, result: old.result, error: old.error };
+          blocks[i] = { ...b, result: old.result, error: old.error, ...(old.steps ? { steps: old.steps } : {}) };
         } else {
           blocks[i] = b;
         }
@@ -234,6 +240,21 @@ export function reduce(prev: Conversation, ev: AiEvent): Conversation {
       const updatedTurn: Turn = { ...baseTurn, blocks };
       if (existingIdx >= 0) return withTurn(prev, existingIdx, updatedTurn);
       return { ...prev, messages: [...prev.messages, updatedTurn] };
+    }
+    case "pulso_subagent_step": {
+      // Un paso de un subagente: se cuelga de la tarjeta de su tarea. Si esa tarjeta no está (todavía), se ignora.
+      const parent = str(ev.parent);
+      if (!parent) return prev;
+      for (let ti = prev.messages.length - 1; ti >= 0; ti--) {
+        const turn = prev.messages[ti];
+        const bi = turn.blocks.findIndex((b) => b.kind === "tool" && b.id === parent);
+        if (bi < 0) continue;
+        const b = turn.blocks[bi];
+        if (b.kind !== "tool") return prev;
+        const steps = [...(b.steps ?? []), { name: str(ev.name), input: obj(ev.input), error: ev.error === true }].slice(-MAX_SUBAGENT_STEPS);
+        return withBlock(prev, ti, bi, { ...b, steps });
+      }
+      return prev;
     }
     case "user": {
       const m = obj(ev.message);
@@ -330,6 +351,11 @@ export function toolSummary(b: Extract<Block, { kind: "tool" }>): string {
     case "Task": return str(i.description) ? t("Subagente {agent}: {description}", { agent: str(i.agent), description: str(i.description) }) : t("Lanzó un subagente");
     default: return b.name || t("Usó una herramienta");
   }
+}
+
+/** Frase corta de un paso de un subagente («Leyó a.ts»), con las mismas palabras que las herramientas del agente principal. */
+export function stepSummary(s: SubagentStep): string {
+  return toolSummary({ kind: "tool", id: "", name: s.name, input: s.input, json: "" });
 }
 
 function mapAgyToolName(raw: string): string {
