@@ -2,8 +2,7 @@
 //! framing `Content-Length`, ciclo de vida de sesión, puntos de interrupción,
 //! pila de llamadas, variables y consola de evaluación.
 use crate::dap_config::{
-    default_launch_template, expand_vars, is_workspace_trusted, load_workspace_configs,
-    resolve_adapter, trust_workspace_folder, LaunchConfig,
+    default_launch_template, expand_vars, load_workspace_configs, resolve_adapter, LaunchConfig,
 };
 use crate::fsguard::WorkspaceGuard;
 use crate::i18n::{tr, trf};
@@ -316,6 +315,7 @@ fn spawn_adapter(
 
 #[tauri::command]
 pub fn dap_list_configs(
+    app: AppHandle,
     guard: State<'_, WorkspaceGuard>,
     active_file: Option<String>,
 ) -> Result<DapConfigsResponse, String> {
@@ -323,18 +323,9 @@ pub fn dap_list_configs(
         .current_root()
         .ok_or_else(|| tr("Abre una carpeta antes de usar el depurador.").to_string())?;
     Ok(DapConfigsResponse {
-        trusted: is_workspace_trusted(&root),
+        trusted: crate::aichat::project_trusted(&app, &root),
         configs: load_workspace_configs(&root, active_file.as_deref()),
     })
-}
-
-#[tauri::command]
-pub fn dap_trust_workspace(guard: State<'_, WorkspaceGuard>) -> Result<bool, String> {
-    let root = guard
-        .current_root()
-        .ok_or_else(|| tr("Abre una carpeta antes de usar el depurador.").to_string())?;
-    trust_workspace_folder(&root)?;
-    Ok(true)
 }
 
 #[tauri::command]
@@ -359,16 +350,22 @@ pub async fn dap_launch(
     app: AppHandle,
     state: State<'_, DapState>,
     guard: State<'_, WorkspaceGuard>,
-    config: LaunchConfig,
+    config_name: String,
     active_file: Option<String>,
     breakpoints: Vec<DapBreakpointInput>,
 ) -> Result<(), String> {
     let root = guard
         .current_root()
         .ok_or_else(|| tr("Abre una carpeta antes de usar el depurador.").to_string())?;
-    if !is_workspace_trusted(&root) {
+    if !crate::aichat::project_trusted(&app, &root) {
         return Err(tr("Esta carpeta no es de confianza. Confía en el proyecto antes de depurar código.").into());
     }
+    // La configuración se lee de los archivos del proyecto, no de lo que mande la ventana: así la ventana no puede
+    // inventarse un `adapterCommand` ni un programa que ejecutar.
+    let config = load_workspace_configs(&root, active_file.as_deref())
+        .into_iter()
+        .find(|c| c.name == config_name)
+        .ok_or_else(|| tr("No existe esa configuración de depuración.").to_string())?;
 
     let root_str = root.to_string_lossy().into_owned();
     let program_raw = expand_vars(&config.program, &root_str, active_file.as_deref());
