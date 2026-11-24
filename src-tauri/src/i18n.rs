@@ -361,6 +361,20 @@ const EN: &[(&str, &str)] = &[
     ("No se encontró gopls. Instálalo con `go install golang.org/x/tools/gopls@latest`.", "gopls wasn't found. Install it with `go install golang.org/x/tools/gopls@latest`."),
     ("No se encontró clangd. Instala LLVM/clangd para activar la inteligencia de C y C++.", "clangd wasn't found. Install LLVM/clangd to enable C and C++ intelligence."),
     ("Servidor de lenguaje no soportado", "Unsupported language server"),
+    ("Manifiesto de extensión no válido: {e}", "Invalid extension manifest: {e}"),
+    ("El identificador de la extensión debe tener entre 2 y 64 caracteres (minúsculas, números, ., - o _).", "The extension identifier must be 2 to 64 characters (lowercase, digits, ., - or _)."),
+    ("El manifiesto debe incluir un nombre de extensión.", "The manifest must include an extension name."),
+    ("La versión de la extensión debe usar el formato semántico X.Y.Z.", "The extension version must use semantic format X.Y.Z."),
+    ("Permiso de extensión no reconocido: «{perm}».", "Unrecognized extension permission: \"{perm}\"."),
+    ("Un tema declarado en la extensión tiene datos o ruta no válidos.", "A theme declared in the extension has invalid data or path."),
+    ("Un fragmento declarado en la extensión tiene datos o ruta no válidos.", "A snippet declared in the extension has invalid data or path."),
+    ("Las extensiones con comandos o servidores de lenguaje deben declarar el permiso «terminal».", "Extensions with commands or language servers must declare the \"terminal\" permission."),
+    ("Un comando declarado en la extensión está incompleto.", "A command declared in the extension is incomplete."),
+    ("Un servidor de lenguaje declarado en la extensión está incompleto.", "A language server declared in the extension is incomplete."),
+    ("No se pudo localizar la carpeta de extensiones del usuario.", "Could not locate the user extensions folder."),
+    ("La carpeta elegida no contiene un archivo manifest.json.", "The selected folder does not contain a manifest.json file."),
+    ("Identificador de extensión no válido.", "Invalid extension identifier."),
+    ("La solicitud de instalación caducó; vuelve a seleccionar la carpeta.", "The installation request expired; select the folder again."),
 ];
 
 #[cfg(test)]
@@ -387,6 +401,7 @@ mod tests {
         ("termui.rs", include_str!("termui.rs")),
         ("updates.rs", include_str!("updates.rs")),
         ("bin/pulso.rs", include_str!("bin/pulso.rs")),
+        ("extensions.rs", include_str!("extensions.rs")),
     ];
 
     /// Lee el literal de cadena que empieza en `s` (justo después de la comilla de apertura).

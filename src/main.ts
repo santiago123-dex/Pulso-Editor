@@ -36,6 +36,7 @@ import { isOnboardingDone, openOnboarding, shouldShowOnboarding } from "./onboar
 import { initIssues, loadIssues } from "./issues";
 import { initProblems, resetProjectProblems, runProjectProblemsCheck, setProblemsVisible } from "./problems";
 import { initTestsView, resetTestsView, runAllTests, setTestsVisible } from "./testsView";
+import { initExtensions, installExtensionFromFolder, setExtensionsVisible } from "./extView";
 import { initConflictHelper } from "./conflictHelper";
 import { initInlineCompletions, resetInlineAiBackoff } from "./inlineCompletion";
 import { pickScript } from "./scripts";
@@ -104,20 +105,21 @@ const inTauri = "__TAURI_INTERNALS__" in window;
 hooks.focusEditor = () => focusedEditor()?.focus();
 
 // ---------- Vistas de la barra lateral ----------
-type View = "explorer" | "search" | "git" | "issues" | "problems" | "tests" | "chat" | "prs" | "ai";
+type View = "explorer" | "search" | "git" | "issues" | "problems" | "tests" | "extensions" | "chat" | "prs" | "ai";
 let currentView: View = "explorer";
 
 function showView(view: View | "settings") {
   if (view === "settings") { toggleSettings(); return; }
   closeSettings();
   const app = $("app");
-  if (view === currentView && !app.classList.contains("no-sidebar")) { app.classList.add("no-sidebar"); setProblemsVisible(false); setTestsVisible(false); setChatVisible(false); setPrsVisible(false); setAiVisible(false); return; }
+  if (view === currentView && !app.classList.contains("no-sidebar")) { app.classList.add("no-sidebar"); setProblemsVisible(false); setTestsVisible(false); setExtensionsVisible(false); setChatVisible(false); setPrsVisible(false); setAiVisible(false); return; }
   app.classList.remove("no-sidebar");
   currentView = view;
   document.querySelectorAll<HTMLElement>(".act[data-view]").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
-  for (const v of ["explorer", "search", "git", "issues", "problems", "tests", "chat", "prs", "ai"] as View[]) $(`view-${v}`).hidden = v !== view;
+  for (const v of ["explorer", "search", "git", "issues", "problems", "tests", "extensions", "chat", "prs", "ai"] as View[]) $(`view-${v}`).hidden = v !== view;
   setProblemsVisible(view === "problems");
   setTestsVisible(view === "tests");
+  setExtensionsVisible(view === "extensions");
   setChatVisible(view === "chat");
   setPrsVisible(view === "prs");
   setAiVisible(view === "ai");
@@ -609,6 +611,8 @@ register(
 
   { id: "explorer.refresh", label: t("Explorador: Actualizar"), run: () => void refreshTree() },
   { id: "explorer.collapse", label: t("Explorador: Contraer todo"), run: collapseAll },
+  { id: "view.extensions", label: t("Ver: Extensiones"), keywords: "extensions plugins complementos temas", run: () => showView("extensions") },
+  { id: "extensions.install", label: t("Extensiones: Instalar desde carpeta…"), keywords: "extensions install instalar manifest", run: () => { showView("extensions"); void installExtensionFromFolder(); } },
 );
 
 initKeys();
@@ -820,6 +824,7 @@ initAi();
 bus.on("issue-workflow-start", () => showView("ai"));
 initProblems(() => showView("problems"));
 initTestsView();
+initExtensions();
 initConflictHelper();
 initInlineCompletions();
 initSettingsPage(() => void loadIssues());

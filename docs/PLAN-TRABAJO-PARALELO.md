@@ -112,11 +112,11 @@ Es la mayor carencia frente a otros editores. Va en módulos nuevos para no choc
 
 Una API propia y acotada antes de prometer compatibilidad con VS Code.
 
-- [ ] **Diseño primero** (`docs/EXTENSIONES.md`): declarativas, con `manifest.json`, sin ejecutar código de terceros en la primera versión. Qué pueden aportar: temas, fragmentos, comandos que lanzan scripts con aprobación, servidores de lenguaje.
-- [ ] Carga, activación y desactivación desde una carpeta de extensiones del usuario; validación estricta del manifiesto.
-- [ ] Permisos explícitos por extensión (archivos, red, terminal) y pantalla de instalación que los muestre.
-- [ ] Vista «Extensiones» en la interfaz.
-- [ ] Decidir si más adelante se permiten plugins WASM aislados.
+- [x] **Diseño primero** (`docs/EXTENSIONES.md`): declarativas, con `manifest.json`, sin ejecutar código de terceros en la primera versión. Qué pueden aportar: temas, fragmentos, comandos que lanzan scripts con aprobación, servidores de lenguaje.
+- [x] Carga, activación y desactivación desde una carpeta de extensiones del usuario; validación estricta del manifiesto.
+- [x] Permisos explícitos por extensión (archivos, red, terminal) y pantalla de instalación que los muestre.
+- [x] Vista «Extensiones» en la interfaz.
+- [x] Decidir si más adelante se permiten plugins WASM aislados.
 
 ## F. Agente propio, fase 4
 
