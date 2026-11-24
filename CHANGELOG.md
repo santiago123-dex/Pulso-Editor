@@ -4,6 +4,9 @@ Todos los cambios notables en Pulso Editor se documentan en este archivo.
 
 ## [Sin publicar]
 
+### Cambiado
+- **Ollama usa el mismo motor que los modelos de la nube.** El modelo local ya no es solo de lectura: tiene las mismas herramientas, modos, permisos, subagentes, skills, memoria, ganchos y MCP que el agente propio. Habla el protocolo nativo de Ollama y le pide una ventana de contexto suficiente (la del modelo con un tope de 16 384; `PULSO_OLLAMA_NUM_CTX` la cambia). Si el modelo no admite herramientas, lo avisa. El motor aparte (`localai.rs`) se retiró.
+
 ### Añadido
 - **Pasos de un subagente en vivo:** mientras un subagente trabaja, su tarjeta en el panel muestra lo último que hizo y, al desplegarla, la lista de sus pasos (archivos leídos, búsquedas, comandos…), en vez de esperar a su informe final. Solo se envía la descripción corta de cada paso, nunca contenidos de archivos.
 - **MCP en el agente propio:** el agente puede usar las herramientas de servidores MCP locales (`mcp.json` en `~/.pulso/` siempre y en `.pulso/` del proyecto solo con confianza). Cada llamada pide aprobación (servidor, herramienta y argumentos), no se ofrecen en solo lectura ni con `/plan`, y los ganchos también se aplican. Ver [Agente](docs/AGENTE.md).

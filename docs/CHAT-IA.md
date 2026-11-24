@@ -37,12 +37,13 @@ Se abre con el icono del asistente de la barra de actividad (o «Ver: Asistente 
 
 La pestaña **Local** del asistente usa un modelo que corre en tu equipo con [Ollama](https://ollama.com): sin cuenta, sin claves, sin límites de uso y sin enviar tu código a ningún servicio.
 
-**Cómo funciona.** Aquí no hay herramienta externa: Pulso hace de agente (`src-tauri/src/localai.rs`).
-- Envía la conversación a la API local de Ollama (`http://127.0.0.1:11434`).
-- Le ofrece tres herramientas de **solo lectura**: listar una carpeta, leer un archivo (por rangos si es grande) y buscar texto en el proyecto (respeta `.gitignore` y omite `node_modules`, `target`, etc.).
-- Las ejecuta dentro de la carpeta abierta: rechaza rutas absolutas, `..` y enlaces que salgan de ella.
-- Repite hasta que el modelo responde, con un máximo de 12 vueltas.
+**Cómo funciona.** Aquí no hay herramienta externa: Pulso hace de agente, con **el mismo motor que los modelos de la nube** (`agent.rs`; ver [Agente](AGENTE.md)). Con Ollama habla su protocolo nativo (`/api/chat`, en `http://127.0.0.1:11434`), no el compatible con OpenAI, porque así puede fijar la ventana de contexto.
+- Tiene todas las herramientas del agente (leer, buscar, editar, escribir, ejecutar comandos, leer la web) con los mismos **modos y permisos**: en «Solo leer» solo lee, en «Puede editar» propone y aplica cambios, y en «Agente» los comandos y las páginas web piden tu aprobación. También valen los subagentes, las skills, los comandos con `/`, la memoria, los ganchos y MCP (con la misma confianza en el proyecto).
+- Las herramientas se ejecutan dentro de la carpeta abierta: rechazan rutas absolutas, `..` y enlaces que salgan de ella.
 - Las herramientas usadas aparecen en el panel como en Claude Code («Leyó README.md», «Buscó «sumar»»).
+- **Ventana de contexto:** Ollama usa por defecto unos 4 000 tokens, que no caben con las instrucciones y las herramientas del agente. Pulso le pide la del modelo con un tope de 16 384 (si no la conoce, 8 192); se puede cambiar con la variable `PULSO_OLLAMA_NUM_CTX`. Más contexto gasta más memoria.
+- Si Ollama dice que el modelo no admite herramientas, Pulso lo avisa y no empieza (el agente no puede trabajar sin ellas).
+- Algunos modelos pequeños (`qwen2.5-coder:7b` lo hace) escriben la llamada a la herramienta como texto JSON en vez de usar el formato de herramientas. Si **toda** la respuesta es una llamada válida a una herramienta que se ofreció, Pulso la trata como tal; si hay texto mezclado, no.
 
 **Requisitos:**
 - Ollama instalado y en marcha.
@@ -51,8 +52,9 @@ La pestaña **Local** del asistente usa un modelo que corre en tu equipo con [Ol
 El panel detecta Ollama y lee sus modelos de tu instalación. «Instalar y conectar» lo instala con `winget` y descarga ese modelo en la terminal integrada. Para otra dirección (solo de este equipo) se usa `OLLAMA_HOST` o `PULSO_OLLAMA_URL`.
 
 **Límites:**
-- Por ahora **solo lee**: aunque elijas «Puede editar» o «Agente», no modifica archivos ni ejecuta comandos; si propone un cambio, lo muestra como bloque de código.
-- La calidad depende del modelo y de tu equipo; los modelos pequeños se equivocan más con las herramientas.
+- La calidad depende del modelo y de tu equipo; los modelos pequeños se equivocan más con las herramientas, y el agente completo ofrece muchas más que antes. Si un modelo se pierde, usa el modo «Solo leer».
+- El resumen automático de conversaciones largas y el coste usan el modelo local: no cuestan dinero (el coste sale siempre en cero).
+- Los subagentes que piden «otro modelo» usan el mismo modelo local.
 - La conversación se envía entera en cada mensaje (el texto, hasta los últimos 30 mensajes), porque Ollama no guarda sesiones.
 
 ## Límites

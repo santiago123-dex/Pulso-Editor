@@ -10,7 +10,7 @@
 //! es dato para el modelo, nunca una orden para Pulso.
 use crate::agentperms::{Permissions, Verdict};
 use crate::i18n::{tr, trf};
-use crate::localai;
+use crate::readtools;
 use serde_json::{json, Value};
 use std::{
     io::Read,
@@ -173,7 +173,7 @@ fn root_canon(root: &Path) -> Result<PathBuf, String> {
 /// Ruta de un archivo que quizá aún no existe, dentro del proyecto: la carpeta que lo contiene debe existir dentro de la raíz y,
 /// si el archivo ya existe, no puede ser un enlace que salga de ella.
 pub fn resolve_for_write(root: &Path, rel: &str) -> Result<PathBuf, String> {
-    let clean = localai::safe_rel_edit_path(rel)?;
+    let clean = readtools::safe_rel_edit_path(rel)?;
     let root = root_canon(root)?;
     let full = root.join(&clean);
     let mut parent = full.parent().map(Path::to_path_buf).unwrap_or_else(|| root.clone());
@@ -229,7 +229,7 @@ pub fn glob(root: &Path, pattern: &str, rel: Option<&str>) -> Result<String, Str
     if pattern.trim().is_empty() {
         return Err(tr("Falta el patrón.").into());
     }
-    let base = localai::resolve_in(root, rel.unwrap_or("."))?;
+    let base = readtools::resolve_in(root, rel.unwrap_or("."))?;
     let matcher = glob_matcher(&base, pattern)?;
     let mut found: Vec<(SystemTime, String)> = walk(&base)
         .into_iter()
@@ -253,7 +253,7 @@ pub fn grep(root: &Path, pattern: &str, rel: Option<&str>, file_glob: Option<&st
         return Err(tr("Falta el patrón.").into());
     }
     let re = regex::RegexBuilder::new(pattern).case_insensitive(ignore_case).size_limit(1 << 20).build().map_err(|e| trf("Expresión regular no válida: {e}", &[("e", &e)]))?;
-    let base = localai::resolve_in(root, rel.unwrap_or("."))?;
+    let base = readtools::resolve_in(root, rel.unwrap_or("."))?;
     let matcher = file_glob.filter(|g| !g.trim().is_empty()).map(|g| glob_matcher(&base, g)).transpose()?;
     let mut hits: Vec<String> = Vec::new();
     'files: for path in walk(&base) {
@@ -351,7 +351,7 @@ impl Session<'_> {
             if self.mode == Mode::Read {
                 return Err(tr("El modo actual es de solo lectura.").into());
             }
-            let clean = localai::safe_rel_edit_path(&path)?;
+            let clean = readtools::safe_rel_edit_path(&path)?;
             let full = resolve_for_write(self.root, &clean)?;
             let current = self.current_content(&clean, &full)?.ok_or_else(|| trf("No existe: {path}", &[("path", &clean)]))?;
             let (new, n) = apply_replace(&current, args["old_string"].as_str().unwrap_or(""), args["new_string"].as_str().unwrap_or(""), args["replace_all"].as_bool().unwrap_or(false))?;
@@ -375,7 +375,7 @@ impl Session<'_> {
             if content.len() > MAX_WRITE_BYTES {
                 return Err(tr("El contenido es demasiado grande.").into());
             }
-            let clean = localai::safe_rel_edit_path(&path)?;
+            let clean = readtools::safe_rel_edit_path(&path)?;
             let full = resolve_for_write(self.root, &clean)?;
             self.commit(clean, &full, content.clone())
         };
@@ -701,8 +701,8 @@ pub async fn dispatch(s: &mut Session<'_>, name: &str, args: &Value) -> Outcome 
             }
         }
         other => {
-            // list_files, read_file y search_code ya existían en el agente local.
-            let (ui_name, ui_input, result, is_error) = localai::run_tool(s.root, other, args);
+            // list_files, read_file y search_code son las herramientas de lectura (`readtools.rs`).
+            let (ui_name, ui_input, result, is_error) = readtools::run_tool(s.root, other, args);
             Outcome { ui_name, ui_input, result, is_error }
         }
     }

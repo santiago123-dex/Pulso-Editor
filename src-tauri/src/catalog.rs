@@ -29,6 +29,8 @@ pub enum Protocol {
     OpenAi,
     /// `/messages` de Anthropic.
     Anthropic,
+    /// `/api/chat` nativo de Ollama (modelo local): a diferencia del compatible con OpenAI, permite fijar la ventana de contexto.
+    Ollama,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]

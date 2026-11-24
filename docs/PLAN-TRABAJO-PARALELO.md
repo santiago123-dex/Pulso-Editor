@@ -71,7 +71,7 @@ Cada PR de G dice en su descripción qué archivos movió; Antigravity no empiez
 ### Claude, paso 2 (después de G)
 
 - [x] Resto de A: aviso al abrir un proyecto con `AGENTS.md` o skills sin confianza, y revisión de enlaces simbólicos en `search_files` y `replace_in_file`.
-- [ ] Resto de F: Ollama al motor común, cifrar el historial. (MCP, ganchos y ver en vivo los pasos de un subagente ya están hechos.)
+- [ ] Resto de F: cifrar el historial. (MCP, ganchos, ver en vivo los pasos de un subagente y Ollama al motor común ya están hechos.)
 - [ ] Probar el agente con proveedores reales cuando la persona pueda dar una clave.
 
 ### Antes de cada paso
@@ -170,7 +170,7 @@ Lo ya hecho (proveedores de models.dev, herramientas, subagentes, skills, comand
 - [x] **Memoria entre sesiones**, por proyecto, guardada fuera del proyecto (`agentmem.rs`).
 - [x] **Modo plan:** `/plan <tarea>`, siempre en solo lectura; el agente propone el plan y tú decides cuándo ejecutarlo.
 - [x] Ver en vivo los pasos de un subagente (evento `pulso_subagent_step`, ver [Agente](AGENTE.md)).
-- [ ] **Pasar Ollama al motor común** (`agent.rs`, que ya habla con su endpoint compatible) y retirar el motor aparte de `localai.rs`.
+- [x] **Pasar Ollama al motor común** (`agent.rs`, con el protocolo nativo `/api/chat` para fijar la ventana de contexto) y retirar el motor aparte de `localai.rs` (ahora `ollama.rs` y `readtools.rs`).
 - [ ] Cifrar el historial del chat (`ai-chats.json`) o decidir y documentar por qué no.
 
 ## H. Git y GitHub avanzado

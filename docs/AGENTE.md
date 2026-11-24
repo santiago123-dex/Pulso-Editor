@@ -31,10 +31,11 @@ Las herramientas externas cambian su formato entre versiones, exigen una suscrip
 ### Protocolos
 | Protocolo | Cubre | Notas |
 | --- | --- | --- |
-| Compatible con OpenAI (`/chat/completions`, SSE) | OpenAI, Google (su endpoint compatible), OpenRouter, Groq, Mistral, xAI, Together, DeepSeek, Cerebras, Ollama y otros 280 | herramientas por `tool_calls` |
+| Compatible con OpenAI (`/chat/completions`, SSE) | OpenAI, Google (su endpoint compatible), OpenRouter, Groq, Mistral, xAI, Together, DeepSeek, Cerebras y otros 280 | herramientas por `tool_calls` |
 | Anthropic Messages (SSE) | Anthropic y los que lo imitan | `tool_use` / `tool_result` |
+| Ollama nativo (`/api/chat`, un JSON por línea) | Ollama, el modelo local (`ollama.rs`) | pide la ventana de contexto (`num_ctx`); las llamadas llevan los argumentos como objeto |
 
-Los dos producen los mismos eventos internos (texto, herramienta pedida, uso de tokens), que el bucle traduce al formato que el panel ya sabe pintar. El panel no cambia.
+Los tres producen los mismos eventos internos (texto, herramienta pedida, uso de tokens), que el bucle traduce al formato que el panel ya sabe pintar. El panel no cambia.
 
 ### Bucle del agente
 Mensaje de la persona → el modelo responde o pide herramientas → se ejecutan (con permisos) → el resultado vuelve al modelo → hasta que responda sin pedir más o llegue al límite de vueltas. Emite los mismos eventos que Claude Code, así que la tarjeta de actividad, los diffs y el historial funcionan igual.
@@ -49,7 +50,8 @@ Mensaje de la persona → el modelo responde o pide herramientas → se ejecutan
 - [x] Bucle del agente (`agent.rs`) con listar, leer, buscar y proponer ediciones como diferencias; coste por respuesta con el precio del catálogo. Probado: lee un archivo real, devuelve el resultado al modelo y respeta el modo de solo lectura.
 - [x] Proveedor «Nube» en el asistente (`src/ai/providers.ts`): comando «IA: Conectar un proveedor de modelos…», elección de modelo `proveedor/modelo` y botón de conectar cuando no hay ninguno.
 - [ ] **Sin comprobar:** el flujo completo en pantalla con una clave real (conectar, elegir modelo, conversar). Hasta ahora solo hay pruebas de tipos, de la lógica y de los protocolos con servidores simulados.
-- [ ] Pendiente de la fase 1: modelos con razonamiento (se ignora el contenido de razonamiento), Google con su API nativa (se usa su endpoint compatible), Amazon Bedrock, Vertex y Azure, y pasar Ollama al mismo motor.
+- [ ] Pendiente de la fase 1: modelos con razonamiento (se ignora el contenido de razonamiento), Google con su API nativa (se usa su endpoint compatible), Amazon Bedrock, Vertex y Azure.
+- [x] **Ollama en el mismo motor:** `localai.rs` (el motor aparte, de solo lectura) se retiró. Sus herramientas de lectura pasaron a `readtools.rs` y la detección y la conversión del modelo a `ollama.rs`. Un modelo local tiene ahora las mismas herramientas, modos, permisos, subagentes, skills, memoria, ganchos y MCP que uno de la nube. Comprobado con un Ollama real (`qwen2.5-coder:7b`, modo solo lectura: leyó un archivo con `read_file` y respondió con su contenido; la prueba ignorada `con_un_ollama_real` lo repite). **Sin comprobar en pantalla** ni en los modos «Puede editar» y «Agente» con un modelo real.
 
 ### Fase 2: herramientas de un agente de código
 Hecho en `src-tauri/src/agenttools.rs`. Los permisos siguen los tres modos que el asistente ya tenía:

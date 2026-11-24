@@ -17,7 +17,8 @@ use crate::agenttools::{self, Mode, Outcome, Session};
 use crate::catalog::Protocol;
 use crate::i18n::{tr, trf};
 use crate::llm::{self, Endpoint, Msg, Spec};
-use crate::localai::{self, HistoryMsg};
+use crate::readtools;
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
     collections::BTreeSet,
@@ -34,6 +35,13 @@ const MAX_SUBAGENT_ROUNDS: usize = 25;
 /// Cuántas veces seguidas se acepta exactamente la misma llamada antes de cortar el bucle.
 const MAX_REPEATS: usize = 3;
 const MAX_REPORT_CHARS: usize = 24_000;
+
+/// Mensaje anterior de la conversación (lo envía el panel, que es quien la guarda).
+#[derive(Deserialize, Debug, Clone)]
+pub struct HistoryMsg {
+    pub role: String,
+    pub content: String,
+}
 
 /// Un modelo concreto de un proveedor, con todo lo necesario para hablar con él.
 #[derive(Clone)]
@@ -350,7 +358,7 @@ async fn converse(
             e(v)
         }
     };
-    let ep = Endpoint { protocol: model.protocol, base: &model.base_url, key: &model.key };
+    let ep = Endpoint { protocol: model.protocol, base: &model.base_url, key: &model.key, context: model.context };
     let max_tokens = (model.max_output > 0).then(|| model.max_output.min(16_384));
     let stamp = Instant::now().elapsed().as_nanos() ^ (std::process::id() as u128) << 64 ^ (rand_part() as u128);
     let mut out = Converse { final_text: String::new(), input: 0, output: 0, cost: 0.0, proposed: Vec::new(), tool_calls: 0 };
@@ -392,8 +400,8 @@ async fn converse(
             let mut appendix = String::new();
             for (p, body) in &session.proposed {
                 if !text.contains(&format!("path={p}")) {
-                    let fence = localai::fence_for_content(body);
-                    appendix.push_str(&format!("\n\n{fence}{} path={p}\n{body}\n{fence}", localai::lang_for_path(p)));
+                    let fence = readtools::fence_for_content(body);
+                    appendix.push_str(&format!("\n\n{fence}{} path={p}\n{body}\n{fence}", readtools::lang_for_path(p)));
                 }
             }
             if !appendix.is_empty() {
@@ -1133,6 +1141,77 @@ mod tests {
         assert!(s.get("content").is_none() && s.get("n").is_none() && s.get("old").is_none());
         assert_eq!(s["command"].as_str().unwrap().chars().count(), 200);
         assert_eq!(slim_input(&json!("no es objeto")), json!({}));
+    }
+
+    /// Una respuesta de Ollama (`/api/chat`, un objeto JSON por línea): texto en trozos, herramientas pedidas y los tokens usados.
+    fn ollama_reply(text: &[&str], calls: &[(&str, Value)], input: u64, output: u64) -> String {
+        let mut out = String::new();
+        for t in text {
+            out.push_str(&json!({ "message": { "role": "assistant", "content": t }, "done": false }).to_string());
+            out.push('\n');
+        }
+        let list: Vec<Value> = calls.iter().map(|(n, a)| json!({ "function": { "name": n, "arguments": a } })).collect();
+        out.push_str(&json!({ "message": { "role": "assistant", "content": "", "tool_calls": list }, "done": true, "prompt_eval_count": input, "eval_count": output }).to_string());
+        out.push('\n');
+        out
+    }
+
+    #[test]
+    fn un_modelo_de_ollama_usa_el_mismo_motor_con_herramientas_permisos_y_contexto() {
+        let dir = project("ollama");
+        let approver = Recorder::new(crate::agentperms::Decision::Once);
+        let first = ollama_reply(&["Voy a crear la marca."], &[("run_command", write_marker_command())], 100, 20);
+        let second = ollama_reply(&["Listo, ", "la marca está creada."], &[], 150, 8);
+        let (base, server) = mock_server(vec![first, second]);
+        let (events, emit) = collect_events();
+        let local = CloudModel { provider_name: "Ollama".into(), protocol: Protocol::Ollama, base_url: base.trim_end_matches("/v1").to_string(), key: String::new(), model: "qwen2.5-coder:7b".into(), images: true, context: 16_384, max_output: 0, input_cost: None, output_cost: None };
+        tauri::async_runtime::block_on(run(local, dir.clone(), "c".into(), vec![HistoryMsg { role: "user".into(), content: "hola".into() }, HistoryMsg { role: "assistant".into(), content: "¿En qué ayudo?".into() }], "crea la marca".into(), vec![], "full".into(), Arc::new(AtomicBool::new(false)), emit, Arc::new(Config::default()), no_resolver(), perms_with(approver.clone()))).unwrap();
+        let bodies: Vec<Value> = server.join().unwrap().iter().map(|b| serde_json::from_str(b).unwrap()).collect();
+        // Habla el protocolo nativo: ventana de contexto pedida, y el agente completo de herramientas (no solo las tres de lectura).
+        assert_eq!(bodies[0]["options"]["num_ctx"], 16_384);
+        let offered = tool_names(&bodies[0]);
+        assert!(["run_command", "edit_file", "write_file", "task", "glob", "grep", "read_file"].iter().all(|n| offered.contains(&n.to_string())), "{offered:?}");
+        // El historial, la petición y luego el resultado de la herramienta (con su nombre) vuelven a Ollama.
+        let roles = |b: &Value| b["messages"].as_array().unwrap().iter().map(|m| m["role"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+        assert_eq!(roles(&bodies[0]), ["system", "user", "assistant", "user"]);
+        assert_eq!(roles(&bodies[1]), ["system", "user", "assistant", "user", "assistant", "tool"]);
+        assert_eq!(bodies[1]["messages"][5]["tool_name"], "run_command");
+        // El permiso se pidió como con cualquier otro modelo, y el comando se ejecutó tras aprobarlo.
+        let asked = approver.asked();
+        assert_eq!((asked.len(), asked[0].tool), (1, crate::agentperms::Tool::Command));
+        assert!(dir.join("marca.txt").exists());
+        let ev = events.lock().unwrap();
+        let result = ev.last().unwrap();
+        assert_eq!((result["type"].as_str(), result["result"].as_str()), (Some("result"), Some("Listo, la marca está creada.")));
+        // Los tokens salen de lo que cuenta Ollama, y no cuesta dinero.
+        assert_eq!((result["usage"]["input_tokens"].as_u64(), result["usage"]["output_tokens"].as_u64(), result["total_cost_usd"].as_f64()), (Some(250), Some(28), Some(0.0)));
+        drop(ev);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Con un Ollama de verdad (hace falta tenerlo en marcha con un modelo que admita herramientas, por eso está ignorada):
+    /// `PULSO_TEST_OLLAMA_MODEL=qwen2.5-coder:7b cargo test --lib con_un_ollama_real -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn con_un_ollama_real() {
+        let model = std::env::var("PULSO_TEST_OLLAMA_MODEL").unwrap_or_else(|_| "qwen2.5-coder:7b".into());
+        let dir = project("ollama-real");
+        let local = tauri::async_runtime::block_on(crate::ollama::cloud_model(&crate::ollama::base_url(), &model)).expect("Ollama en marcha con ese modelo");
+        println!("modelo: {} · contexto pedido: {} · imágenes: {}", local.model, local.context, local.images);
+        let (events, emit) = collect_events();
+        let started = Instant::now();
+        tauri::async_runtime::block_on(run(local, dir.clone(), "c".into(), vec![], "Lee el archivo src/main.ts con la herramienta read_file y dime qué valor tiene la constante respuesta.".into(), vec![], "read".into(), Arc::new(AtomicBool::new(false)), emit, Arc::new(Config::default()), no_resolver(), Arc::new(Permissions::fixed(crate::agentperms::Decision::Deny)))).unwrap();
+        let ev = events.lock().unwrap();
+        for e in ev.iter().filter(|e| e["type"] == "assistant") {
+            for b in e["message"]["content"].as_array().into_iter().flatten().filter(|b| b["type"] == "tool_use") {
+                println!("herramienta: {} {}", b["name"], b["input"]);
+            }
+        }
+        let result = ev.last().unwrap();
+        println!("respuesta ({:?}): {}\ntokens: {} + {}", started.elapsed(), result["result"], result["usage"]["input_tokens"], result["usage"]["output_tokens"]);
+        assert_eq!(result["type"], "result");
+        assert!(result["result"].as_str().unwrap().contains("42"), "el modelo debía leer el archivo y ver 42");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// Servidores MCP simulados en memoria con las herramientas `echo`, `echo` (repetida) y `falla.mal nombre`, del servidor «docs».

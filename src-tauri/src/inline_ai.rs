@@ -1,5 +1,5 @@
 //! Autocompletado de IA en línea (texto fantasma) usando Ollama local (`/api/generate` con FIM).
-use crate::localai;
+use crate::ollama;
 use serde_json::{json, Value};
 use std::time::Duration;
 
@@ -72,7 +72,7 @@ async fn resolve_model(client: &reqwest::Client, base: &str, requested: &str) ->
         return Err(format!("Ollama devolvió HTTP {}", resp.status()));
     }
     let val: Value = resp.json().await.map_err(|e| e.to_string())?;
-    let names: Vec<String> = localai::parse_models(&val).into_iter().map(|m| m.id).collect();
+    let names: Vec<String> = ollama::parse_models(&val).into_iter().map(|m| m.id).collect();
     pick_best_model(&names).ok_or_else(|| "Ollama no tiene modelos descargados".to_string())
 }
 
@@ -83,7 +83,7 @@ pub async fn ai_inline_complete(
     language: String,
     model: String,
 ) -> Result<String, String> {
-    let base = localai::base_url();
+    let base = ollama::base_url();
     let client = reqwest::Client::builder()
         .user_agent("Pulso-Editor")
         .timeout(Duration::from_secs(5))

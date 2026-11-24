@@ -1,7 +1,7 @@
-//! Conversación con un modelo por HTTP, con streaming y herramientas, en los dos protocolos que cubren casi todos los proveedores:
-//! el compatible con OpenAI (`/chat/completions`) y el de Anthropic (`/messages`).
+//! Conversación con un modelo por HTTP, con streaming y herramientas, en los protocolos que cubren casi todos los proveedores:
+//! el compatible con OpenAI (`/chat/completions`), el de Anthropic (`/messages`) y el nativo de Ollama (`/api/chat`).
 //!
-//! Los dos producen lo mismo: el texto que va llegando, las herramientas que el modelo pidió y los tokens usados. Las funciones que
+//! Los tres producen lo mismo: el texto que va llegando, las herramientas que el modelo pidió y los tokens usados. Las funciones que
 //! arman las solicitudes y las que interpretan el streaming son puras y se prueban sin red; la prueba de extremo a extremo usa
 //! un servidor simulado en esta misma máquina.
 use crate::catalog::Protocol;
@@ -126,6 +126,44 @@ pub fn anthropic_body(model: &str, system: &str, msgs: &[Msg], tools: &[Spec], m
     let mut body = json!({ "model": model, "max_tokens": max_tokens, "system": system, "messages": messages, "stream": true });
     if !tools.is_empty() {
         body["tools"] = Value::Array(tools.iter().map(|t| json!({ "name": t.name, "description": t.description, "input_schema": t.parameters })).collect());
+    }
+    body
+}
+
+/// Cuerpo de `/api/chat` de Ollama. `num_ctx` es la ventana de contexto que se le pide (0 = la que tenga por defecto): sin ella Ollama
+/// usa unos 4 000 tokens y recortaría por el principio, justo donde van las instrucciones y las herramientas.
+pub fn ollama_body(model: &str, system: &str, msgs: &[Msg], tools: &[Spec], num_ctx: u64, max_tokens: Option<u64>) -> Value {
+    let mut messages = vec![json!({ "role": "system", "content": system })];
+    for m in msgs {
+        messages.push(match m {
+            Msg::User { text, images } => {
+                let mut v = json!({ "role": "user", "content": text });
+                let data: Vec<&str> = images.iter().filter_map(|u| parse_data_url(u)).map(|(_, d)| d).collect();
+                if !data.is_empty() {
+                    v["images"] = json!(data);
+                }
+                v
+            }
+            Msg::Assistant { text, calls } => {
+                let mut v = json!({ "role": "assistant", "content": text });
+                if !calls.is_empty() {
+                    v["tool_calls"] = Value::Array(calls.iter().map(|c| json!({ "function": { "name": c.name, "arguments": c.args } })).collect());
+                }
+                v
+            }
+            Msg::Tool { name, content, .. } => json!({ "role": "tool", "tool_name": name, "content": content }),
+        });
+    }
+    let mut options = serde_json::Map::new();
+    if num_ctx > 0 {
+        options.insert("num_ctx".into(), json!(num_ctx));
+    }
+    if let Some(n) = max_tokens {
+        options.insert("num_predict".into(), json!(n));
+    }
+    let mut body = json!({ "model": model, "messages": messages, "stream": true, "options": options });
+    if !tools.is_empty() {
+        body["tools"] = Value::Array(tools.iter().map(|t| json!({ "type": "function", "function": { "name": t.name, "description": t.description, "parameters": t.parameters } })).collect());
     }
     body
 }
@@ -300,6 +338,102 @@ impl AnthropicAcc {
     }
 }
 
+/// Parte el flujo de bytes de Ollama en líneas (un objeto JSON por línea), sin perder las que llegan cortadas entre dos trozos.
+#[derive(Default)]
+pub struct NdjsonBuf {
+    pending: Vec<u8>,
+}
+
+impl NdjsonBuf {
+    pub fn push(&mut self, bytes: &[u8]) -> Vec<String> {
+        self.pending.extend_from_slice(bytes);
+        let mut out = Vec::new();
+        while let Some(pos) = self.pending.iter().position(|&b| b == b'\n') {
+            let line: Vec<u8> = self.pending.drain(..=pos).collect();
+            let text = String::from_utf8_lossy(&line).trim().to_string();
+            if !text.is_empty() {
+                out.push(text);
+            }
+        }
+        out
+    }
+
+    /// Lo que quedó sin terminar en línea al acabar el flujo (el último objeto, si el servidor no cerró con salto de línea).
+    pub fn rest(&mut self) -> Option<String> {
+        let text = String::from_utf8_lossy(&std::mem::take(&mut self.pending)).trim().to_string();
+        (!text.is_empty()).then_some(text)
+    }
+}
+
+/// Acumula el streaming del `/api/chat` de Ollama.
+#[derive(Default)]
+pub struct OllamaAcc {
+    text: String,
+    calls: Vec<Call>,
+    usage: Usage,
+}
+
+impl OllamaAcc {
+    pub fn feed(&mut self, line: &str, on_text: &mut impl FnMut(&str)) -> Result<(), String> {
+        let Ok(v) = serde_json::from_str::<Value>(line) else { return Ok(()) };
+        if let Some(e) = api_error(&v) {
+            return Err(e);
+        }
+        if let Some(piece) = v["message"]["content"].as_str().filter(|s| !s.is_empty()) {
+            self.text.push_str(piece);
+            on_text(piece);
+        }
+        for call in v["message"]["tool_calls"].as_array().into_iter().flatten() {
+            let name = call["function"]["name"].as_str().unwrap_or("").to_string();
+            if name.is_empty() {
+                continue;
+            }
+            // Ollama manda los argumentos como objeto; algunos modelos los dejan como texto JSON.
+            let args = match &call["function"]["arguments"] {
+                Value::String(s) => parse_args(s),
+                Value::Null => json!({}),
+                other => other.clone(),
+            };
+            // Ollama no da identificadores de llamada: se inventan (solo valen dentro de esta vuelta).
+            let id = call["id"].as_str().filter(|s| !s.is_empty()).map(str::to_string).unwrap_or_else(|| format!("call_{}", self.calls.len()));
+            self.calls.push(Call { id, name, args });
+        }
+        if v["done"].as_bool() == Some(true) {
+            self.usage = Usage { input: v["prompt_eval_count"].as_u64().unwrap_or(0), output: v["eval_count"].as_u64().unwrap_or(0) };
+        }
+        Ok(())
+    }
+
+    pub fn finish(self) -> Round {
+        Round { text: self.text, calls: self.calls, usage: self.usage }
+    }
+}
+
+/// Algunos modelos pequeños (qwen2.5-coder, por ejemplo) escriben la llamada a la herramienta como texto JSON en vez de usar el formato
+/// de herramientas. Si **todo** el texto es una llamada válida a una herramienta que se ofreció, se trata como tal; si hay prosa
+/// mezclada o la herramienta no existe, no se toca (así una respuesta normal nunca se confunde con una llamada).
+pub fn rescue_text_call(text: &str, tools: &[Spec]) -> Option<Call> {
+    let mut t = text.trim();
+    if let Some(rest) = t.strip_prefix("```") {
+        t = rest.trim_start_matches(|c: char| c.is_alphanumeric()).trim();
+        t = t.strip_suffix("```").unwrap_or(t).trim();
+    }
+    if let Some(rest) = t.strip_prefix("<tool_call>") {
+        t = rest.trim();
+        t = t.strip_suffix("</tool_call>").unwrap_or(t).trim();
+    }
+    let v: Value = serde_json::from_str(t).ok()?;
+    let name = v["name"].as_str()?;
+    if !tools.iter().any(|s| s.name == name) {
+        return None;
+    }
+    let args = match v.get("arguments").or_else(|| v.get("parameters")).cloned().unwrap_or_else(|| json!({})) {
+        Value::String(s) => parse_args(&s),
+        other => other,
+    };
+    args.is_object().then(|| Call { id: "call_0".into(), name: name.to_string(), args })
+}
+
 // ---------- Red ----------
 
 /// Mensaje legible para un error HTTP: lo que dice el proveedor, o una pista según el código.
@@ -331,6 +465,8 @@ pub struct Endpoint<'a> {
     pub protocol: Protocol,
     pub base: &'a str,
     pub key: &'a str,
+    /// Ventana de contexto que se pide al modelo (solo la usa Ollama; 0 = la de por defecto).
+    pub context: u64,
 }
 
 fn client() -> Result<reqwest::Client, String> {
@@ -370,30 +506,61 @@ pub async fn stream_round(
                 .header("anthropic-version", ANTHROPIC_VERSION)
                 .json(&anthropic_body(model, system, msgs, tools, max_tokens.unwrap_or(8192)))
         }
+        Protocol::Ollama => {
+            let url = format!("{}/api/chat", ep.base.trim_end_matches('/'));
+            c.post(&url).json(&ollama_body(model, system, msgs, tools, ep.context, max_tokens))
+        }
     };
-    let mut res = req.send().await.map_err(|e| trf("No se pudo contactar con el proveedor: {e}", &[("e", &describe(e))]))?;
+    let mut res = req.send().await.map_err(|e| {
+        if ep.protocol == Protocol::Ollama {
+            trf("No se pudo contactar con Ollama: {e}", &[("e", &describe(e))])
+        } else {
+            trf("No se pudo contactar con el proveedor: {e}", &[("e", &describe(e))])
+        }
+    })?;
     if !res.status().is_success() {
         let status = res.status().as_u16();
         let body = res.text().await.unwrap_or_default();
         return Err(http_error(status, &body));
     }
     let mut sse = SseBuf::default();
-    let (mut oa, mut an) = (OpenAiAcc::default(), AnthropicAcc::default());
+    let mut nd = NdjsonBuf::default();
+    let (mut oa, mut an, mut ol) = (OpenAiAcc::default(), AnthropicAcc::default(), OllamaAcc::default());
     loop {
         if cancel.load(Ordering::Relaxed) {
             return Err(tr("La conversación se detuvo.").into());
         }
         let Some(chunk) = res.chunk().await.map_err(|e| trf("El proveedor cortó la respuesta: {e}", &[("e", &describe(e))]))? else { break };
+        if ep.protocol == Protocol::Ollama {
+            for line in nd.push(&chunk) {
+                ol.feed(&line, &mut on_text)?;
+            }
+            continue;
+        }
         for (_, data) in sse.push(&chunk) {
             match ep.protocol {
                 Protocol::OpenAi => oa.feed(&data, &mut on_text)?,
                 Protocol::Anthropic => an.feed(&data, &mut on_text)?,
+                Protocol::Ollama => {}
             }
         }
+    }
+    if let Some(line) = nd.rest() {
+        ol.feed(&line, &mut on_text)?;
     }
     Ok(match ep.protocol {
         Protocol::OpenAi => oa.finish(),
         Protocol::Anthropic => an.finish(),
+        Protocol::Ollama => {
+            let mut r = ol.finish();
+            if r.calls.is_empty() {
+                if let Some(call) = rescue_text_call(&r.text, tools) {
+                    r.calls.push(call);
+                    r.text.clear();
+                }
+            }
+            r
+        }
     })
 }
 
@@ -562,7 +729,7 @@ mod tests {
         let (base, server) = mock(sse);
         let cancel = AtomicBool::new(false);
         let mut streamed = String::new();
-        let ep = Endpoint { protocol: Protocol::OpenAi, base: &base, key: "sk-secreta" };
+        let ep = Endpoint { protocol: Protocol::OpenAi, base: &base, key: "sk-secreta", context: 0 };
         let r = tauri::async_runtime::block_on(stream_round(&ep, "m", "s", &[Msg::User { text: "hola".into(), images: vec![] }], &[spec()], None, &cancel, |t| streamed.push_str(t))).unwrap();
         assert_eq!((r.text.as_str(), streamed.as_str()), ("Hola", "Hola"));
         assert_eq!(r.calls[0].name, "read_file");
@@ -577,7 +744,7 @@ mod tests {
         let sse = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":5,\"output_tokens\":1}}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Listo\"}}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":2}}\n\n".to_string();
         let (base, server) = mock(sse);
         let cancel = AtomicBool::new(false);
-        let ep = Endpoint { protocol: Protocol::Anthropic, base: &base, key: "ak-secreta" };
+        let ep = Endpoint { protocol: Protocol::Anthropic, base: &base, key: "ak-secreta", context: 0 };
         let r = tauri::async_runtime::block_on(stream_round(&ep, "claude-x", "s", &[Msg::User { text: "hola".into(), images: vec![] }], &[], Some(2000), &cancel, |_| {})).unwrap();
         assert_eq!((r.text.as_str(), r.usage), ("Listo", Usage { input: 5, output: 2 }));
         let request = server.join().unwrap().to_lowercase();
@@ -586,9 +753,94 @@ mod tests {
     }
 
     #[test]
+    fn solicitud_ollama_fija_la_ventana_de_contexto_y_pasa_las_imagenes_sin_prefijo() {
+        let b = ollama_body("qwen", "sé breve", &conversation(), &[spec()], 16384, Some(500));
+        assert_eq!(b["options"], json!({ "num_ctx": 16384, "num_predict": 500 }));
+        assert_eq!(b["stream"], true);
+        assert_eq!(b["messages"][0], json!({ "role": "system", "content": "sé breve" }));
+        // Las llamadas llevan los argumentos como objeto (no como texto), y los resultados el nombre de la herramienta.
+        assert_eq!(b["messages"][2]["tool_calls"][1]["function"], json!({ "name": "read_file", "arguments": { "path": "b.ts" } }));
+        assert_eq!(b["messages"][3], json!({ "role": "tool", "tool_name": "read_file", "content": "uno" }));
+        assert_eq!(b["tools"][0]["function"]["name"], "read_file");
+        let con_imagen = ollama_body("m", "s", &[Msg::User { text: "hola".into(), images: vec!["data:image/png;base64,AAA".into(), "no-es-data-url".into()] }], &[], 0, None);
+        assert_eq!(con_imagen["messages"][1]["images"], json!(["AAA"]));
+        // Sin contexto conocido ni límite de salida no se manda ninguna opción.
+        assert_eq!(con_imagen["options"], json!({}));
+        assert!(con_imagen.get("tools").is_none());
+    }
+
+    #[test]
+    fn acumula_el_ndjson_de_ollama_con_lineas_cortadas_herramientas_y_uso() {
+        let mut buf = NdjsonBuf::default();
+        let mut acc = OllamaAcc::default();
+        let mut got = String::new();
+        let mut on = |t: &str| got.push_str(t);
+        let stream = "{\"message\":{\"role\":\"assistant\",\"content\":\"Hola\"},\"done\":false}\n{\"message\":{\"content\":\" mundo\",\"tool_calls\":[{\"function\":{\"name\":\"read_file\",\"arguments\":{\"path\":\"a.ts\"}}},{\"function\":{\"name\":\"grep\",\"arguments\":\"{\\\"pattern\\\":\\\"x\\\"}\"}}]},\"done\":false}\n{\"message\":{\"content\":\"\"},\"done\":true,\"prompt_eval_count\":120,\"eval_count\":30}";
+        // El flujo llega en trozos que cortan una línea por la mitad, y el último no termina en salto de línea.
+        let (a, b) = stream.split_at(60);
+        let mut lines = buf.push(a.as_bytes());
+        lines.extend(buf.push(b.as_bytes()));
+        lines.extend(buf.rest());
+        for l in lines {
+            acc.feed(&l, &mut on).unwrap();
+        }
+        let r = acc.finish();
+        assert_eq!((got.as_str(), r.text.as_str()), ("Hola mundo", "Hola mundo"));
+        assert_eq!(r.calls, vec![Call { id: "call_0".into(), name: "read_file".into(), args: json!({ "path": "a.ts" }) }, Call { id: "call_1".into(), name: "grep".into(), args: json!({ "pattern": "x" }) }]);
+        assert_eq!(r.usage, Usage { input: 120, output: 30 });
+        let mut e = OllamaAcc::default();
+        assert_eq!(e.feed(r#"{"error":"model 'x' not found"}"#, &mut |_| {}), Err("model 'x' not found".to_string()));
+    }
+
+    #[test]
+    fn rescata_la_llamada_que_un_modelo_pequeno_escribio_como_texto() {
+        let tools = [spec()];
+        let want = Some(Call { id: "call_0".into(), name: "read_file".into(), args: json!({ "path": "a.ts" }) });
+        assert_eq!(rescue_text_call(r#"{"name": "read_file", "arguments": {"path": "a.ts"}}"#, &tools), want);
+        // Con cercas de código, con etiquetas, con «parameters» o con los argumentos como texto.
+        assert_eq!(rescue_text_call("```json\n{\"name\":\"read_file\",\"arguments\":{\"path\":\"a.ts\"}}\n```", &tools), want);
+        assert_eq!(rescue_text_call("<tool_call>\n{\"name\":\"read_file\",\"arguments\":{\"path\":\"a.ts\"}}\n</tool_call>", &tools), want);
+        assert_eq!(rescue_text_call(r#"{"name":"read_file","parameters":{"path":"a.ts"}}"#, &tools), want);
+        assert_eq!(rescue_text_call(r#"{"name":"read_file","arguments":"{\"path\":\"a.ts\"}"}"#, &tools), want);
+        // Lo que no es exactamente una llamada a una herramienta ofrecida no se toca.
+        assert_eq!(rescue_text_call("Voy a leer el archivo: {\"name\":\"read_file\",\"arguments\":{}}", &tools), None);
+        assert_eq!(rescue_text_call(r#"{"name":"borrar_todo","arguments":{}}"#, &tools), None);
+        assert_eq!(rescue_text_call(r#"{"name":"read_file","arguments":[1]}"#, &tools), None);
+        assert_eq!(rescue_text_call(r#"{"respuesta": 42}"#, &tools), None);
+        assert_eq!(rescue_text_call("Hola, ¿en qué ayudo?", &tools), None);
+        assert_eq!(rescue_text_call("", &tools), None);
+    }
+
+    #[test]
+    fn ollama_con_la_llamada_como_texto_la_convierte_en_herramienta_y_no_la_muestra_como_respuesta() {
+        let line = json!({ "message": { "content": "{\"name\":\"read_file\",\"arguments\":{\"path\":\"a.ts\"}}" }, "done": true, "prompt_eval_count": 5, "eval_count": 3 });
+        let (base, _server) = mock(format!("{line}\n"));
+        let base = base.trim_end_matches("/v1").to_string();
+        let ep = Endpoint { protocol: Protocol::Ollama, base: &base, key: "", context: 0 };
+        let r = tauri::async_runtime::block_on(stream_round(&ep, "m", "s", &[Msg::User { text: "hola".into(), images: vec![] }], &[spec()], None, &AtomicBool::new(false), |_| {})).unwrap();
+        assert_eq!((r.text.as_str(), r.calls.len(), r.calls[0].name.as_str()), ("", 1, "read_file"));
+    }
+
+    #[test]
+    fn de_extremo_a_extremo_con_ollama_simulado() {
+        let ndjson = "{\"message\":{\"content\":\"Listo\"},\"done\":false}\n{\"message\":{\"content\":\"\"},\"done\":true,\"prompt_eval_count\":9,\"eval_count\":2}\n".to_string();
+        let (base, server) = mock(ndjson);
+        // `mock` devuelve `.../v1`; Ollama habla en `/api/chat` desde la raíz.
+        let base = base.trim_end_matches("/v1").to_string();
+        let cancel = AtomicBool::new(false);
+        let ep = Endpoint { protocol: Protocol::Ollama, base: &base, key: "", context: 8192 };
+        let r = tauri::async_runtime::block_on(stream_round(&ep, "qwen", "s", &[Msg::User { text: "hola".into(), images: vec![] }], &[spec()], None, &cancel, |_| {})).unwrap();
+        assert_eq!((r.text.as_str(), r.usage), ("Listo", Usage { input: 9, output: 2 }));
+        let request = server.join().unwrap();
+        assert!(request.starts_with("POST /api/chat"), "{request}");
+        assert!(request.contains("\"num_ctx\":8192"), "{request}");
+        assert!(!request.to_lowercase().contains("authorization"), "Ollama no recibe ninguna clave: {request}");
+    }
+
+    #[test]
     fn nunca_manda_la_clave_a_una_direccion_insegura() {
         let cancel = AtomicBool::new(false);
-        let ep = Endpoint { protocol: Protocol::OpenAi, base: "http://evil.example.com/v1", key: "sk-secreta" };
+        let ep = Endpoint { protocol: Protocol::OpenAi, base: "http://evil.example.com/v1", key: "sk-secreta", context: 0 };
         let r = tauri::async_runtime::block_on(stream_round(&ep, "m", "s", &[], &[], None, &cancel, |_| {}));
         assert!(r.is_err());
     }

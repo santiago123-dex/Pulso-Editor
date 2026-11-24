@@ -1052,7 +1052,7 @@ fn run_doctor(color: bool) {
     println!("  {}", rule(60, color));
 
     let t_providers = std::thread::spawn(detect_all_cli_providers);
-    let t_ollama = std::thread::spawn(pulso_editor_lib::localai::detect);
+    let t_ollama = std::thread::spawn(pulso_editor_lib::ollama::detect);
     let git_ver = capture_cmd_version("git", "--version");
     let node_ver = capture_cmd_version("node", "--version");
 
