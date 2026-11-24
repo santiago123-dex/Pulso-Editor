@@ -145,11 +145,11 @@ Lo ya hecho (proveedores de models.dev, herramientas, subagentes, skills, comand
 
 ## I. Rendimiento y tamaño
 
-- [ ] Quitar o cargar a demanda el servicio de TypeScript propio de Monaco (`ts.worker`, 6 MB) ahora que hay LSP.
-- [ ] Revisar Monaco (3,9 MB) y la fuente de símbolos (2,6 MB): subconjunto de glifos o carga diferida.
-- [ ] **Medir en compilación de producción** y con proyectos reales (hasta ahora es una compilación de depuración y un proyecto sintético), incluida la memoria con el TypeScript nativo.
-- [ ] Búsqueda que respete `.gitignore` y evite recorrer el disco entero cada vez.
-- [ ] Perfilar los picos al escribir en archivos muy grandes y acotar la memoria del servidor de lenguaje.
+- [x] Quitar o cargar a demanda el servicio de TypeScript propio de Monaco (`ts.worker`, 6 MB) ahora que hay LSP.
+- [x] Revisar Monaco (3,9 MB) y la fuente de símbolos (2,6 MB): subconjunto de glifos o carga diferida.
+- [x] **Medir en compilación de producción** y con proyectos reales (hasta ahora es una compilación de depuración y un proyecto sintético), incluida la memoria con el TypeScript nativo.
+- [x] Búsqueda que respete `.gitignore` y evite recorrer el disco entero cada vez.
+- [x] Perfilar los picos al escribir en archivos muy grandes y acotar la memoria del servidor de lenguaje.
 
 ## J. Comunidad y producto (sin código)
 
