@@ -33,6 +33,7 @@ pub mod agenttools;
 pub mod agentperms;
 pub mod agentconfig;
 pub mod agenthooks;
+pub mod agentmcp;
 pub mod agentmem;
 mod files;
 mod gitinfo;

@@ -325,6 +325,7 @@ export function toolSummary(b: Extract<Block, { kind: "tool" }>): string {
     case "TodoWrite": return t("Actualizó la lista de tareas");
     case "Memory": return t("Guardó una nota en la memoria");
     case "Hook": return t("Un gancho bloqueó una herramienta");
+    case "Mcp": return str(i.tool) ? t("Usó {tool} de {server}", { tool: str(i.tool), server: str(i.server) }) : t("Usó una herramienta MCP");
     case "Skill": return str(i.name) ? t("Usó la skill {name}", { name: str(i.name) }) : t("Usó una skill");
     case "Task": return str(i.description) ? t("Subagente {agent}: {description}", { agent: str(i.agent), description: str(i.description) }) : t("Lanzó un subagente");
     default: return b.name || t("Usó una herramienta");

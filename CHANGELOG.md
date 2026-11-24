@@ -5,6 +5,7 @@ Todos los cambios notables en Pulso Editor se documentan en este archivo.
 ## [Sin publicar]
 
 ### Añadido
+- **MCP en el agente propio:** el agente puede usar las herramientas de servidores MCP locales (`mcp.json` en `~/.pulso/` siempre y en `.pulso/` del proyecto solo con confianza). Cada llamada pide aprobación (servidor, herramienta y argumentos), no se ofrecen en solo lectura ni con `/plan`, y los ganchos también se aplican. Ver [Agente](docs/AGENTE.md).
 - **Ganchos del agente propio:** comandos que se ejecutan antes y después de cada herramienta, en `hooks.json` (`~/.pulso/` siempre; `.pulso/` del proyecto solo con confianza). Un gancho previo que termina con el código 2 bloquea la herramienta; uno posterior añade su salida al resultado. Ver [Agente](docs/AGENTE.md).
 ### Seguridad
 - Al abrir un proyecto que trae `AGENTS.md`, skills, subagentes o comandos y en el que todavía no se confía, la barra de estado avisa de que no se cargan y de cómo confiar («IA: Confiar en este proyecto…»).

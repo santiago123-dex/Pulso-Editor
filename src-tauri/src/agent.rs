@@ -11,7 +11,8 @@
 //!
 //! Emite los mismos eventos que Claude Code, así que la tarjeta de actividad, los diffs y el historial del panel no cambian.
 use crate::agentconfig::{self, AgentDef, Config};
-use crate::agentperms::Permissions;
+use crate::agentmcp::{McpTool, McpTools};
+use crate::agentperms::{Permissions, Verdict};
 use crate::agenttools::{self, Mode, Outcome, Session};
 use crate::catalog::Protocol;
 use crate::i18n::{tr, trf};
@@ -92,6 +93,8 @@ pub struct AgentEnv {
     pub cancel: Arc<AtomicBool>,
     /// Permisos y preguntas a la persona; los subagentes usan los mismos que el agente principal.
     pub perms: Arc<Permissions>,
+    /// Herramientas de los servidores MCP arrancados para esta conversación (vacío si no hay).
+    pub mcp: Arc<McpTools>,
 }
 
 /// Coste en dólares de los tokens usados según el precio del catálogo (0 si el catálogo no lo trae).
@@ -167,6 +170,32 @@ fn subagent_specs(mode: Mode, def: &AgentDef, has_skills: bool) -> Vec<Spec> {
     specs
 }
 
+/// Llama a una herramienta de un servidor MCP, previa aprobación de la persona.
+async fn call_mcp(env: &AgentEnv, tool: &McpTool, args: &Value, agent: &str) -> Outcome {
+    let ui = json!({ "server": tool.server, "tool": tool.tool, "input": args });
+    if let Verdict::Deny(why) = env.perms.check_mcp(&tool.approval_detail(args), agent).await {
+        return Outcome { ui_name: "Mcp", ui_input: ui, result: why, is_error: true };
+    }
+    let (client, name, args, cancel) = (tool.client(), tool.tool.clone(), args.clone(), env.cancel.clone());
+    let run = tauri::async_runtime::spawn_blocking(move || client.call_tool(&name, &args, &cancel)).await;
+    match run {
+        Ok(Ok((text, is_error))) => Outcome { ui_name: "Mcp", ui_input: ui, result: if text.trim().is_empty() { tr("(La herramienta no devolvió texto.)").to_string() } else { text }, is_error },
+        Ok(Err(e)) => Outcome { ui_name: "Mcp", ui_input: ui, result: e, is_error: true },
+        Err(e) => Outcome { ui_name: "Mcp", ui_input: ui, result: e.to_string(), is_error: true },
+    }
+}
+
+/// Un aviso corto para la persona en el panel (no forma parte de la conversación con el modelo).
+fn emit_notice(send: &dyn Fn(Value), id: &str, text: &str) {
+    let text = format!("_{text}_{PARAGRAPH}");
+    send(json!({ "type": "stream_event", "event": { "type": "message_start", "message": { "id": id } } }));
+    send(json!({ "type": "stream_event", "event": { "type": "content_block_start", "index": 0, "content_block": { "type": "text", "text": "" } } }));
+    send(json!({ "type": "stream_event", "event": { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": text } } }));
+    send(json!({ "type": "stream_event", "event": { "type": "content_block_stop", "index": 0 } }));
+    send(json!({ "type": "assistant", "message": { "id": id, "content": [{ "type": "text", "text": text }] } }));
+    send(json!({ "type": "stream_event", "event": { "type": "message_stop" } }));
+}
+
 fn clip(mut s: String, max: usize) -> String {
     if s.chars().count() > max {
         s = s.chars().take(max).collect();
@@ -228,7 +257,11 @@ fn run_task(env: AgentEnv, mode: Mode, parent: CloudModel, args: Value) -> Pin<B
             def.prompt,
             env.config.prompt_addendum(false),
         );
-        let specs = subagent_specs(mode, &def, !env.config.skills.is_empty());
+        let mut specs = subagent_specs(mode, &def, !env.config.skills.is_empty());
+        // Las herramientas MCP no se sabe si escriben: solo las reciben los subagentes sin lista de herramientas, y nunca en solo lectura.
+        if mode != Mode::Read && def.tools.is_none() {
+            specs.extend(llm::specs_from_openai(&env.mcp.specs_json()));
+        }
         let msgs = vec![Msg::User { text: prompt, images: vec![] }];
         match converse(&env, &model, &system, &specs, mode, msgs, false, MAX_SUBAGENT_ROUNDS, &def.name, None).await {
             Ok(c) => {
@@ -361,7 +394,11 @@ async fn converse(
                 match hooks.pre(&env.root, &call.name, &call.args, &env.cancel).await {
                     Err(reason) => Slot::Done(Outcome { ui_name: "Hook", ui_input: json!({ "tool": call.name }), result: reason, is_error: true }),
                     Ok(()) => {
-                        let mut done = agenttools::dispatch(&mut session, &call.name, &call.args).await;
+                        // Solo se atiende una herramienta MCP que se le ofreció a este agente (un subagente puede no tenerlas).
+                        let mut done = match env.mcp.get(&call.name) {
+                            Some(tool) if specs.iter().any(|s| s.name == call.name) => call_mcp(env, tool, &call.args, agent).await,
+                            _ => agenttools::dispatch(&mut session, &call.name, &call.args).await,
+                        };
                         if hooks.has_any() {
                             done.result.push_str(&hooks.post(&env.root, &call.name, &call.args, &env.cancel).await);
                         }
@@ -437,15 +474,48 @@ pub async fn run(
     resolver: ModelResolver,
     perms: Arc<Permissions>,
 ) -> Result<(), String> {
+    // Los servidores MCP se arrancan al empezar (puede tardar unos segundos la primera vez).
+    let mcp = if config.mcp.servers.is_empty() {
+        McpTools::default()
+    } else {
+        let (c, r, k) = (config.clone(), root.clone(), cancel.clone());
+        tauri::async_runtime::spawn_blocking(move || McpTools::start(&c.mcp, &r, &k)).await.unwrap_or_default()
+    };
+    run_with_mcp(model, root, conversation, history, prompt, images, mode, cancel, emit, config, resolver, perms, Arc::new(mcp)).await
+}
+
+/// Lo mismo que `run`, con los servidores MCP ya arrancados (así se pueden probar sin lanzar procesos).
+#[allow(clippy::too_many_arguments)]
+async fn run_with_mcp(
+    model: CloudModel,
+    root: PathBuf,
+    conversation: String,
+    history: Vec<HistoryMsg>,
+    prompt: String,
+    images: Vec<String>,
+    mode: String,
+    cancel: Arc<AtomicBool>,
+    emit: Arc<dyn Fn(String) + Send + Sync>,
+    config: Arc<Config>,
+    resolver: ModelResolver,
+    perms: Arc<Permissions>,
+    mcp: Arc<McpTools>,
+) -> Result<(), String> {
     // `/plan …` se atiende siempre en solo lectura: el agente explora y propone, no toca nada.
     let mode = if agentconfig::is_plan_request(&prompt) { Mode::Read } else { Mode::parse(&mode) };
     let started = Instant::now();
     let send = |v: Value| emit(v.to_string());
     send(json!({ "type": "system", "subtype": "init", "session_id": conversation, "model": model.model }));
-    let env = AgentEnv { root: root.clone(), config: config.clone(), resolver, cancel, perms };
+    for (i, note) in mcp.notes.iter().enumerate() {
+        emit_notice(&send, &format!("cloud_mcp_{i}_{:x}", rand_part()), note);
+    }
+    let env = AgentEnv { root: root.clone(), config: config.clone(), resolver, cancel, perms, mcp: mcp.clone() };
 
     let system = format!("{}{}", agenttools::system_prompt(&root, mode), config.prompt_addendum(true));
     let mut specs = llm::specs_from_openai(&agenttools::schema(mode));
+    if mode != Mode::Read {
+        specs.extend(llm::specs_from_openai(&mcp.specs_json()));
+    }
     let mut extra = vec![task_spec(&config.agents)];
     if !config.skills.is_empty() {
         extra.push(use_skill_spec());
@@ -964,6 +1034,72 @@ mod tests {
         assert_eq!(asked.len(), 1);
         assert_eq!(asked[0].agent, "general");
         assert!(dir.join("marca.txt").exists());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Servidores MCP simulados en memoria con las herramientas `echo`, `echo` (repetida) y `falla.mal nombre`, del servidor «docs».
+    fn mcp_tools() -> Arc<McpTools> {
+        let (c, _, _) = crate::agentmcp::testkit::client();
+        let cancel = AtomicBool::new(false);
+        c.initialize(&cancel).unwrap();
+        let list = c.list_tools(&cancel).unwrap();
+        let mut t = McpTools::default();
+        t.add_server("docs", Arc::new(c), list);
+        Arc::new(t)
+    }
+
+    fn go_mcp(dir: &PathBuf, mode: &str, perms: Arc<Permissions>, replies: Vec<String>) -> (Vec<Value>, Vec<Value>) {
+        let (base, server) = mock_server(replies);
+        let (events, emit) = collect_events();
+        let m = CloudModel { base_url: base, ..model() };
+        tauri::async_runtime::block_on(run_with_mcp(m, dir.clone(), "c".into(), vec![], "usa la herramienta".into(), vec![], mode.into(), Arc::new(AtomicBool::new(false)), emit, Arc::new(Config::default()), no_resolver(), perms, mcp_tools())).unwrap();
+        let bodies: Vec<Value> = server.join().unwrap().iter().map(|b| serde_json::from_str(b).unwrap()).collect();
+        let ev = events.lock().unwrap().clone();
+        (ev, bodies)
+    }
+
+    #[test]
+    fn una_herramienta_mcp_se_ofrece_se_pregunta_y_devuelve_su_resultado() {
+        let dir = project("mcp-ok");
+        let approver = Recorder::new(crate::agentperms::Decision::Once);
+        let call = tool_reply(&[("m1", "mcp__docs__echo", json!({ "text": "hola" }))]);
+        let (ev, bodies) = go_mcp(&dir, "full", perms_with(approver.clone()), vec![call, text_reply("Listo.")]);
+        let offered = tool_names(&bodies[0]);
+        assert!(offered.contains(&"mcp__docs__echo".to_string()) && offered.contains(&"mcp__docs__falla_mal_nombre".to_string()), "{offered:?}");
+        let asked = approver.asked();
+        assert_eq!(asked.len(), 1);
+        assert_eq!(asked[0].tool, crate::agentperms::Tool::Mcp);
+        assert!(asked[0].detail.starts_with("docs → echo\n") && asked[0].detail.contains("hola"), "{}", asked[0].detail);
+        let used = ev.iter().filter_map(|e| e["message"]["content"].as_array()).flatten().find(|c| c["type"] == "tool_use").unwrap();
+        assert_eq!(used["name"], "Mcp");
+        let result = ev.iter().find(|e| e["type"] == "user").unwrap()["message"]["content"][0].clone();
+        assert!(result["content"].as_str().unwrap().starts_with("eco: hola") && result["is_error"] == false, "{result}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn si_la_persona_deniega_la_herramienta_mcp_no_se_ejecuta() {
+        let dir = project("mcp-deny");
+        let approver = Recorder::new(crate::agentperms::Decision::Deny);
+        let call = tool_reply(&[("m1", "mcp__docs__echo", json!({ "text": "secreto" }))]);
+        let (ev, _) = go_mcp(&dir, "full", perms_with(approver.clone()), vec![call, text_reply("Vale.")]);
+        assert_eq!(approver.asked().len(), 1);
+        let result = ev.iter().find(|e| e["type"] == "user").unwrap()["message"]["content"][0].clone();
+        assert!(result["is_error"] == true && !result["content"].as_str().unwrap().contains("eco:"), "{result}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn en_solo_lectura_no_se_ofrecen_herramientas_mcp_ni_se_aceptan() {
+        let dir = project("mcp-read");
+        let approver = Recorder::new(crate::agentperms::Decision::Once);
+        // El modelo la pide igualmente: no se ofreció, así que no se ejecuta ni se pregunta.
+        let call = tool_reply(&[("m1", "mcp__docs__echo", json!({ "text": "hola" }))]);
+        let (ev, bodies) = go_mcp(&dir, "read", perms_with(approver.clone()), vec![call, text_reply("Vale.")]);
+        assert!(tool_names(&bodies[0]).iter().all(|n| !n.starts_with("mcp__")));
+        assert!(approver.asked().is_empty());
+        let result = ev.iter().find(|e| e["type"] == "user").unwrap()["message"]["content"][0].clone();
+        assert!(result["is_error"] == true && !result["content"].as_str().unwrap().contains("eco:"), "{result}");
         let _ = std::fs::remove_dir_all(dir);
     }
 

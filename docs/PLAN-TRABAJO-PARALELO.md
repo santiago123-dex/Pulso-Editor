@@ -71,7 +71,7 @@ Cada PR de G dice en su descripción qué archivos movió; Antigravity no empiez
 ### Claude, paso 2 (después de G)
 
 - [x] Resto de A: aviso al abrir un proyecto con `AGENTS.md` o skills sin confianza, y revisión de enlaces simbólicos en `search_files` y `replace_in_file`.
-- [ ] Resto de F: MCP, ganchos, ver en vivo los pasos de un subagente, Ollama al motor común, cifrar el historial.
+- [ ] Resto de F: ver en vivo los pasos de un subagente, Ollama al motor común, cifrar el historial. (MCP y ganchos ya están hechos.)
 - [ ] Probar el agente con proveedores reales cuando la persona pueda dar una clave.
 
 ### Antes de cada paso
@@ -165,7 +165,7 @@ Lo ya hecho (proveedores de models.dev, herramientas, subagentes, skills, comand
 - [ ] **Aprobar las ediciones directas** del modo Agente (hoy se aplican sin preguntar; se deshacen con Git).
 - [x] **Escribir reglas de denegar desde la interfaz.**
 - [x] **Resumir la conversación** al llegar al límite de contexto, en vez de solo podar resultados.
-- [ ] **MCP:** cliente de servidores MCP, con aprobación de sus herramientas por el mismo camino que los comandos.
+- [x] **MCP:** cliente de servidores MCP locales (`agentmcp.rs`, ver [Agente](AGENTE.md)), con aprobación de cada llamada por el mismo camino que los comandos. Faltan los servidores remotos (HTTP) y OAuth.
 - [x] **Ganchos (hooks)** antes y después de cada herramienta (`agenthooks.rs`, ver [Agente](AGENTE.md)).
 - [x] **Memoria entre sesiones**, por proyecto, guardada fuera del proyecto (`agentmem.rs`).
 - [x] **Modo plan:** `/plan <tarea>`, siempre en solo lectura; el agente propone el plan y tú decides cuándo ejecutarlo.

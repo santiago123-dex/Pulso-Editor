@@ -105,7 +105,23 @@ Hecho en `src-tauri/src/agentconfig.rs` (descubrimiento) y `agent.rs` (subagente
 **Seguridad de la configuración:** `AGENTS.md`, las skills y los subagentes de un proyecto son contenido del proyecto. Llegan al modelo como convenciones de trabajo, pero **no cambian el modo de permisos elegido**. Con un proyecto ajeno en el que no confías, no uses el modo Agente.
 
 ### Fase 4: ampliar y automatizar
-Hecho: memoria entre sesiones, resumen de conversaciones largas, `/plan`, reglas de denegar y **ganchos**. Falta: MCP (servidores de herramientas externos) y agentes que corren en segundo plano.
+Hecho: memoria entre sesiones, resumen de conversaciones largas, `/plan`, reglas de denegar, **ganchos** y **MCP**. Falta: agentes que corren en segundo plano.
+
+#### MCP (`src-tauri/src/agentmcp.rs`)
+Cliente de [MCP](https://modelcontextprotocol.io) (Model Context Protocol): servidores externos que le dan herramientas nuevas al agente (buscar en una documentación, consultar una base de datos, usar una API…). Se configuran en `mcp.json`, en `~/.pulso/` (los tuyos, siempre) y en `.pulso/` del proyecto (**solo si confías en él**):
+
+```json
+{ "servers": {
+    "docs": { "command": "npx", "args": ["-y", "un-servidor-mcp"], "env": { "TOKEN": "…" } }
+} }
+```
+
+- Solo se admiten servidores **locales por entrada y salida estándar** (`command` + `args` + `env`); también se acepta la clave `mcpServers` y `"disabled": true` para apagar uno. Los servidores remotos (HTTP) y la autorización OAuth no están todavía.
+- Los servidores se arrancan al empezar cada conversación (en la carpeta del proyecto) y se cierran al terminar. Si uno no arranca, el panel lo dice y el agente sigue sin él. Hasta 8 servidores y 64 herramientas por servidor.
+- Cada herramienta se ofrece al modelo como `mcp__servidor__herramienta`. Pulso solo le pasa **texto**: las imágenes o el audio que devuelva un servidor se omiten (con una nota).
+- **Permisos:** antes de **cada** llamada se pregunta a la persona (servidor, herramienta y argumentos), igual que con las páginas web: hay «Permitir una vez», «Permitir todo en esta conversación» y «Denegar», y no se guardan reglas, porque Pulso no puede saber si una herramienta de un servidor escribe o no. Los ganchos (`PreToolUse`/`PostToolUse`) también se aplican a las herramientas MCP.
+- **En modo solo lectura (y con `/plan`) no se ofrecen herramientas MCP.** Los subagentes solo las reciben si su definición no limita la lista de herramientas, y nunca en solo lectura.
+- **Seguridad:** un servidor MCP es un programa que se ejecuta con tus permisos y que decide por sí mismo lo que hace; por eso los del proyecto exigen confianza (los escribió otra persona). Su respuesta es dato, no instrucciones. No pongas claves en un `mcp.json` que vaya a un repositorio.
 
 #### Ganchos (`src-tauri/src/agenthooks.rs`)
 Comandos que Pulso ejecuta **antes y después de cada herramienta** del agente (también las de los subagentes). Se configuran en `hooks.json`, en `~/.pulso/` (los tuyos, siempre) y en `.pulso/` del proyecto (**solo si confías en él**; sin confianza se ignoran los del proyecto):

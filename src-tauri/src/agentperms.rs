@@ -50,6 +50,8 @@ impl Decision {
 pub enum Tool {
     Command,
     Web,
+    /// Una herramienta de un servidor MCP.
+    Mcp,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -328,7 +330,7 @@ impl Approver for UiApprover {
         let (tx, rx) = mpsc::channel();
         self.broker.pending.lock().unwrap_or_else(|e| e.into_inner()).insert(id.clone(), tx);
         (self.emit)(
-            json!({ "type": "pulso_permission", "id": id, "tool": if req.tool == Tool::Web { "web" } else { "command" }, "detail": req.detail, "risky": req.risky, "agent": req.agent })
+            json!({ "type": "pulso_permission", "id": id, "tool": match req.tool { Tool::Web => "web", Tool::Mcp => "mcp", Tool::Command => "command" }, "detail": req.detail, "risky": req.risky, "agent": req.agent })
                 .to_string(),
         );
         let (broker, cancel, emit) = (self.broker.clone(), self.cancel.clone(), self.emit.clone());
@@ -425,10 +427,20 @@ impl Permissions {
 
     /// Leer una página web: se pregunta cada vez, salvo con «permitir todo» en la conversación.
     pub async fn check_web(&self, url: &str, agent: &str) -> Verdict {
+        self.check_each_time(Tool::Web, url, agent).await
+    }
+
+    /// Una herramienta de un servidor MCP: igual que la web, se pregunta cada vez. No hay reglas guardadas para ellas.
+    pub async fn check_mcp(&self, detail: &str, agent: &str) -> Verdict {
+        self.check_each_time(Tool::Mcp, detail, agent).await
+    }
+
+    async fn check_each_time(&self, tool: Tool, detail: &str, agent: &str) -> Verdict {
         if self.allow_all.load(Ordering::Relaxed) {
             return Verdict::Allow;
         }
-        match self.approver.ask(ApprovalRequest { tool: Tool::Web, detail: url.to_string(), risky: false, agent: agent.to_string() }).await {
+        let url = detail;
+        match self.approver.ask(ApprovalRequest { tool, detail: url.to_string(), risky: false, agent: agent.to_string() }).await {
             Decision::Deny => self.denied(url),
             Decision::AllowAll => {
                 self.allow_all.store(true, Ordering::Relaxed);
