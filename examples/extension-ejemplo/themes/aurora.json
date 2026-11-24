@@ -1,0 +1,9 @@
+{
+  "name": "Aurora Ejemplo",
+  "type": "dark",
+  "colors": {
+    "editor.background": "#0b1120",
+    "editor.foreground": "#e2e8f0",
+    "focusBorder": "#38bdf8"
+  }
+}
