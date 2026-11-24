@@ -139,6 +139,7 @@ const EN: &[(&str, &str)] = &[
     ("No confiar", "Don't trust"),
     ("No se pudo guardar la confianza en la carpeta.", "Couldn't save the trust for this folder."),
     ("Cancelar", "Cancel"),
+    ("Escribe un comando, o un prefijo seguido de * (por ejemplo: git push *).", "Type a command, or a prefix followed by * (for example: git push *)."),
     ("La conversación era larga: resumí lo anterior para seguir.", "The conversation got long: I summarized the earlier part to keep going."),
     ("El resumen salió vacío.", "The summary came back empty."),
     ("La nota está vacía.", "The note is empty."),

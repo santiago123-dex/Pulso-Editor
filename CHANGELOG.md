@@ -5,6 +5,7 @@ Todos los cambios notables en Pulso Editor se documentan en este archivo.
 ## [Sin publicar]
 
 ### Añadido
+- **Reglas de denegar desde la interfaz** para el agente propio: «IA: Comandos permitidos para este proyecto…» permite añadir un comando (o un prefijo con `*`) que el agente nunca podrá ejecutar.
 - **El agente propio resume la conversación larga** en vez de perder el hilo: al acercarse al límite de contexto del modelo, resume lo anterior y conserva lo reciente.
 - **Memoria del agente entre sesiones.** El agente propio puede guardar notas cortas del proyecto (`memory_save`) y las recibe de nuevo en la conversación siguiente. Viven fuera del proyecto, solo se usan en proyectos de confianza y «IA: Memoria del agente en este proyecto…» las muestra y las borra.
 

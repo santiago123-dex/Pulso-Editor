@@ -124,7 +124,7 @@ Lo ya hecho (proveedores de models.dev, herramientas, subagentes, skills, comand
 
 - [ ] **Probar con proveedores reales** (OpenAI, Anthropic, OpenRouter, DeepSeek…) y corregir las rarezas; hasta ahora solo hay servidores simulados.
 - [ ] **Aprobar las ediciones directas** del modo Agente (hoy se aplican sin preguntar; se deshacen con Git).
-- [ ] **Escribir reglas de denegar desde la interfaz** (hoy se editan en `agent-permissions.json`).
+- [x] **Escribir reglas de denegar desde la interfaz.**
 - [x] **Resumir la conversación** al llegar al límite de contexto, en vez de solo podar resultados.
 - [ ] **MCP:** cliente de servidores MCP, con aprobación de sus herramientas por el mismo camino que los comandos.
 - [ ] **Ganchos (hooks)** antes y después de cada herramienta.

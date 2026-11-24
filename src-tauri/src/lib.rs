@@ -1201,6 +1201,7 @@ pub fn run() {
             agentperms::ai_permission_respond,
             agentperms::agent_rules_list,
             agentperms::agent_rules_remove,
+            agentperms::agent_rules_add_deny,
             agentmem::agent_memory_list,
             agentmem::agent_memory_remove,
             catalog::provider_key_set,
