@@ -4,6 +4,9 @@ Todos los cambios notables en Pulso Editor se documentan en este archivo.
 
 ## [Sin publicar]
 
+### Corregido
+- **El panel «Ver uso y límites» del selector de modelos ya no se abre solo ni se queda abierto.** Se abría al pasar el cursor y, al pulsar para cerrarlo, se volvía a abrir porque el botón se redibujaba bajo el cursor. Ahora solo se abre y se cierra con un clic.
+
 ### Calidad
 - Se añaden `SECURITY.md` (cómo reportar una vulnerabilidad) y `CODE_OF_CONDUCT.md`, Dependabot y un trabajo de CI «Calidad (aviso)» con `cargo fmt`, `clippy`, `cargo audit`, `npm audit` y Prettier. Las dos pruebas de Ctrl+C de la terminal se pueden saltar con `PULSO_SKIP_CTRL_C=1`.
 ### Añadido
