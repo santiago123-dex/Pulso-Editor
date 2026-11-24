@@ -413,4 +413,26 @@ mod tests {
         assert!(list_extensions_in(&root).is_empty());
         let _ = fs::remove_dir_all(&base);
     }
+
+    #[test]
+    fn installs_bundled_example_extension_end_to_end() {
+        let example_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/extension-ejemplo");
+        assert!(example_dir.join("manifest.json").is_file(), "falta examples/extension-ejemplo/manifest.json");
+
+        let root = std::env::temp_dir().join(format!("pulso-ext-e2e-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+
+        let installed = install_extension_into(&root, &example_dir).expect("debe instalar la extensión de ejemplo");
+        assert_eq!(installed.manifest.id, "pulso.ejemplo-aurora");
+        assert!(installed.enabled);
+        assert!(root.join("pulso.ejemplo-aurora/themes/aurora.json").is_file());
+        assert!(root.join("pulso.ejemplo-aurora/snippets/typescript.json").is_file());
+
+        set_enabled_in(&root, "pulso.ejemplo-aurora", false).unwrap();
+        assert!(!list_extensions_in(&root)[0].enabled);
+
+        uninstall_extension_in(&root, "pulso.ejemplo-aurora").unwrap();
+        assert!(list_extensions_in(&root).is_empty());
+        let _ = fs::remove_dir_all(&root);
+    }
 }

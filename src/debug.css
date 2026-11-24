@@ -108,3 +108,22 @@
 .pulso-debug-line {
   background: color-mix(in srgb, #f5b942 20%, transparent);
 }
+
+/* Accesibilidad: foco visible, textos largos y modo de alto contraste */
+#view-debug button:focus-visible,
+#view-debug select:focus-visible,
+#view-debug input:focus-visible,
+#view-debug [tabindex="0"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.dbg-controls { flex-wrap: wrap; }
+.dbg-row > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (forced-colors: active) {
+  .dbg-status, .dbg-trust, .dbg-section { border: 1px solid ButtonText; }
+  .dbg-row.active { background: Highlight; color: HighlightText; }
+  .pulso-bp-glyph { background: Highlight; forced-color-adjust: none; }
+  .pulso-debug-glyph { background: Highlight; forced-color-adjust: none; }
+  .pulso-debug-line { outline: 1px solid Highlight; }
+}

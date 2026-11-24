@@ -1594,4 +1594,6 @@ export const en: Record<string, string> = {
   "Extensión «{name}» desinstalada.": "Extension \"{name}\" uninstalled.",
   "Conceder permisos e instalar": "Grant permissions and install",
   "Extensión «{name}» instalada.": "Extension \"{name}\" installed.",
+  "Controles de depuración": "Debug controls",
+  "Consola de depuración": "Debug console",
 };

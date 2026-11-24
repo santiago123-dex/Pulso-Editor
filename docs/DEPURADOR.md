@@ -11,7 +11,9 @@ Pulso Editor incluye un cliente nativo del **Debug Adapter Protocol (DAP)** en R
   - `src/debugModel.ts`: estado puro de puntos de interrupción, persistencia mediante `src/core/storage.ts` y consola de depuración.
   - `src/debugView.ts` + `src/debug.css`: margen de puntos de interrupción y línea activa en Monaco, vista lateral `#view-debug` (barra de control, variables expandibles, pila de llamadas, puntos de interrupción y consola con evaluación `evaluate`).
 
-## Primer lenguaje soportado de punta a punta: Python (`debugpy`)
+## Lenguajes soportados
+
+### 1. Python (`debugpy`)
 
 1. Instala `debugpy` en el entorno de Python del proyecto (o global):
    ```bash
@@ -19,6 +21,15 @@ Pulso Editor incluye un cliente nativo del **Debug Adapter Protocol (DAP)** en R
    ```
 2. Pulso busca primero `.venv` / `venv` dentro del espacio de trabajo y después `python` / `python3` en el `PATH`, lanzando `python -m debugpy.adapter` por entrada/salida estándar.
 3. Si abres un archivo `.py` y no tienes `launch.json`, Pulso ofrece automáticamente **«Python: Archivo actual»**.
+
+### 2. Node.js / TypeScript (`js-debug`)
+
+1. Pulso detecta automáticamente archivos `.js`, `.mjs`, `.cjs`, `.ts`, `.mts` y `.cts` (o proyectos con `package.json`) y ofrece **«Node / TypeScript: Archivo actual»**.
+2. Al lanzar una configuración `type: "node"` / `"pwa-node"` / `"typescript"`, Pulso busca `node` en el `PATH` y el adaptador DAP `js-debug` en:
+   - La variable de entorno `PULSO_NODE_DAP` (ruta explícita a `dapDebugServer.js` o `nodeDebug.js`).
+   - `node_modules/@vscode/js-debug/src/dapDebugServer.js` o `node_modules/vscode-node-debug2/out/src/nodeDebug.js`.
+   - Extensiones instaladas de VS Code (`ms-vscode.js-debug`).
+3. También puedes indicar `"adapterCommand"` y `"adapterArgs"` directamente en `.pulso/launch.json`.
 
 ## Configuración por proyecto (`.pulso/launch.json`)
 

@@ -199,7 +199,17 @@ pub fn parse_launch_json(raw: &str, source: &str) -> Result<Vec<LaunchConfig>, S
     Ok(out)
 }
 
-/// Lee `.pulso/launch.json`, después `.vscode/launch.json` y añade una configuración automática si el archivo activo es Python.
+fn is_node_script(path: &str) -> bool {
+    let p = path.to_ascii_lowercase();
+    p.ends_with(".js")
+        || p.ends_with(".mjs")
+        || p.ends_with(".cjs")
+        || p.ends_with(".ts")
+        || p.ends_with(".mts")
+        || p.ends_with(".cts")
+}
+
+/// Lee `.pulso/launch.json`, después `.vscode/launch.json` y añade configuraciones automáticas para Python y Node/TypeScript.
 pub fn load_workspace_configs(root: &Path, active_file: Option<&str>) -> Vec<LaunchConfig> {
     let mut configs = Vec::new();
     let pulso_file = root.join(".pulso").join("launch.json");
@@ -217,6 +227,20 @@ pub fn load_workspace_configs(root: &Path, active_file: Option<&str>) -> Vec<Lau
                 }
             }
         }
+    }
+    if active_file.is_some_and(is_node_script) || (root.join("package.json").is_file() && configs.is_empty()) {
+        configs.push(LaunchConfig {
+            name: tr("Node / TypeScript: Archivo actual").into(),
+            kind: "node".into(),
+            request: "launch".into(),
+            program: "${file}".into(),
+            args: Vec::new(),
+            cwd: Some("${workspaceFolder}".into()),
+            env: HashMap::new(),
+            adapter_command: None,
+            adapter_args: Vec::new(),
+            source: "auto".into(),
+        });
     }
     if active_file.is_some_and(|f| f.to_ascii_lowercase().ends_with(".py")) || configs.is_empty() {
         configs.push(LaunchConfig {
@@ -243,6 +267,14 @@ pub fn default_launch_template() -> &'static str {
     {
       "name": "Python: Archivo actual",
       "type": "python",
+      "request": "launch",
+      "program": "${file}",
+      "cwd": "${workspaceFolder}",
+      "args": []
+    },
+    {
+      "name": "Node / TypeScript: Archivo actual",
+      "type": "node",
       "request": "launch",
       "program": "${file}",
       "cwd": "${workspaceFolder}",
@@ -286,6 +318,63 @@ pub fn find_python(workspace: &Path) -> Option<PathBuf> {
     find_in_path(&names)
 }
 
+/// Busca Node.js en el `PATH` del sistema.
+pub fn find_node() -> Option<PathBuf> {
+    #[cfg(windows)]
+    let names = ["node.exe", "node"];
+    #[cfg(not(windows))]
+    let names = ["node"];
+    find_in_path(&names)
+}
+
+/// Localiza un adaptador DAP de Node/TypeScript (`@vscode/js-debug` o `vscode-node-debug2`).
+pub fn find_node_dap_adapter(workspace: &Path) -> Option<PathBuf> {
+    if let Ok(explicit) = std::env::var("PULSO_NODE_DAP") {
+        let p = PathBuf::from(explicit.trim());
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    let project_candidates = [
+        workspace.join("node_modules/@vscode/js-debug/src/dapDebugServer.js"),
+        workspace.join("node_modules/vscode-js-debug/src/dapDebugServer.js"),
+        workspace.join("node_modules/vscode-node-debug2/out/src/nodeDebug.js"),
+    ];
+    for c in project_candidates {
+        if c.is_file() {
+            return Some(c);
+        }
+    }
+    if let Some(home) = home_dir() {
+        let ext_root = home.join(".vscode").join("extensions");
+        if let Ok(rd) = fs::read_dir(ext_root) {
+            for entry in rd.flatten() {
+                let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+                if name.starts_with("ms-vscode.js-debug") {
+                    let srv = entry.path().join("src/dapDebugServer.js");
+                    if srv.is_file() {
+                        return Some(srv);
+                    }
+                }
+            }
+        }
+    }
+    #[cfg(windows)]
+    {
+        if let Some(local) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
+            let bundled = local.join("Programs/Microsoft VS Code/resources/app/extensions/ms-vscode.js-debug/src/dapDebugServer.js");
+            if bundled.is_file() {
+                return Some(bundled);
+            }
+        }
+        let prog = PathBuf::from(r"C:\Program Files\Microsoft VS Code\resources\app\extensions\ms-vscode.js-debug\src\dapDebugServer.js");
+        if prog.is_file() {
+            return Some(prog);
+        }
+    }
+    None
+}
+
 /// Resuelve el ejecutable y argumentos del adaptador DAP para la configuración dada.
 pub fn resolve_adapter(cfg: &LaunchConfig, workspace: &Path) -> Result<(String, Vec<String>), String> {
     if let Some(cmd) = cfg.adapter_command.as_deref().filter(|s| !s.trim().is_empty()) {
@@ -301,8 +390,20 @@ pub fn resolve_adapter(cfg: &LaunchConfig, workspace: &Path) -> Result<(String, 
                 vec!["-m".into(), "debugpy.adapter".into()],
             ))
         }
+        "node" | "pwa-node" | "typescript" | "javascript" => {
+            let node = find_node().ok_or_else(|| {
+                tr("No se encontró Node.js en el sistema para depurar Node/TypeScript.").to_string()
+            })?;
+            let adapter = find_node_dap_adapter(workspace).ok_or_else(|| {
+                tr("No se encontró un adaptador DAP de Node/TypeScript (js-debug). Instala `@vscode/js-debug` o define `PULSO_NODE_DAP` / `adapterCommand` en .pulso/launch.json.").to_string()
+            })?;
+            Ok((
+                node.to_string_lossy().into_owned(),
+                vec![adapter.to_string_lossy().into_owned()],
+            ))
+        }
         other => Err(trf(
-            "Tipo de depurador «{kind}» no soportado todavía. Usa «python» (debugpy) o indica «adapterCommand» en .pulso/launch.json.",
+            "Tipo de depurador «{kind}» no soportado todavía. Usa «python» (debugpy), «node» (js-debug) o indica «adapterCommand» en .pulso/launch.json.",
             &[("kind", &other)],
         )),
     }
@@ -421,7 +522,22 @@ mod tests {
         assert_eq!(cmd, "my-dap");
         assert_eq!(args, vec!["--stdio"]);
 
-        let unknown = LaunchConfig { adapter_command: None, ..custom };
+        let unknown = LaunchConfig { kind: "desconocido".into(), adapter_command: None, ..custom };
         assert!(resolve_adapter(&unknown, Path::new(".")).is_err());
+    }
+
+    #[test]
+    fn auto_generates_node_config_for_js_and_ts_files() {
+        let dir = std::env::temp_dir().join(format!("pulso-dap-node-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("node_modules/@vscode/js-debug/src")).unwrap();
+        let adapter_file = dir.join("node_modules/@vscode/js-debug/src/dapDebugServer.js");
+        fs::write(&adapter_file, "// stub").unwrap();
+
+        let list = load_workspace_configs(&dir, Some("src/index.ts"));
+        assert!(list.iter().any(|c| c.kind == "node" && c.program == "${file}"));
+        assert_eq!(find_node_dap_adapter(&dir).as_deref(), Some(adapter_file.as_path()));
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }
