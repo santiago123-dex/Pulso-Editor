@@ -1,7 +1,78 @@
 import { t } from "./i18n";
 /** Lógica pura del historial de Git, de la culpa (blame) y de fechas relativas. */
-export interface CommitInfo { hash: string; short: string; author: string; email: string; date: string; subject: string; refs: string[] }
+export interface CommitInfo { hash: string; short: string; author: string; email: string; date: string; subject: string; refs: string[]; parents?: string[] }
 export interface CommitFile { status: string; path: string; orig: string | null }
+
+export interface GraphEdge { from: number; to: number; color: number }
+export interface GraphRow {
+  /** Carril 0-based donde se dibuja el punto del commit. */
+  lane: number;
+  /** Índice de color para el nodo. */
+  color: number;
+  /** Número total de carriles visibles en esta fila. */
+  lanes: number;
+  /** Carriles que cruzan verticalmente sin tocar el nodo actual. */
+  passLanes: { lane: number; color: number }[];
+  /** Conexiones desde este nodo hacia los carriles de sus padres en la fila siguiente. */
+  edges: GraphEdge[];
+}
+
+/** Asigna carriles y conexiones de grafo a una lista de commits en orden topológico (más nuevo primero). */
+export function computeGraphRows(commits: readonly CommitInfo[]): GraphRow[] {
+  const active: (string | null)[] = [];
+  const rows: GraphRow[] = [];
+
+  for (const c of commits) {
+    let lane = active.indexOf(c.hash);
+    if (lane < 0) {
+      lane = active.indexOf(null);
+      if (lane < 0) { lane = active.length; active.push(c.hash); }
+      else active[lane] = c.hash;
+    }
+
+    const passLanes: { lane: number; color: number }[] = [];
+    for (let i = 0; i < active.length; i++) {
+      if (i !== lane && active[i] !== null) passLanes.push({ lane: i, color: i % 6 });
+    }
+
+    const parents = c.parents ?? [];
+    const edges: GraphEdge[] = [];
+    if (parents.length === 0) {
+      active[lane] = null;
+    } else {
+      // El primer padre hereda el carril si no estaba ya abierto en otro carril.
+      const first = parents[0];
+      const existingFirst = active.findIndex((h, idx) => idx !== lane && h === first);
+      if (existingFirst >= 0) {
+        edges.push({ from: lane, to: existingFirst, color: lane % 6 });
+        active[lane] = null;
+      } else {
+        active[lane] = first;
+        edges.push({ from: lane, to: lane, color: lane % 6 });
+      }
+      // Padres adicionales (merge) apuntan a un carril existente o abren uno nuevo.
+      for (let pIdx = 1; pIdx < parents.length; pIdx++) {
+        const p = parents[pIdx];
+        let target = active.indexOf(p);
+        if (target < 0) {
+          target = active.indexOf(null);
+          if (target < 0) { target = active.length; active.push(p); }
+          else active[target] = p;
+        }
+        edges.push({ from: lane, to: target, color: target % 6 });
+      }
+    }
+
+    // Recortar carriles vacíos al final para mantener el SVG compacto.
+    const maxEdge = edges.reduce((m, e) => Math.max(m, e.from, e.to), lane);
+    const maxPass = passLanes.reduce((m, p) => Math.max(m, p.lane), lane);
+    const lanes = Math.max(maxEdge, maxPass) + 1;
+    while (active.length > 0 && active[active.length - 1] === null) active.pop();
+
+    rows.push({ lane, color: lane % 6, lanes, passLanes, edges });
+  }
+  return rows;
+}
 
 export const PAGE = 40;
 

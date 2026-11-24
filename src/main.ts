@@ -48,7 +48,7 @@ import { customizeActivityBar, initActivityBar, resetActivityBar } from "./activ
 import { resetRepoChat, setChatVisible } from "./repoChat";
 import { initLsp, setLspWorkspace } from "./lsp";
 import { getLspState, lspDetail, lspLabel, onLspState } from "./lspState";
-import { amendLastCommit, commitStaged, deleteBranch, initScm, pickBranch, pullChanges, pushChanges, refreshScm, renameBranch, resetScm, stage, unstage } from "./scm";
+import { abortGitOperation, amendLastCommit, commitStaged, continueGitOperation, deleteBranch, initScm, linkIssueToLocalChanges, mergeBranch, pickBranch, pullChanges, pushChanges, rebaseBranch, refreshScm, renameBranch, resetScm, stage, unstage } from "./scm";
 import { focusSearch, initSearch, resetSearch, searchInFolder } from "./search";
 import { allThemes, applyTheme, commit, onSettingsChange, setTheme, state, syntaxOptionsFor } from "./settings";
 import { adaptToMyTerminal, applyTerminalSettings, clearTerminal, initTerminal, killActiveTerminal, newTerminal, runInTerminal, toggleTerminal } from "./terminal";
@@ -560,6 +560,11 @@ register(
   { id: "git.branch", label: t("Git: Cambiar de rama o crear una nueva…"), keywords: "git branch rama checkout switch crear", run: () => void pickBranch() },
   { id: "git.renameBranch", label: t("Git: Renombrar una rama local…"), keywords: "git branch rama rename renombrar", run: () => void renameBranch() },
   { id: "git.deleteBranch", label: t("Git: Eliminar una rama local…"), keywords: "git branch rama delete eliminar borrar", run: () => void deleteBranch() },
+  { id: "git.merge", label: t("Git: Fusionar una rama (merge)…"), keywords: "git merge fusionar rama branch", run: () => void mergeBranch() },
+  { id: "git.rebase", label: t("Git: Rebasar sobre una rama (rebase)…"), keywords: "git rebase rebasar rama branch", run: () => void rebaseBranch() },
+  { id: "git.continueOp", label: t("Git: Continuar fusión o rebase"), keywords: "git merge rebase continue continuar conflicto", run: () => void continueGitOperation() },
+  { id: "git.abortOp", label: t("Git: Abortar fusión o rebase"), keywords: "git merge rebase abort abortar cancelar", run: () => void abortGitOperation() },
+  { id: "git.linkIssue", label: t("Git: Vincular una issue a los cambios locales…"), keywords: "git issue vincular relacionar commit", run: () => void linkIssueToLocalChanges() },
   { id: "git.pull", label: t("Git: Traer cambios del remoto (pull)"), keywords: "git pull traer descargar", run: () => void pullChanges() },
   { id: "git.push", label: t("Git: Subir commits al remoto (push)"), keywords: "git push subir enviar", run: () => void pushChanges() },
   { id: "git.stageAll", label: t("Git: Preparar todos los cambios"), keywords: "git stage add preparar todo", run: () => void stage([]) },

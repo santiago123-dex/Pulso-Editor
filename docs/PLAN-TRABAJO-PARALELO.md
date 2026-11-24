@@ -175,12 +175,12 @@ Lo ya hecho (proveedores de models.dev, herramientas, subagentes, skills, comand
 
 ## H. Git y GitHub avanzado
 
-- [ ] Borrar y renombrar ramas; merge y rebase; asistencia de conflictos a tres bandas.
-- [ ] Pull requests: fusionar, revisar, comentar, ver el resultado de las comprobaciones y forks.
-- [ ] Grafo de ramas y búsqueda en el historial.
-- [ ] Mostrar las diferencias al resolver un conflicto de guardado.
-- [ ] Tablero: columnas personalizadas o GitHub Projects, orden dentro de la columna, paginación y filtros del listado de issues.
-- [ ] Relacionar una issue con los cambios locales.
+- [x] Borrar y renombrar ramas; merge y rebase; asistencia de conflictos a tres bandas.
+- [x] Pull requests: fusionar, revisar, comentar, ver el resultado de las comprobaciones y forks.
+- [x] Grafo de ramas y búsqueda en el historial.
+- [x] Mostrar las diferencias al resolver un conflicto de guardado.
+- [x] Tablero: columnas personalizadas o GitHub Projects, orden dentro de la columna, paginación y filtros del listado de issues.
+- [x] Relacionar una issue con los cambios locales.
 
 ## I. Rendimiento y tamaño
 

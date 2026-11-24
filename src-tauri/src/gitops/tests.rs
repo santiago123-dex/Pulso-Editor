@@ -393,43 +393,48 @@ fn history_repo() -> Repo {
 #[test]
 fn log_lists_commits_newest_first_with_author_and_refs() {
     let r = history_repo();
-    let l = log_sync(&r.s(), None, 0, 10).unwrap();
+    let l = log_sync(&r.s(), None, 0, 10, None, false).unwrap();
     assert_eq!(l.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>(), ["tercero: renombra", "segundo: añade tres", "primero"]);
     assert_eq!(l[0].author, "Prueba");
     assert_eq!(l[0].short.len(), 7.max(l[0].short.len()));
     assert!(l[0].hash.len() == 40 && l[0].date.contains('T'));
     assert!(l[0].refs.iter().any(|x| x.starts_with("HEAD")), "{:?}", l[0].refs);
+    assert_eq!(l[0].parents, vec![l[1].hash.clone()]);
+    assert!(l[2].parents.is_empty());
 }
 
 #[test]
 fn log_pages_with_skip_and_limit_and_handles_an_empty_repo() {
     let r = history_repo();
-    let page = log_sync(&r.s(), None, 1, 1).unwrap();
+    let page = log_sync(&r.s(), None, 1, 1, None, false).unwrap();
     assert_eq!(page.len(), 1);
     assert_eq!(page[0].subject, "segundo: añade tres");
+    let filtered = log_sync(&r.s(), None, 0, 10, Some("renombra"), false).unwrap();
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].subject, "tercero: renombra");
     let empty = Repo::new();
-    assert!(log_sync(&empty.s(), None, 0, 10).unwrap().is_empty());
+    assert!(log_sync(&empty.s(), None, 0, 10, None, false).unwrap().is_empty());
 }
 
 #[test]
 fn file_history_follows_renames() {
     let r = history_repo();
-    let l = log_sync(&r.s(), Some("renombrado.txt"), 0, 10).unwrap();
+    let l = log_sync(&r.s(), Some("renombrado.txt"), 0, 10, None, false).unwrap();
     assert_eq!(l.len(), 3, "{:?}", l.iter().map(|c| &c.subject).collect::<Vec<_>>());
-    let only_b = log_sync(&r.s(), Some("b.txt"), 0, 10).unwrap();
+    let only_b = log_sync(&r.s(), Some("b.txt"), 0, 10, None, false).unwrap();
     assert_eq!(only_b.len(), 1);
 }
 
 #[test]
 fn log_rejects_paths_that_escape_the_repository() {
     let r = history_repo();
-    assert!(log_sync(&r.s(), Some("../fuera.txt"), 0, 10).is_err());
+    assert!(log_sync(&r.s(), Some("../fuera.txt"), 0, 10, None, false).is_err());
 }
 
 #[test]
 fn commit_files_report_status_and_renames() {
     let r = history_repo();
-    let l = log_sync(&r.s(), None, 0, 10).unwrap();
+    let l = log_sync(&r.s(), None, 0, 10, None, false).unwrap();
     let rename = commit_files_sync(&r.s(), &l[0].hash).unwrap();
     assert_eq!(rename, vec![CommitFile { status: "R".into(), path: "renombrado.txt".into(), orig: Some("a.txt".into()) }]);
     let second = commit_files_sync(&r.s(), &l[1].hash).unwrap();
@@ -440,7 +445,7 @@ fn commit_files_report_status_and_renames() {
 #[test]
 fn commit_sources_give_parent_and_commit_versions() {
     let r = history_repo();
-    let l = log_sync(&r.s(), None, 0, 10).unwrap();
+    let l = log_sync(&r.s(), None, 0, 10, None, false).unwrap();
     let s = commit_sources_sync(&r.s(), &l[1].hash, "a.txt", None).unwrap();
     assert_eq!((s.original.as_str(), s.modified.as_str()), ("uno\ndos\n", "uno\ndos\ntres\n"));
     let added = commit_sources_sync(&r.s(), &l[1].hash, "b.txt", None).unwrap();
@@ -496,4 +501,43 @@ fn amend_rename_and_delete_branch_work() {
     delete_branch_sync(&r.s(), "rama-renombrada", false).unwrap();
     let after: Vec<String> = branches_sync(&r.s()).unwrap().into_iter().map(|b| b.name).collect();
     assert!(!after.contains(&"rama-renombrada".to_string()));
+}
+
+#[test]
+fn merge_conflict_abort_and_rebase_work() {
+    let r = Repo::new();
+    r.write("a.txt", "base\n");
+    stage_sync(&r.s(), vec!["a.txt".into()]).unwrap();
+    commit_sync(&r.s(), "base").unwrap();
+    let main_branch = branches_sync(&r.s()).unwrap().into_iter().find(|b| b.current).unwrap().name;
+
+    // Rama feat con cambio en conflicto en a.txt
+    switch_sync(&r.s(), "feat", true).unwrap();
+    r.write("a.txt", "desde feat\n");
+    stage_sync(&r.s(), vec!["a.txt".into()]).unwrap();
+    commit_sync(&r.s(), "cambio feat").unwrap();
+
+    // Cambio en main en la misma línea
+    switch_sync(&r.s(), &main_branch, false).unwrap();
+    r.write("a.txt", "desde main\n");
+    stage_sync(&r.s(), vec!["a.txt".into()]).unwrap();
+    commit_sync(&r.s(), "cambio main").unwrap();
+
+    // Merge con conflicto -> detectar estado y abortar
+    assert_eq!(operation_state_sync(&r.s()).unwrap().kind, None);
+    let m = merge_sync(&r.s(), "feat").unwrap();
+    assert_eq!(m.status, "conflicts");
+    assert_eq!(operation_state_sync(&r.s()).unwrap().kind.as_deref(), Some("merge"));
+    let ab = operation_action_sync(&r.s(), "abort").unwrap();
+    assert_eq!(ab.status, "ok");
+    assert_eq!(operation_state_sync(&r.s()).unwrap().kind, None);
+
+    // Rama limpia para probar rebase sin conflictos
+    switch_sync(&r.s(), "otra", true).unwrap();
+    r.write("b.txt", "nuevo\n");
+    stage_sync(&r.s(), vec!["b.txt".into()]).unwrap();
+    commit_sync(&r.s(), "añade b").unwrap();
+    let rb = rebase_sync(&r.s(), &main_branch).unwrap();
+    assert_eq!(rb.status, "ok");
+    assert_eq!(operation_state_sync(&r.s()).unwrap().kind, None);
 }

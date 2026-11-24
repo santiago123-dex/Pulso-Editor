@@ -11,8 +11,12 @@ import { promptText, quickPick, setStatus, showDialog, type PickItem } from "./u
 import { $, baseName, dirName, h } from "./util";
 import { canCommit, changeCount, discardMessage, lastLine, pathsOf, syncInfo, type Branch, type Change, type Changes } from "./scmModel";
 import { ws } from "./workspace";
+import { currentRepo } from "./core/repo";
+import { fetchIssues, type Issue } from "./github";
+import { clearActiveIssueWork, getActiveIssueWork, setActiveIssueWork } from "./workflow/issueWorkflow";
 
 let changes: Changes | null = null;
+let opState: "merge" | "rebase" | null = null;
 /** Raíz del repositorio de la carpeta abierta, o null si no es un repositorio. */
 export const gitTop = (): string | null => changes?.top ?? null;
 let problem = "";
@@ -35,15 +39,18 @@ export function resetScm() {
 
 export async function refreshScm() {
   const id = ++seq;
-  if (!ws.root) { changes = null; problem = t("Abre una carpeta para ver sus cambios."); paint(); return; }
+  if (!ws.root) { changes = null; opState = null; problem = t("Abre una carpeta para ver sus cambios."); paint(); return; }
   try {
-    const c = await invoke<Changes>("git_changes", { root: ws.root });
+    const [c, op] = await Promise.all([
+      invoke<Changes>("git_changes", { root: ws.root }),
+      invoke<{ kind: "merge" | "rebase" | null }>("git_operation_state", { root: ws.root }).catch(() => ({ kind: null })),
+    ]);
     if (id !== seq) return;
-    changes = c; problem = "";
+    changes = c; opState = op.kind; problem = "";
     bus.emit("scm-refreshed");
   } catch (e) {
     if (id !== seq) return;
-    changes = null; problem = String(e);
+    changes = null; opState = null; problem = String(e);
   }
   paint();
 }
@@ -124,6 +131,49 @@ function paint() {
   syncCommitButton();
   $("scm-compose").hidden = !changes;
   if (!changes) { box.append(h("div", "scm-empty", problem)); return; }
+  if (opState) {
+    const banner = h("div", "scm-op-banner");
+    banner.append(h("span", "scm-op-label", opState === "merge" ? t("Fusión en curso") : t("Rebase en curso")));
+    const cont = h("button", "scm-op-btn primary", t("Continuar"));
+    cont.type = "button";
+    cont.disabled = busy;
+    cont.onclick = () => void continueGitOperation();
+    const ab = h("button", "scm-op-btn danger", t("Abortar"));
+    ab.type = "button";
+    ab.disabled = busy;
+    ab.onclick = () => void abortGitOperation();
+    banner.append(cont, ab);
+    box.append(banner);
+  }
+  const activeIssue = getActiveIssueWork();
+  const issueBar = h("div", "scm-issue-bar");
+  if (activeIssue) {
+    issueBar.append(h("span", "scm-issue-tag", `#${activeIssue.number} ${activeIssue.title}`));
+    const ins = h("button", "scm-op-btn", t("Referenciar"));
+    ins.type = "button";
+    ins.title = t("Añadir «Fixes #{number}» al mensaje del commit", { number: activeIssue.number });
+    ins.onclick = () => {
+      const boxEl = msgBox();
+      const ref = `Fixes #${activeIssue.number}`;
+      if (!boxEl.value.includes(`#${activeIssue.number}`)) {
+        boxEl.value = boxEl.value.trim() ? `${boxEl.value.trimEnd()}\n\n${ref}` : `${activeIssue.title}\n\n${ref}`;
+        syncCommitButton();
+      }
+      boxEl.focus();
+    };
+    const unlink = h("button", "icon-btn");
+    unlink.type = "button";
+    unlink.title = t("Desvincular issue");
+    unlink.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    unlink.onclick = () => { clearActiveIssueWork(); paint(); };
+    issueBar.append(ins, unlink);
+  } else {
+    const linkBtn = h("button", "scm-op-btn", t("Vincular issue…"));
+    linkBtn.type = "button";
+    linkBtn.onclick = () => void linkIssueToLocalChanges();
+    issueBar.append(linkBtn);
+  }
+  box.append(issueBar);
   const parts = [
     section(t("Conflictos"), changes.conflicted, false, null, ""),
     section(t("Cambios preparados"), changes.staged, true, () => void unstage([]), t("Quitar todo de lo preparado")),
@@ -328,6 +378,110 @@ export async function deleteBranch() {
               setStatus(t("Rama «{name}» eliminada", { name: b.name }));
             });
           }
+        },
+      }));
+    },
+  });
+}
+
+/** Fusiona otra rama dentro de la rama actual (`git merge`). */
+export async function mergeBranch() {
+  if (!ws.root) { setStatus(t("Abre una carpeta para ver sus ramas")); return; }
+  quickPick({
+    placeholder: t("Elige la rama a fusionar en la rama actual"),
+    empty: t("No hay otras ramas disponibles"),
+    load: async () => {
+      let list: Branch[];
+      try { list = (await invoke<Branch[]>("git_branches", { root: ws.root })).filter((b) => !b.current); }
+      catch (e) { setStatus(String(e)); return []; }
+      return list.map<PickItem>((b) => ({
+        label: b.name,
+        detail: b.remote ? t("remota") : b.upstream ?? "",
+        run: async () => {
+          await run(t("No se pudo fusionar la rama"), async () => {
+            const res = await invoke<{ status: string; message: string }>("git_merge", { root: ws.root, branch: b.name });
+            setStatus(res.status === "conflicts" ? res.message : t("Rama «{name}» fusionada", { name: b.name }), 6000);
+          });
+          await afterDiskChange();
+        },
+      }));
+    },
+  });
+}
+
+/** Rebasa la rama actual sobre otra rama (`git rebase`). */
+export async function rebaseBranch() {
+  if (!ws.root) { setStatus(t("Abre una carpeta para ver sus ramas")); return; }
+  quickPick({
+    placeholder: t("Elige la rama base para rebasar la rama actual"),
+    empty: t("No hay otras ramas disponibles"),
+    load: async () => {
+      let list: Branch[];
+      try { list = (await invoke<Branch[]>("git_branches", { root: ws.root })).filter((b) => !b.current); }
+      catch (e) { setStatus(String(e)); return []; }
+      return list.map<PickItem>((b) => ({
+        label: b.name,
+        detail: b.remote ? t("remota") : b.upstream ?? "",
+        run: async () => {
+          await run(t("No se pudo rebasar la rama"), async () => {
+            const res = await invoke<{ status: string; message: string }>("git_rebase", { root: ws.root, branch: b.name });
+            setStatus(res.status === "conflicts" ? res.message : t("Rebase sobre «{name}» completado", { name: b.name }), 6000);
+          });
+          await afterDiskChange();
+        },
+      }));
+    },
+  });
+}
+
+/** Continúa una fusión o rebase detenido por conflictos. */
+export async function continueGitOperation() {
+  if (!ws.root || busy) return;
+  await run(t("No se pudo continuar la operación de Git"), async () => {
+    const res = await invoke<{ status: string; message: string }>("git_operation_action", { root: ws.root, action: "continue" });
+    setStatus(res.status === "conflicts" ? res.message : t("Operación de Git completada"), 5000);
+  });
+  await afterDiskChange();
+}
+
+/** Aborta una fusión o rebase en curso. */
+export async function abortGitOperation() {
+  if (!ws.root || busy) return;
+  await run(t("No se pudo abortar la operación de Git"), async () => {
+    await invoke("git_operation_action", { root: ws.root, action: "abort" });
+    setStatus(t("Operación de Git abortada"), 4000);
+  });
+  await afterDiskChange();
+}
+
+/** Vincula una issue abierta de GitHub con los cambios locales actuales. */
+export async function linkIssueToLocalChanges() {
+  if (!ws.root) { setStatus(t("Abre una carpeta para vincular una issue")); return; }
+  const repo = await currentRepo();
+  if (!repo) { setStatus(t("Esta carpeta no tiene un remoto de GitHub.")); return; }
+  quickPick({
+    placeholder: t("Elige una issue para vincular a los cambios locales"),
+    empty: t("No hay issues abiertas."),
+    load: async () => {
+      let list: Issue[];
+      try { list = await fetchIssues(repo.owner, repo.repo, "open"); }
+      catch (e) { setStatus(String(e)); return []; }
+      return list.map<PickItem>((i) => ({
+        label: `#${i.number} ${i.title}`,
+        detail: i.labels.map((l) => l.name).join(", "),
+        run: () => {
+          setActiveIssueWork({
+            owner: repo.owner,
+            repo: repo.repo,
+            number: i.number,
+            title: i.title,
+            body: i.body ?? "",
+            branch: changes?.branch ?? "",
+            html_url: i.html_url,
+            startedAt: Date.now(),
+          });
+          setStatus(t("Issue #{number} vinculada a los cambios locales", { number: i.number }), 4000);
+          paint();
         },
       }));
     },

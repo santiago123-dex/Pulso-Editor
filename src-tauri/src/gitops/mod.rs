@@ -158,6 +158,30 @@ pub async fn git_rename_branch(guard: tauri::State<'_, crate::fsguard::Workspace
 }
 
 #[tauri::command]
+pub async fn git_merge(guard: tauri::State<'_, crate::fsguard::WorkspaceGuard>, root: String, branch: String) -> Result<MergeRebaseResult, String> {
+    guard.ensure_dir(&root)?;
+    tauri::async_runtime::spawn_blocking(move || merge_sync(&root, &branch)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_rebase(guard: tauri::State<'_, crate::fsguard::WorkspaceGuard>, root: String, branch: String) -> Result<MergeRebaseResult, String> {
+    guard.ensure_dir(&root)?;
+    tauri::async_runtime::spawn_blocking(move || rebase_sync(&root, &branch)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_operation_state(guard: tauri::State<'_, crate::fsguard::WorkspaceGuard>, root: String) -> Result<OperationState, String> {
+    guard.ensure_dir(&root)?;
+    tauri::async_runtime::spawn_blocking(move || operation_state_sync(&root)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_operation_action(guard: tauri::State<'_, crate::fsguard::WorkspaceGuard>, root: String, action: String) -> Result<MergeRebaseResult, String> {
+    guard.ensure_dir(&root)?;
+    tauri::async_runtime::spawn_blocking(move || operation_action_sync(&root, &action)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 pub async fn git_diff_sources(guard: tauri::State<'_, crate::fsguard::WorkspaceGuard>, root: String, path: String, orig: Option<String>, staged: bool) -> Result<DiffSources, String> {
     // Solo carpetas de trabajo abiertas en Pulso: la ventana no puede apuntar git a cualquier ruta.
     guard.ensure_dir(&root)?;
@@ -165,10 +189,10 @@ pub async fn git_diff_sources(guard: tauri::State<'_, crate::fsguard::WorkspaceG
 }
 
 #[tauri::command]
-pub async fn git_log(guard: tauri::State<'_, crate::fsguard::WorkspaceGuard>, root: String, path: Option<String>, skip: u32, limit: u32) -> Result<Vec<Commit>, String> {
+pub async fn git_log(guard: tauri::State<'_, crate::fsguard::WorkspaceGuard>, root: String, path: Option<String>, skip: u32, limit: u32, query: Option<String>, all: Option<bool>) -> Result<Vec<Commit>, String> {
     // Solo carpetas de trabajo abiertas en Pulso: la ventana no puede apuntar git a cualquier ruta.
     guard.ensure_dir(&root)?;
-    tauri::async_runtime::spawn_blocking(move || log_sync(&root, path.as_deref(), skip, limit)).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || log_sync(&root, path.as_deref(), skip, limit, query.as_deref(), all.unwrap_or(false))).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

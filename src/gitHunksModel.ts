@@ -15,19 +15,23 @@ export interface DiffHunk {
 export interface ConflictBlock {
   /** Línea 1-based de `<<<<<<<` */
   startLine: number;
+  /** Línea 1-based de `|||||||` (opcional, formato diff3 a tres bandas) */
+  baseLine?: number;
   /** Línea 1-based de `=======` */
   sepLine: number;
   /** Línea 1-based de `>>>>>>>` */
   endLine: number;
   currentLabel: string;
+  baseLabel?: string;
   incomingLabel: string;
   currentText: string;
+  baseText?: string;
   incomingText: string;
 }
 
-export type ConflictChoice = "current" | "incoming" | "both";
+export type ConflictChoice = "current" | "incoming" | "both" | "base";
 
-/** Detecta bloques de conflicto estándar de Git (`<<<<<<<`, `=======`, `>>>>>>>`) en un texto. */
+/** Detecta bloques de conflicto estándar de Git (`<<<<<<<`, opcional `|||||||`, `=======`, `>>>>>>>`) en un texto. */
 export function parseConflicts(text: string): ConflictBlock[] {
   const lines = text.split(/\r?\n/);
   const out: ConflictBlock[] = [];
@@ -40,11 +44,14 @@ export function parseConflicts(text: string): ConflictBlock[] {
     }
     const startIdx = i;
     const currentLabel = lines[i].slice(7).trim() || "HEAD";
+    let baseIdx = -1;
     let sepIdx = -1;
     let endIdx = -1;
     for (let j = i + 1; j < lines.length; j++) {
       if (lines[j].startsWith("<<<<<<<")) break;
-      if (sepIdx < 0 && lines[j].startsWith("=======")) {
+      if (baseIdx < 0 && sepIdx < 0 && lines[j].startsWith("|||||||")) {
+        baseIdx = j;
+      } else if (sepIdx < 0 && lines[j].startsWith("=======")) {
         sepIdx = j;
       } else if (sepIdx >= 0 && lines[j].startsWith(">>>>>>>")) {
         endIdx = j;
@@ -52,15 +59,22 @@ export function parseConflicts(text: string): ConflictBlock[] {
       }
     }
     if (sepIdx >= 0 && endIdx > sepIdx) {
-      out.push({
+      const currentEnd = baseIdx >= 0 ? baseIdx : sepIdx;
+      const block: ConflictBlock = {
         startLine: startIdx + 1,
         sepLine: sepIdx + 1,
         endLine: endIdx + 1,
         currentLabel,
         incomingLabel: lines[endIdx].slice(7).trim() || "entrante",
-        currentText: lines.slice(startIdx + 1, sepIdx).join("\n"),
+        currentText: lines.slice(startIdx + 1, currentEnd).join("\n"),
         incomingText: lines.slice(sepIdx + 1, endIdx).join("\n"),
-      });
+      };
+      if (baseIdx >= 0) {
+        block.baseLine = baseIdx + 1;
+        block.baseLabel = lines[baseIdx].slice(7).trim() || "base";
+        block.baseText = lines.slice(baseIdx + 1, sepIdx).join("\n");
+      }
+      out.push(block);
       i = endIdx + 1;
     } else {
       i++;
@@ -73,6 +87,7 @@ export function parseConflicts(text: string): ConflictBlock[] {
 export function resolveConflictText(block: ConflictBlock, choice: ConflictChoice): string {
   if (choice === "current") return block.currentText;
   if (choice === "incoming") return block.incomingText;
+  if (choice === "base") return block.baseText ?? "";
   if (!block.currentText) return block.incomingText;
   if (!block.incomingText) return block.currentText;
   return `${block.currentText}\n${block.incomingText}`;

@@ -117,3 +117,53 @@ export function refreshDue(s: RefreshState): boolean {
   if (s.trigger === "focus") return since >= s.minGap;
   return s.hasToken && since >= s.interval;
 }
+
+/** Definición de una columna personalizada del tablero basada en una etiqueta de GitHub. */
+export interface CustomColumnDef { id: string; title: string; label: string }
+
+/** Parsea «Bloqueado=blocked, QA=qa» o líneas «Título=etiqueta» en columnas personalizadas válidas. */
+export function parseCustomColumns(raw: string): CustomColumnDef[] {
+  const out: CustomColumnDef[] = [];
+  const seen = new Set<string>();
+  for (const part of raw.split(/[\n,]+/)) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const eq = trimmed.indexOf("=");
+    const title = (eq >= 0 ? trimmed.slice(0, eq) : trimmed).trim();
+    const label = (eq >= 0 ? trimmed.slice(eq + 1) : trimmed).trim();
+    const key = label.toLowerCase();
+    if (!title || !label || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ id: `custom:${key}`, title, label });
+  }
+  return out;
+}
+
+/** Ordena las issues de una columna según la lista de números guardada; las nuevas van al final conservando su orden. */
+export function orderColumnIssues(list: readonly Issue[], order: readonly number[]): Issue[] {
+  if (!order.length) return [...list];
+  const rank = new Map<number, number>();
+  order.forEach((n, i) => rank.set(n, i));
+  return [...list].sort((a, b) => {
+    const ra = rank.get(a.number);
+    const rb = rank.get(b.number);
+    if (ra !== undefined && rb !== undefined) return ra - rb;
+    if (ra !== undefined) return -1;
+    if (rb !== undefined) return 1;
+    return 0;
+  });
+}
+
+/** Mueve una issue una posición arriba (`-1`) o abajo (`+1`) dentro del orden de su columna. */
+export function moveInOrder(currentOrder: readonly number[], issueNumber: number, delta: -1 | 1, columnNumbers: readonly number[]): number[] {
+  const ordered = [
+    ...currentOrder.filter((n) => columnNumbers.includes(n)),
+    ...columnNumbers.filter((n) => !currentOrder.includes(n)),
+  ];
+  const idx = ordered.indexOf(issueNumber);
+  const next = idx + delta;
+  if (idx < 0 || next < 0 || next >= ordered.length) return ordered;
+  const copy = [...ordered];
+  [copy[idx], copy[next]] = [copy[next], copy[idx]];
+  return copy;
+}

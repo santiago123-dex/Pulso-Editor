@@ -1,6 +1,6 @@
 import { t } from "./i18n";
 import { getJson, githubFetch, GithubError } from "./github";
-import { explainCreateError, type PullFile, type PullSummary } from "./prModel";
+import { explainCreateError, type CheckRun, type MergeMethod, type PullComment, type PullFile, type PullSummary, type ReviewEvent } from "./prModel";
 import type { Sources } from "./diffView";
 
 const MAX_TEXT = 2_000_000;
@@ -76,4 +76,60 @@ export async function createPull(owner: string, repo: string, p: NewPull): Promi
     throw new Error(explainCreateError(res.status, body));
   }
   return res.json<PullSummary>();
+}
+
+/** Fusiona una pull request con el método indicado (`merge`, `squash` o `rebase`). */
+export async function mergePull(owner: string, repo: string, number: number, method: MergeMethod, commitTitle?: string): Promise<{ merged: boolean; message: string }> {
+  const body: Record<string, string> = { merge_method: method };
+  if (commitTitle?.trim()) body.commit_title = commitTitle.trim();
+  const res = await githubFetch(`${repoPath(owner, repo)}/pulls/${number}/merge`, { method: "PUT", body });
+  if (!res.ok) {
+    let msg = "";
+    try { msg = (await res.json<{ message?: string }>()).message ?? ""; } catch { /* sin cuerpo */ }
+    throw new Error(msg || t("No se pudo fusionar la pull request (HTTP {status})", { status: res.status }));
+  }
+  return res.json<{ merged: boolean; message: string }>();
+}
+
+/** Envía una revisión (aprobar, pedir cambios o comentar) a una pull request. */
+export async function reviewPull(owner: string, repo: string, number: number, event: ReviewEvent, body: string): Promise<void> {
+  const res = await githubFetch(`${repoPath(owner, repo)}/pulls/${number}/reviews`, {
+    method: "POST",
+    body: { event, body },
+  });
+  if (!res.ok) {
+    let msg = "";
+    try { msg = (await res.json<{ message?: string }>()).message ?? ""; } catch { /* sin cuerpo */ }
+    throw new Error(msg || t("No se pudo enviar la revisión (HTTP {status})", { status: res.status }));
+  }
+}
+
+export const listPullComments = (owner: string, repo: string, number: number) =>
+  getJson<PullComment[]>(`${repoPath(owner, repo)}/issues/${number}/comments?per_page=50`);
+
+export async function addPullComment(owner: string, repo: string, number: number, body: string): Promise<PullComment> {
+  const res = await githubFetch(`${repoPath(owner, repo)}/issues/${number}/comments`, {
+    method: "POST",
+    body: { body },
+  });
+  if (!res.ok) throw new GithubError(res.status);
+  return res.json<PullComment>();
+}
+
+export async function listCheckRuns(owner: string, repo: string, sha: string): Promise<CheckRun[]> {
+  const data = await getJson<{ check_runs?: CheckRun[] }>(`${repoPath(owner, repo)}/commits/${encodeURIComponent(sha)}/check-runs?per_page=50`);
+  return data.check_runs ?? [];
+}
+
+/** Si el repositorio es un fork, devuelve su repositorio padre para abrir PRs hacia upstream. */
+export async function getRepoForkParent(owner: string, repo: string): Promise<{ owner: string; repo: string; defaultBranch: string } | null> {
+  try {
+    const info = await getJson<{ fork?: boolean; parent?: { owner?: { login: string }; name?: string; default_branch?: string } }>(repoPath(owner, repo));
+    if (info.fork && info.parent?.owner?.login && info.parent.name) {
+      return { owner: info.parent.owner.login, repo: info.parent.name, defaultBranch: info.parent.default_branch ?? "main" };
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
