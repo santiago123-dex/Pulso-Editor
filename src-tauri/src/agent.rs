@@ -357,7 +357,17 @@ async fn converse(
             } else if call.name == "use_skill" && !env.config.skills.is_empty() {
                 Slot::Done(use_skill(&env.config, &call.args))
             } else {
-                Slot::Done(agenttools::dispatch(&mut session, &call.name, &call.args).await)
+                let hooks = &env.config.hooks;
+                match hooks.pre(&env.root, &call.name, &call.args, &env.cancel).await {
+                    Err(reason) => Slot::Done(Outcome { ui_name: "Hook", ui_input: json!({ "tool": call.name }), result: reason, is_error: true }),
+                    Ok(()) => {
+                        let mut done = agenttools::dispatch(&mut session, &call.name, &call.args).await;
+                        if hooks.has_any() {
+                            done.result.push_str(&hooks.post(&env.root, &call.name, &call.args, &env.cancel).await);
+                        }
+                        Slot::Done(done)
+                    }
+                }
             };
             slots.push(slot);
         }
@@ -916,6 +926,30 @@ mod tests {
         let (ev, _) = go_perms(model(), &dir, "edit", "crea la marca", Config::default(), no_resolver(), perms_with(approver.clone()), vec![second, text_reply("No.")]);
         assert!(approver.asked().is_empty() && !dir.join("marca.txt").exists());
         assert_eq!(ev.iter().find(|e| e["type"] == "user").unwrap()["message"]["content"][0]["is_error"], true);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn un_gancho_previo_bloquea_la_herramienta_y_uno_posterior_comenta_el_resultado() {
+        let dir = project("ganchos");
+        let approver = Recorder::new(crate::agentperms::Decision::Once);
+        // PreToolUse bloquea run_command con el código 2 (el comando no llega a ejecutarse); PostToolUse comenta glob.
+        let mut config = Config::default();
+        config.hooks = crate::agenthooks::Hooks { list: crate::agenthooks::parse_hooks(
+            r#"{"hooks":{"PreToolUse":[{"matcher":"run_command","command":"echo 'prohibido por el gancho'; exit 2"}],
+                         "PostToolUse":[{"matcher":"glob","command":"echo 'gancho: glob revisado'"}]}}"#, false) };
+        let bloqueada = tool_reply(&[("c1", "run_command", write_marker_command())]);
+        let (ev, _) = go_perms(model(), &dir, "full", "crea la marca", config.clone(), no_resolver(), perms_with(approver.clone()), vec![bloqueada, text_reply("No pude.")]);
+        assert!(!dir.join("marca.txt").exists(), "el gancho no bloqueó el comando");
+        assert!(approver.asked().is_empty(), "ni siquiera se llegó a preguntar");
+        let r = ev.iter().find(|e| e["type"] == "user").unwrap();
+        assert_eq!(r["message"]["content"][0]["is_error"], true);
+        assert!(r["message"]["content"][0]["content"].as_str().unwrap().contains("prohibido por el gancho"));
+        // PostToolUse añade su salida al resultado de glob.
+        let buscar = tool_reply(&[("c1", "glob", json!({ "pattern": "**/*" }))]);
+        let (ev2, _) = go_perms(model(), &dir, "full", "busca", config, no_resolver(), perms_with(approver), vec![buscar, text_reply("Listo.")]);
+        let c2 = ev2.iter().find(|e| e["type"] == "user").unwrap()["message"]["content"][0]["content"].as_str().unwrap().to_string();
+        assert!(c2.contains("[hook] gancho: glob revisado"), "{c2}");
         let _ = std::fs::remove_dir_all(dir);
     }
 

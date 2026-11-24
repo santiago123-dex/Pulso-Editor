@@ -32,6 +32,7 @@ pub mod agent;
 pub mod agenttools;
 pub mod agentperms;
 pub mod agentconfig;
+pub mod agenthooks;
 pub mod agentmem;
 mod files;
 mod gitinfo;

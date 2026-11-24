@@ -105,7 +105,25 @@ Hecho en `src-tauri/src/agentconfig.rs` (descubrimiento) y `agent.rs` (subagente
 **Seguridad de la configuración:** `AGENTS.md`, las skills y los subagentes de un proyecto son contenido del proyecto. Llegan al modelo como convenciones de trabajo, pero **no cambian el modo de permisos elegido**. Con un proyecto ajeno en el que no confías, no uses el modo Agente.
 
 ### Fase 4: ampliar y automatizar
-MCP (servidores de herramientas externos), ganchos antes y después de cada herramienta, memoria entre sesiones y agentes que corren en segundo plano.
+Hecho: memoria entre sesiones, resumen de conversaciones largas, `/plan`, reglas de denegar y **ganchos**. Falta: MCP (servidores de herramientas externos) y agentes que corren en segundo plano.
+
+#### Ganchos (`src-tauri/src/agenthooks.rs`)
+Comandos que Pulso ejecuta **antes y después de cada herramienta** del agente (también las de los subagentes). Se configuran en `hooks.json`, en `~/.pulso/` (los tuyos, siempre) y en `.pulso/` del proyecto (**solo si confías en él**; sin confianza se ignoran los del proyecto):
+
+```json
+{ "hooks": {
+    "PreToolUse":  [ { "matcher": "run_command|edit_file", "command": "node scripts/check.js", "timeout": 10 } ],
+    "PostToolUse": [ { "matcher": "edit_file", "command": "npx prettier --check ." } ]
+} }
+```
+
+- `matcher`: expresión regular que debe coincidir con **todo** el nombre de la herramienta (`run_command`, `edit_file`, `write_file`, `glob`…); `edit` no vale para `edit_file`. Sin `matcher` vale para todas.
+- El comando corre en la carpeta del proyecto (PowerShell en Windows, `sh` en el resto) y recibe `PULSO_HOOK_EVENT`, `PULSO_TOOL`, `PULSO_TOOL_INPUT` (JSON recortado a 8000 caracteres) y `PULSO_PROJECT` como variables de entorno. Tiene un tiempo límite: 10 s por defecto, 60 como máximo (`timeout`).
+- **`PreToolUse`:** si el comando termina con el código **2**, la herramienta **no se ejecuta** y el modelo recibe lo que el comando escribió (hasta 1000 caracteres). Cualquier otro resultado (otro código, error, tiempo agotado) **no bloquea**: un gancho roto no detiene al agente.
+- **`PostToolUse`:** lo que el comando escribe se añade al resultado de la herramienta, con el prefijo `[hook]`.
+- Hasta 20 ganchos. Una entrada sin comando o con un `matcher` que no es una expresión válida se ignora.
+- Un gancho previo bloquea **antes** de pedir permisos: una herramienta bloqueada ni siquiera llega a preguntar. Los ganchos no sustituyen a los permisos: no pueden permitir lo que el modo o las reglas rechazan.
+- **Seguridad:** un gancho es un comando que se ejecuta solo, con tus permisos. Por eso los del proyecto exigen confianza (lo escribió otra persona) y por eso no se leen de ningún otro sitio.
 
 ## Seguridad
 

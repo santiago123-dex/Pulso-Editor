@@ -461,6 +461,11 @@ fn escapes_outside(args: &[&str]) -> bool {
 }
 
 fn run_command_blocking(root: &Path, command: &str, secs: u64, cancel: &AtomicBool) -> Result<(Option<i32>, String), String> {
+    run_command_with_env(root, command, secs, cancel, &[])
+}
+
+/// Igual que `run_command_blocking`, con variables de entorno extra (las usan los ganchos).
+pub(crate) fn run_command_with_env(root: &Path, command: &str, secs: u64, cancel: &AtomicBool, envs: &[(String, String)]) -> Result<(Option<i32>, String), String> {
     let mut cmd = if cfg!(windows) {
         let mut c = crate::background_command("powershell");
         c.args(["-NoProfile", "-NonInteractive", "-Command", command]);
@@ -471,6 +476,9 @@ fn run_command_blocking(root: &Path, command: &str, secs: u64, cancel: &AtomicBo
         c
     };
     cmd.current_dir(root).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    for (k, v) in envs {
+        cmd.env(k, v);
+    }
     crate::procguard::configure_child(&mut cmd);
     let mut child = cmd.spawn().map_err(|e| trf("No se pudo ejecutar el comando: {e}", &[("e", &e)]))?;
     crate::procguard::attach_job(&child);
