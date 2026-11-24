@@ -252,7 +252,22 @@ struct Converse {
     tool_calls: usize,
 }
 
+const PARAGRAPH: &str = "\n\n";
+
 type Events<'a> = Option<&'a (dyn Fn(Value) + Send + Sync)>;
+
+/// Pide al modelo un resumen de los mensajes viejos. Suma su coste a la respuesta.
+async fn summarize(ep: &Endpoint<'_>, model_id: &str, old: &[Msg], cancel: &AtomicBool, out: &mut Converse, model: &CloudModel) -> Result<String, String> {
+    let system = "You summarize the earlier part of a coding session so the work can continue with less context. Write a dense summary in the same language the user used: the user's goal, what was done (files changed and why), what was learned about the project, decisions and constraints, and what is still pending. Keep file paths and names exact. Do not invent anything and do not call tools.";
+    let mut req = old.to_vec();
+    req.push(Msg::User { text: "Summarize everything above as instructed. Reply with the summary only.".into(), images: vec![] });
+    let r = llm::stream_round(ep, model_id, system, &req, &[], Some(2_000), cancel, |_| {}).await?;
+    out.input += r.usage.input;
+    out.output += r.usage.output;
+    out.cost += cost_usd(model, r.usage.input, r.usage.output);
+    let text = r.text.trim().to_string();
+    if text.is_empty() { Err(tr("El resumen salió vacío.").into()) } else { Ok(text) }
+}
 
 /// Una conversación con herramientas: la usan el agente principal (con `events`, que va al panel) y los subagentes (sin ellos).
 #[allow(clippy::too_many_arguments)]
@@ -277,15 +292,29 @@ async fn converse(
     let max_tokens = (model.max_output > 0).then(|| model.max_output.min(16_384));
     let stamp = Instant::now().elapsed().as_nanos() ^ (std::process::id() as u128) << 64 ^ (rand_part() as u128);
     let mut out = Converse { final_text: String::new(), input: 0, output: 0, cost: 0.0, proposed: Vec::new(), tool_calls: 0 };
-    let mut session = Session { root: &env.root, mode, cancel: env.cancel.clone(), perms: env.perms.clone(), agent: agent.to_string(), proposed: Vec::new(), todos: Vec::new() };
+    let mut session = Session { root: &env.root, mode, cancel: env.cancel.clone(), perms: env.perms.clone(), agent: agent.to_string(), proposed: Vec::new(), todos: Vec::new(), memory: if agent.is_empty() { env.config.memory_store.clone() } else { None } };
     let mut guard = RepeatGuard::default();
 
     for round in 0..max_rounds {
         // Si la conversación se acerca al límite del modelo, se vacían los resultados de herramientas más viejos.
         agenttools::prune_context(&mut msgs, model.context);
+        let mut compacted = false;
+        // Si aun así no cabe, lo viejo se resume en un solo mensaje y se conserva lo reciente.
+        if let Some(cut) = agenttools::compaction_cut(&msgs, model.context) {
+            if let Ok(summary) = summarize(&ep, &model.model, &msgs[..cut], &env.cancel, &mut out, model).await {
+                let tail = msgs.split_off(cut);
+                msgs = vec![Msg::User { text: format!("[Summary of the earlier part of this conversation, written by you to save space]\n{summary}"), images: vec![] }];
+                msgs.extend(tail);
+                compacted = true;
+            }
+        }
         let turn = format!("cloud_{stamp:x}_{round}");
         emit(json!({ "type": "stream_event", "event": { "type": "message_start", "message": { "id": turn } } }));
         emit(json!({ "type": "stream_event", "event": { "type": "content_block_start", "index": 0, "content_block": { "type": "text", "text": "" } } }));
+        if compacted {
+            let notice = format!("_{}_{PARAGRAPH}", tr("La conversación era larga: resumí lo anterior para seguir."));
+            emit(json!({ "type": "stream_event", "event": { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": notice } } }));
+        }
         let r = llm::stream_round(&ep, &model.model, system, &msgs, specs, max_tokens, &env.cancel, |piece| {
             emit(json!({ "type": "stream_event", "event": { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": piece } } }));
         })
@@ -398,7 +427,8 @@ pub async fn run(
     resolver: ModelResolver,
     perms: Arc<Permissions>,
 ) -> Result<(), String> {
-    let mode = Mode::parse(&mode);
+    // `/plan …` se atiende siempre en solo lectura: el agente explora y propone, no toca nada.
+    let mode = if agentconfig::is_plan_request(&prompt) { Mode::Read } else { Mode::parse(&mode) };
     let started = Instant::now();
     let send = |v: Value| emit(v.to_string());
     send(json!({ "type": "system", "subtype": "init", "session_id": conversation, "model": model.model }));

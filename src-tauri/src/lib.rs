@@ -32,6 +32,7 @@ pub mod agent;
 pub mod agenttools;
 pub mod agentperms;
 pub mod agentconfig;
+pub mod agentmem;
 mod updates;
 mod diag;
 mod project_check;
@@ -1200,6 +1201,9 @@ pub fn run() {
             agentperms::ai_permission_respond,
             agentperms::agent_rules_list,
             agentperms::agent_rules_remove,
+            agentperms::agent_rules_add_deny,
+            agentmem::agent_memory_list,
+            agentmem::agent_memory_remove,
             catalog::provider_key_set,
             catalog::provider_key_delete,
             pick_theme_file,

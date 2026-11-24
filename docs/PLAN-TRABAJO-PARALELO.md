@@ -124,12 +124,12 @@ Lo ya hecho (proveedores de models.dev, herramientas, subagentes, skills, comand
 
 - [ ] **Probar con proveedores reales** (OpenAI, Anthropic, OpenRouter, DeepSeek…) y corregir las rarezas; hasta ahora solo hay servidores simulados.
 - [ ] **Aprobar las ediciones directas** del modo Agente (hoy se aplican sin preguntar; se deshacen con Git).
-- [ ] **Escribir reglas de denegar desde la interfaz** (hoy se editan en `agent-permissions.json`).
-- [ ] **Resumir la conversación** al llegar al límite de contexto, en vez de solo podar resultados.
+- [x] **Escribir reglas de denegar desde la interfaz.**
+- [x] **Resumir la conversación** al llegar al límite de contexto, en vez de solo podar resultados.
 - [ ] **MCP:** cliente de servidores MCP, con aprobación de sus herramientas por el mismo camino que los comandos.
 - [ ] **Ganchos (hooks)** antes y después de cada herramienta.
-- [ ] **Memoria entre sesiones**, por proyecto, guardada fuera del proyecto.
-- [ ] **Modo plan:** que el agente proponga el plan y lo apruebes antes de editar.
+- [x] **Memoria entre sesiones**, por proyecto, guardada fuera del proyecto (`agentmem.rs`).
+- [x] **Modo plan:** `/plan <tarea>`, siempre en solo lectura; el agente propone el plan y tú decides cuándo ejecutarlo.
 - [ ] Ver en vivo los pasos de un subagente.
 - [ ] **Pasar Ollama al motor común** (`agent.rs`, que ya habla con su endpoint compatible) y retirar el motor aparte de `localai.rs`.
 - [ ] Cifrar el historial del chat (`ai-chats.json`) o decidir y documentar por qué no.

@@ -1513,9 +1513,10 @@ async fn start_cloud(
         let cloud = crate::agent::CloudModel::from_catalog(provider, entry, key);
         // Instrucciones del proyecto, skills, subagentes y comandos (se leen de archivos).
         let trusted = project_trusted(&app, Path::new(&cwd_for_config));
+        let cwd_for_memory = cwd_for_config.clone();
         let config = tauri::async_runtime::spawn_blocking(move || crate::agentconfig::Config::load(Path::new(&cwd_for_config))).await.map_err(|e| e.to_string())?;
         // Sin confianza, lo del proyecto no llega al modelo: solo lo personal y los subagentes integrados.
-        let config = if trusted { config } else { config.without_project() };
+        let config = if trusted { config.with_memory(crate::agentmem::memory_store(&app, Path::new(&cwd_for_memory))) } else { config.without_project() };
         Ok::<_, String>((cloud, Arc::new(config), crate::agent::catalog_resolver(list.clone())))
     }
     .await;

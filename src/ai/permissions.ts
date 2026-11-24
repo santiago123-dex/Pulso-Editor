@@ -5,7 +5,7 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { t as tr } from "../i18n";
-import { quickPick, setStatus, type PickItem } from "../ui";
+import { promptText, quickPick, setStatus, type PickItem } from "../ui";
 import { h } from "../util";
 import { ws } from "../workspace";
 
@@ -121,7 +121,22 @@ export function showPermissionRules(): void {
         setStatus(tr("No se pudieron leer las reglas: {error}", { error: String(e) }), 8000);
         return [];
       }
-      return list.map<PickItem>((r) => ({
+      const addDeny: PickItem = {
+        label: tr("Añadir una regla de denegar…"),
+        detail: tr("Por ejemplo «git push *»: el agente no podrá ejecutarlo ni pidiéndolo"),
+        keywords: "denegar bloquear prohibir deny",
+        run: async () => {
+          const rule = await promptText({ title: tr("Comando que el agente nunca podrá ejecutar (usa * al final para un prefijo)"), placeholder: "git push *" });
+          if (!rule?.trim()) return;
+          try {
+            await invoke("agent_rules_add_deny", { cwd, rule: rule.trim() });
+            setStatus(tr("Regla añadida: {rule}", { rule: rule.trim() }), 5000);
+          } catch (e) {
+            setStatus(tr("No se pudo añadir la regla: {error}", { error: String(e) }), 8000);
+          }
+        },
+      };
+      return [addDeny, ...list.map<PickItem>((r) => ({
         label: r.rule,
         detail: r.kind === "deny" ? tr("Denegado siempre · elegir para quitar") : tr("Permitido siempre · elegir para quitar"),
         run: async () => {
@@ -132,7 +147,7 @@ export function showPermissionRules(): void {
             setStatus(tr("No se pudo quitar la regla: {error}", { error: String(e) }), 8000);
           }
         },
-      }));
+      }))];
     },
   });
 }
