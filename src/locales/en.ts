@@ -1594,6 +1594,8 @@ export const en: Record<string, string> = {
   "Extensión «{name}» desinstalada.": "Extension \"{name}\" uninstalled.",
   "Conceder permisos e instalar": "Grant permissions and install",
   "Extensión «{name}» instalada.": "Extension \"{name}\" installed.",
+  "Controles de depuración": "Debug controls",
+  "Consola de depuración": "Debug console",
   "Columnas personalizadas del tablero": "Custom board columns",
   "Columnas extra (Título=etiqueta, una por línea o separadas por coma)": "Extra columns (Title=label, one per line or comma-separated)",
   "Las issues abiertas con esa etiqueta aparecerán en su columna personalizada.": "Open issues with that label will appear in their custom column.",

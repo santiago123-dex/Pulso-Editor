@@ -1,0 +1,7 @@
+{
+  "Log rápido": {
+    "prefix": "plog",
+    "body": ["console.log(\"$1:\", $2);"],
+    "description": "Imprime un valor etiquetado en consola"
+  }
+}

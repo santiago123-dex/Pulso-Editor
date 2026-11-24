@@ -158,9 +158,13 @@ function renderVarNode(v: DapVariable): HTMLElement {
   const row = h("div", "dbg-var");
   const expandable = v.variablesReference > 0;
   if (expandable) {
-    const caret = h("span", "", expandedRefs.has(v.variablesReference) ? "▾" : "▸");
+    const isExpanded = expandedRefs.has(v.variablesReference);
+    const caret = h("span", "", isExpanded ? "▾" : "▸");
     row.style.cursor = "pointer";
-    row.onclick = async () => {
+    row.tabIndex = 0;
+    row.setAttribute("role", "button");
+    row.setAttribute("aria-expanded", String(isExpanded));
+    const toggleExpand = async () => {
       if (expandedRefs.has(v.variablesReference)) {
         expandedRefs.delete(v.variablesReference);
         renderVariables();
@@ -174,6 +178,13 @@ function renderVarNode(v: DapVariable): HTMLElement {
         } catch { /* sin detalles */ }
       }
       renderVariables();
+    };
+    row.onclick = () => void toggleExpand();
+    row.onkeydown = (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        void toggleExpand();
+      }
     };
     row.append(caret);
   }

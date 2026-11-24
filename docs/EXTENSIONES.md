@@ -45,6 +45,26 @@ Pulso Editor adopta una **API de extensiones declarativa y acotada** basada en `
 }
 ```
 
+## Cómo crear y probar tu propia extensión
+
+El repositorio incluye una extensión declarativa completa lista para instalar en `examples/extension-ejemplo/`:
+
+```text
+examples/extension-ejemplo/
+├── manifest.json
+├── themes/aurora.json
+└── snippets/typescript.json
+```
+
+### Paso a paso
+
+1. Crea una carpeta nueva con un archivo `manifest.json` válido (`id` en minúsculas de 2 a 64 caracteres, versión semántica `X.Y.Z` y permisos mínimos necesarios).
+2. Añade tus recursos (temas en `themes/*.json` o fragmentos en `snippets/*.json`) usando siempre rutas relativas sin `..`.
+3. Abre la vista **Extensiones** en la barra lateral de Pulso Editor y pulsa **`+` (Instalar desde carpeta…)**.
+4. Selecciona la carpeta de tu extensión (por ejemplo `examples/extension-ejemplo`).
+5. Revisa el diálogo de permisos solicitados y pulsa **«Conceder permisos e instalar»**.
+6. La extensión aparecerá en la lista con sus badges de permisos y podrás **Desactivar**, **Activar** o **Desinstalar** en cualquier momento.
+
 ## Decisión sobre plugins WASM aislados (futuro)
 
 Se **pospone el soporte de plugins WASM aislados para una fase posterior (v2)** por tres motivos:
