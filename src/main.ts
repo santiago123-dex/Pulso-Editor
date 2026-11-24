@@ -7,12 +7,11 @@ import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
 import { lang, t, translateStatic } from "./i18n";
 import { connectProvider } from "./ai/providers";
-import { showAgentConfig } from "./ai/agentConfig";
+import { showAgentConfig, trustProject } from "./ai/agentConfig";
 import { showPermissionRules } from "./ai/permissions";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getVersion } from "@tauri-apps/api/app";
 import { checkForUpdates, initUpdates } from "./updates";
-import { open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 import { bus } from "./core/events";
 import { createPrForActiveIssue } from "./workflow/issueWorkflow";
@@ -272,7 +271,7 @@ async function closeWorkspace() {
 async function pickFolder() {
   if (!inTauri) { setStatus(t("Abrir carpeta solo funciona en la ventana de Pulso Editor (npx tauri dev).")); return; }
   try {
-    const dir = await open({ directory: true });
+    const dir = await invoke<string | null>("pick_workspace_folder");
     if (typeof dir === "string") await openWorkspace(dir);
   } catch (e) {
     setStatus(t("No se pudo abrir la carpeta: {error}", { error: String(e) }));
@@ -282,7 +281,7 @@ async function pickFolder() {
 async function pickFolderNewWindow() {
   if (!inTauri) { setStatus(t("Abrir carpeta solo funciona en la ventana de Pulso Editor (npx tauri dev).")); return; }
   try {
-    const dir = await open({ directory: true });
+    const dir = await invoke<string | null>("pick_workspace_folder");
     if (typeof dir === "string") await invoke("open_new_window", { path: dir });
   } catch (e) {
     setStatus(t("No se pudo abrir la nueva ventana: {error}", { error: String(e) }));
@@ -516,6 +515,7 @@ register(
   { id: "app.onboarding", label: t("Ayuda: Asistente de bienvenida"), keywords: "bienvenida inicio configurar tema idioma github onboarding", run: () => openOnboarding({ onOpenFolder: pickFolder }) },
   { id: "ai.permissionRules", label: t("IA: Comandos permitidos para este proyecto…"), keywords: "ai ia permisos comandos reglas permitir aprobar approve permissions", run: showPermissionRules },
   { id: "ai.agentConfig", label: t("IA: Ver instrucciones, skills y agentes del proyecto…"), keywords: "ai ia agente skills subagentes instrucciones agents.md claude.md comandos", run: showAgentConfig },
+  { id: "ai.trustProject", label: t("IA: Confiar en este proyecto…"), keywords: "ai ia confiar confianza trust proyecto agents.md", run: () => void trustProject() },
   { id: "ai.connectProvider", label: t("IA: Conectar un proveedor de modelos…"), keywords: "ai ia modelos provider proveedor api key clave openai anthropic openrouter models.dev", run: () => connectProvider() },
   { id: "file.openRecent", label: t("Archivo: Abrir carpeta reciente…"), run: pickRecent },
   { id: "file.closeFolder", label: t("Archivo: Cerrar carpeta"), run: closeWorkspace },
