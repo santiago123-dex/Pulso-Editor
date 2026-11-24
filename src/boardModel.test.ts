@@ -3,7 +3,12 @@ import { applyMove, columnOf, groupIssues, hasLabel, planMove, REVIEW_LABEL } fr
 import type { Issue } from "./github";
 
 const issue = (n: number, state = "open", labels: string[] = []): Issue => ({
-  number: n, title: `t${n}`, state, html_url: "", user: { login: "u" }, comments: 0,
+  number: n,
+  title: `t${n}`,
+  state,
+  html_url: "",
+  user: { login: "u" },
+  comments: 0,
   labels: labels.map((name) => ({ name, color: "fff" })),
 });
 const L = "in progress";
@@ -57,8 +62,14 @@ describe("tablero: qué se pide a GitHub al mover una tarjeta", () => {
     expect(planMove(issue(1, "closed", [L]), "doing", L)).toEqual([{ op: "open" }]);
   });
   it("mueve entre revisión y los demás estados sin dejar etiquetas de estado obsoletas", () => {
-    expect(planMove(issue(1, "open", [L]), "review", L)).toEqual([{ op: "removeLabel", label: L }, { op: "addLabel", label: REVIEW_LABEL }]);
-    expect(planMove(issue(1, "open", [REVIEW_LABEL]), "doing", L)).toEqual([{ op: "removeLabel", label: REVIEW_LABEL }, { op: "addLabel", label: L }]);
+    expect(planMove(issue(1, "open", [L]), "review", L)).toEqual([
+      { op: "removeLabel", label: L },
+      { op: "addLabel", label: REVIEW_LABEL },
+    ]);
+    expect(planMove(issue(1, "open", [REVIEW_LABEL]), "doing", L)).toEqual([
+      { op: "removeLabel", label: REVIEW_LABEL },
+      { op: "addLabel", label: L },
+    ]);
     expect(planMove(issue(1, "open", [REVIEW_LABEL]), "done", L)).toEqual([{ op: "removeLabel", label: REVIEW_LABEL }, { op: "close" }]);
     expect(planMove(issue(1, "closed"), "review", L)).toEqual([{ op: "open" }, { op: "addLabel", label: REVIEW_LABEL }]);
   });
@@ -114,7 +125,17 @@ describe("tablero: crear, editar y recargar", () => {
 });
 
 describe("tablero: cuándo recargar solo", () => {
-  const base = { now: 100_000, last: 0, minGap: 5000, interval: 60_000, trigger: "focus" as const, hasToken: true, visible: true, busy: false, blocked: false };
+  const base = {
+    now: 100_000,
+    last: 0,
+    minGap: 5000,
+    interval: 60_000,
+    trigger: "focus" as const,
+    hasToken: true,
+    visible: true,
+    busy: false,
+    blocked: false,
+  };
   it("al volver a la ventana recarga si pasó el intervalo mínimo", () => {
     expect(refreshDue(base)).toBe(true);
     expect(refreshDue({ ...base, last: 98_000 })).toBe(false);

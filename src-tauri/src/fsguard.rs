@@ -293,11 +293,7 @@ mod tests {
 
     fn tmp_dir(tag: &str) -> PathBuf {
         static N: AtomicU64 = AtomicU64::new(0);
-        let d = std::env::temp_dir().join(format!(
-            "pulso-fsguard-{tag}-{}-{}",
-            std::process::id(),
-            N.fetch_add(1, Ordering::Relaxed)
-        ));
+        let d = std::env::temp_dir().join(format!("pulso-fsguard-{tag}-{}-{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         d

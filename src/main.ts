@@ -21,11 +21,44 @@ import { commands, initKeys, keyOf, register } from "./commands";
 import { checkExternal, dirtyDocs, discardDirtyBackups, docs, flushBackups, offerRecovery, onDocSaved, saveDoc } from "./docs";
 import { autoConnect, initToken } from "./github";
 import { gitInfo, onGitChange, type GitInfo } from "./git";
-import { collapseAll, highlight, initExplorer, newEntry, refreshGitDecorations, refreshTree, resetExplorer, revealInTree } from "./explorer";
 import {
-  activePath, applySettingsToEditors, clearClosedTabs, closeActive, closeAllInGroup, closeAllTabs, closeGroup, closeOthers, config,
-  focusGroup, focusedEditor, getFocused, initGroups, moveToNextGroup, nextTab, onGroupsChange, openFile,
-  reopenClosed, rerenderEmpty, rerenderGroups, restore, saveActive, saveAll, serialize, splitGroup, toggleDirection, togglePin,
+  collapseAll,
+  highlight,
+  initExplorer,
+  newEntry,
+  refreshGitDecorations,
+  refreshTree,
+  resetExplorer,
+  revealInTree,
+} from "./explorer";
+import {
+  activePath,
+  applySettingsToEditors,
+  clearClosedTabs,
+  closeActive,
+  closeAllInGroup,
+  closeAllTabs,
+  closeGroup,
+  closeOthers,
+  config,
+  focusGroup,
+  focusedEditor,
+  getFocused,
+  initGroups,
+  moveToNextGroup,
+  nextTab,
+  onGroupsChange,
+  openFile,
+  reopenClosed,
+  rerenderEmpty,
+  rerenderGroups,
+  restore,
+  saveActive,
+  saveAll,
+  serialize,
+  splitGroup,
+  toggleDirection,
+  togglePin,
   type Layout,
 } from "./groups";
 import { fileIcon, loadIconManifest } from "./icons";
@@ -36,7 +69,16 @@ import { isOnboardingDone, openOnboarding, shouldShowOnboarding } from "./onboar
 import { initIssues, loadIssues } from "./issues";
 import { initProblems, resetProjectProblems, runProjectProblemsCheck, setProblemsVisible } from "./problems";
 import { initTestsView, resetTestsView, runAllTests, setTestsVisible } from "./testsView";
-import { initDebug, setDebugVisible, startOrContinueDebug, stepIntoDebug, stepOutDebug, stepOverDebug, stopDebug, toggleCurrentBreakpoint } from "./debugView";
+import {
+  initDebug,
+  setDebugVisible,
+  startOrContinueDebug,
+  stepIntoDebug,
+  stepOutDebug,
+  stepOverDebug,
+  stopDebug,
+  toggleCurrentBreakpoint,
+} from "./debugView";
 import { initExtensions, installExtensionFromFolder, setExtensionsVisible } from "./extView";
 import { initConflictHelper } from "./conflictHelper";
 import { initInlineCompletions, resetInlineAiBackoff } from "./inlineCompletion";
@@ -49,10 +91,37 @@ import { customizeActivityBar, initActivityBar, resetActivityBar } from "./activ
 import { resetRepoChat, setChatVisible } from "./repoChat";
 import { initLsp, setLspWorkspace } from "./lsp";
 import { getLspState, lspDetail, lspLabel, onLspState } from "./lspState";
-import { abortGitOperation, amendLastCommit, commitStaged, continueGitOperation, deleteBranch, initScm, linkIssueToLocalChanges, mergeBranch, pickBranch, pullChanges, pushChanges, rebaseBranch, refreshScm, renameBranch, resetScm, stage, unstage } from "./scm";
+import {
+  abortGitOperation,
+  amendLastCommit,
+  commitStaged,
+  continueGitOperation,
+  deleteBranch,
+  initScm,
+  linkIssueToLocalChanges,
+  mergeBranch,
+  pickBranch,
+  pullChanges,
+  pushChanges,
+  rebaseBranch,
+  refreshScm,
+  renameBranch,
+  resetScm,
+  stage,
+  unstage,
+} from "./scm";
 import { focusSearch, initSearch, resetSearch, searchInFolder } from "./search";
 import { allThemes, applyTheme, commit, onSettingsChange, setTheme, state, syntaxOptionsFor } from "./settings";
-import { adaptToMyTerminal, applyTerminalSettings, clearTerminal, initTerminal, killActiveTerminal, newTerminal, runInTerminal, toggleTerminal } from "./terminal";
+import {
+  adaptToMyTerminal,
+  applyTerminalSettings,
+  clearTerminal,
+  initTerminal,
+  killActiveTerminal,
+  newTerminal,
+  runInTerminal,
+  toggleTerminal,
+} from "./terminal";
 import { openThemeGallery } from "./themeGallery";
 import { createNav } from "./nav";
 import { beat, initTitlebar, setNavState, setTitleLabel, setUnsaved, type MenuDef, type MenuEntry } from "./titlebar";
@@ -60,7 +129,22 @@ import { importFromFile, importInstalled, removeImported } from "./themeImport";
 import { closeSettings, initSettingsPage, openSettings, syncSettingsUI, toggleSettings } from "./settingsPage";
 import { hooks, quickPick, setDefaultStatus, setStatus, showDialog, type PickItem } from "./ui";
 import { $, baseName, dirName, h, norm } from "./util";
-import { addRecent, clearLastRoot, clearSession, createSessionPersister, getLastRoot, getRecent, loadProjectLayout, loadSession, rel, removeRecent, saveProjectLayout, saveSession, setLastRoot, ws } from "./workspace";
+import {
+  addRecent,
+  clearLastRoot,
+  clearSession,
+  createSessionPersister,
+  getLastRoot,
+  getRecent,
+  loadProjectLayout,
+  loadSession,
+  rel,
+  removeRecent,
+  saveProjectLayout,
+  saveSession,
+  setLastRoot,
+  ws,
+} from "./workspace";
 
 // Los textos fijos de index.html, en el idioma elegido, antes de que nada se pinte encima.
 translateStatic(document.body);
@@ -107,14 +191,28 @@ type View = "explorer" | "search" | "git" | "issues" | "problems" | "tests" | "d
 let currentView: View = "explorer";
 
 function showView(view: View | "settings") {
-  if (view === "settings") { toggleSettings(); return; }
+  if (view === "settings") {
+    toggleSettings();
+    return;
+  }
   closeSettings();
   const app = $("app");
-  if (view === currentView && !app.classList.contains("no-sidebar")) { app.classList.add("no-sidebar"); setProblemsVisible(false); setTestsVisible(false); setDebugVisible(false); setExtensionsVisible(false); setChatVisible(false); setPrsVisible(false); setAiVisible(false); return; }
+  if (view === currentView && !app.classList.contains("no-sidebar")) {
+    app.classList.add("no-sidebar");
+    setProblemsVisible(false);
+    setTestsVisible(false);
+    setDebugVisible(false);
+    setExtensionsVisible(false);
+    setChatVisible(false);
+    setPrsVisible(false);
+    setAiVisible(false);
+    return;
+  }
   app.classList.remove("no-sidebar");
   currentView = view;
   document.querySelectorAll<HTMLElement>(".act[data-view]").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
-  for (const v of ["explorer", "search", "git", "issues", "problems", "tests", "debug", "extensions", "chat", "prs", "ai"] as View[]) $(`view-${v}`).hidden = v !== view;
+  for (const v of ["explorer", "search", "git", "issues", "problems", "tests", "debug", "extensions", "chat", "prs", "ai"] as View[])
+    $(`view-${v}`).hidden = v !== view;
   setProblemsVisible(view === "problems");
   setTestsVisible(view === "tests");
   setDebugVisible(view === "debug");
@@ -158,8 +256,12 @@ async function confirmLeaveRunningAi(closing: boolean): Promise<boolean> {
   const r = await showDialog({
     title: t("El asistente de IA sigue respondiendo"),
     message: closing
-      ? t("Hay una conversación de IA en curso en «{folder}». ¿Qué quieres hacer antes de cerrar la carpeta?", { folder: baseName(ws.root) })
-      : t("Hay una conversación de IA en curso en «{folder}». ¿Qué quieres hacer antes de cambiar de proyecto?", { folder: baseName(ws.root) }),
+      ? t("Hay una conversación de IA en curso en «{folder}». ¿Qué quieres hacer antes de cerrar la carpeta?", {
+          folder: baseName(ws.root),
+        })
+      : t("Hay una conversación de IA en curso en «{folder}». ¿Qué quieres hacer antes de cambiar de proyecto?", {
+          folder: baseName(ws.root),
+        }),
     buttons: [
       { label: t("Cancelar"), value: "cancel" },
       { label: t("Detener y continuar"), value: "stop", danger: true },
@@ -234,8 +336,11 @@ async function applyCliTargets(targets: CliTarget[]) {
 }
 
 async function installCliCommand() {
-  try { setStatus(await invoke<string>("install_cli_command"), 10000); }
-  catch (e) { setStatus(t("No se pudo instalar el comando pulso: {error}", { error: String(e) }), 10000); }
+  try {
+    setStatus(await invoke<string>("install_cli_command"), 10000);
+  } catch (e) {
+    setStatus(t("No se pudo instalar el comando pulso: {error}", { error: String(e) }), 10000);
+  }
 }
 
 async function closeWorkspace() {
@@ -272,7 +377,10 @@ async function closeWorkspace() {
 }
 
 async function pickFolder() {
-  if (!inTauri) { setStatus(t("Abrir carpeta solo funciona en la ventana de Pulso Editor (npx tauri dev).")); return; }
+  if (!inTauri) {
+    setStatus(t("Abrir carpeta solo funciona en la ventana de Pulso Editor (npx tauri dev)."));
+    return;
+  }
   try {
     const dir = await invoke<string | null>("pick_workspace_folder");
     if (typeof dir === "string") await openWorkspace(dir);
@@ -282,7 +390,10 @@ async function pickFolder() {
 }
 
 async function pickFolderNewWindow() {
-  if (!inTauri) { setStatus(t("Abrir carpeta solo funciona en la ventana de Pulso Editor (npx tauri dev).")); return; }
+  if (!inTauri) {
+    setStatus(t("Abrir carpeta solo funciona en la ventana de Pulso Editor (npx tauri dev)."));
+    return;
+  }
   try {
     const dir = await invoke<string | null>("pick_workspace_folder");
     if (typeof dir === "string") await invoke("open_new_window", { path: dir });
@@ -300,7 +411,11 @@ function updateStatus() {
   const pos = ed?.getPosition();
   const selection = ed?.getSelection();
   const chars = d && selection && !selection.isEmpty() ? d.model.getValueInRange(selection).length : 0;
-  $("status-pos").textContent = d && pos ? t("Ln {line}, Col {col}", { line: pos.lineNumber, col: pos.column }) + (chars ? " " + t("({count} seleccionados)", { count: chars }) : "") : "";
+  $("status-pos").textContent =
+    d && pos
+      ? t("Ln {line}, Col {col}", { line: pos.lineNumber, col: pos.column }) +
+        (chars ? " " + t("({count} seleccionados)", { count: chars }) : "")
+      : "";
   $("status-indent").textContent = d ? t("Espacios: {size}", { size: d.model.getOptions().tabSize }) : "";
   $("status-lang").textContent = d ? d.model.getLanguageId() : "";
   $("status-eol").textContent = d ? (d.model.getEOL() === "\r\n" ? "CRLF" : "LF") : "";
@@ -310,7 +425,10 @@ function updateStatus() {
   document.title = title;
   setTitleLabel(ws.root ? baseName(ws.root) : "Pulso");
   setUnsaved(dirtyDocs().length);
-  if (inTauri) void getCurrentWindow().setTitle(title).catch(() => {});
+  if (inTauri)
+    void getCurrentWindow()
+      .setTitle(title)
+      .catch(() => {});
 }
 
 function paintLsp() {
@@ -341,7 +459,9 @@ $("status-eol").onclick = () => {
 };
 
 // Historial de navegación: las flechas de la barra de título van atrás y adelante entre archivos y posiciones.
-const nav = createNav(async ({ path, line }) => { await openFile(path, { line, col: 1 }); });
+const nav = createNav(async ({ path, line }) => {
+  await openFile(path, { line, col: 1 });
+});
 nav.onChange(() => setNavState(nav.canBack(), nav.canForward()));
 
 let lastActive: string | null = null;
@@ -349,7 +469,11 @@ onGroupsChange(() => {
   updateStatus();
   persist();
   const p = activePath();
-  if (p !== lastActive) { lastActive = p; highlight(p); closeSettings(); }
+  if (p !== lastActive) {
+    lastActive = p;
+    highlight(p);
+    closeSettings();
+  }
   const pos = getFocused()?.editor.getPosition();
   if (p && pos) nav.record({ path: p, line: pos.lineNumber });
 });
@@ -384,7 +508,9 @@ config.renderEmpty = (el, full) => {
     kbdRow(t("Configuración"), "view.settings"),
   );
   wrap.append(list);
-  const recent = getRecent().filter((p) => p !== ws.root).slice(0, 5);
+  const recent = getRecent()
+    .filter((p) => p !== ws.root)
+    .slice(0, 5);
   if (recent.length) {
     wrap.append(h("h2", "", t("Recientes")));
     const rl = h("ul", "recent");
@@ -401,7 +527,10 @@ config.renderEmpty = (el, full) => {
 
 // ---------- Selectores rápidos ----------
 function quickOpenFiles() {
-  if (!ws.root) { setStatus(t("Abre una carpeta primero")); return; }
+  if (!ws.root) {
+    setStatus(t("Abre una carpeta primero"));
+    return;
+  }
   quickPick({
     placeholder: t("Buscar archivo por nombre…"),
     load: async () => {
@@ -428,7 +557,13 @@ function openPalette() {
       if (ed) {
         for (const a of ed.getSupportedActions()) {
           if (!a.isSupported()) continue;
-          items.push({ label: t("Editor: {action}", { action: a.label }), run: () => { ed.focus(); return a.run(); } });
+          items.push({
+            label: t("Editor: {action}", { action: a.label }),
+            run: () => {
+              ed.focus();
+              return a.run();
+            },
+          });
         }
       }
       return items;
@@ -439,11 +574,16 @@ function openPalette() {
 function pickSyntax() {
   quickPick({
     placeholder: t("Colores del código…"),
-    load: () => [["auto", t("Los del tema")], ...syntaxOptionsFor(state.settings.theme)].map<PickItem>(([id, label]) => ({
-      label,
-      detail: id === state.settings.syntaxTheme ? "actual" : "",
-      run: () => { state.settings.syntaxTheme = id; commit(); syncSettingsUI(); },
-    })),
+    load: () =>
+      [["auto", t("Los del tema")], ...syntaxOptionsFor(state.settings.theme)].map<PickItem>(([id, label]) => ({
+        label,
+        detail: id === state.settings.syntaxTheme ? "actual" : "",
+        run: () => {
+          state.settings.syntaxTheme = id;
+          commit();
+          syncSettingsUI();
+        },
+      })),
   });
 }
 
@@ -473,7 +613,10 @@ function runSelectionInTerminal() {
   const ed = focusedEditor();
   const model = ed?.getModel();
   const sel = ed?.getSelection();
-  if (!ed || !model || !sel) { setStatus(t("Abre un archivo y selecciona lo que quieras ejecutar")); return; }
+  if (!ed || !model || !sel) {
+    setStatus(t("Abre un archivo y selecciona lo que quieras ejecutar"));
+    return;
+  }
   const text = sel.isEmpty() ? model.getLineContent(sel.startLineNumber) : model.getValueInRange(sel);
   if (text.trim()) void runInTerminal(text);
 }
@@ -513,34 +656,109 @@ register(
   { id: "file.openFolder", label: t("Archivo: Abrir carpeta…"), key: "Ctrl+O", run: pickFolder },
   { id: "file.openFolderNewWindow", label: t("Archivo: Abrir carpeta en una nueva ventana…"), run: pickFolderNewWindow },
   { id: "cli.install", label: t("Instalar el comando «pulso» en la terminal"), run: installCliCommand },
-  { id: "app.checkUpdates", label: t("Ayuda: Buscar actualizaciones"), keywords: "update actualizar versión nueva", run: () => checkForUpdates(true) },
-  { id: "app.copyDiagnostics", label: t("Ayuda: Copiar información de diagnóstico"), keywords: "diagnostico log soporte bug error version", run: () => void copyDiagnostics() },
-  { id: "app.onboarding", label: t("Ayuda: Asistente de bienvenida"), keywords: "bienvenida inicio configurar tema idioma github onboarding", run: () => openOnboarding({ onOpenFolder: pickFolder }) },
-  { id: "ai.permissionRules", label: t("IA: Comandos permitidos para este proyecto…"), keywords: "ai ia permisos comandos reglas permitir aprobar approve permissions", run: showPermissionRules },
-  { id: "ai.agentConfig", label: t("IA: Ver instrucciones, skills y agentes del proyecto…"), keywords: "ai ia agente skills subagentes instrucciones agents.md claude.md comandos", run: showAgentConfig },
-  { id: "ai.memory", label: t("IA: Memoria del agente en este proyecto…"), keywords: "ai ia agente memoria notas recuerda", run: showAgentMemory },
-  { id: "ai.mcp", label: t("IA: Servidores MCP…"), keywords: "ai ia mcp servidores herramientas conexion conectado model context protocol", run: showMcpServers },
-  { id: "ai.trustProject", label: t("IA: Confiar en este proyecto…"), keywords: "ai ia confiar confianza trust proyecto agents.md", run: () => void trustProject() },
-  { id: "ai.connectProvider", label: t("IA: Conectar un proveedor de modelos…"), keywords: "ai ia modelos provider proveedor api key clave openai anthropic openrouter models.dev", run: () => connectProvider() },
+  {
+    id: "app.checkUpdates",
+    label: t("Ayuda: Buscar actualizaciones"),
+    keywords: "update actualizar versión nueva",
+    run: () => checkForUpdates(true),
+  },
+  {
+    id: "app.copyDiagnostics",
+    label: t("Ayuda: Copiar información de diagnóstico"),
+    keywords: "diagnostico log soporte bug error version",
+    run: () => void copyDiagnostics(),
+  },
+  {
+    id: "app.onboarding",
+    label: t("Ayuda: Asistente de bienvenida"),
+    keywords: "bienvenida inicio configurar tema idioma github onboarding",
+    run: () => openOnboarding({ onOpenFolder: pickFolder }),
+  },
+  {
+    id: "ai.permissionRules",
+    label: t("IA: Comandos permitidos para este proyecto…"),
+    keywords: "ai ia permisos comandos reglas permitir aprobar approve permissions",
+    run: showPermissionRules,
+  },
+  {
+    id: "ai.agentConfig",
+    label: t("IA: Ver instrucciones, skills y agentes del proyecto…"),
+    keywords: "ai ia agente skills subagentes instrucciones agents.md claude.md comandos",
+    run: showAgentConfig,
+  },
+  {
+    id: "ai.memory",
+    label: t("IA: Memoria del agente en este proyecto…"),
+    keywords: "ai ia agente memoria notas recuerda",
+    run: showAgentMemory,
+  },
+  {
+    id: "ai.mcp",
+    label: t("IA: Servidores MCP…"),
+    keywords: "ai ia mcp servidores herramientas conexion conectado model context protocol",
+    run: showMcpServers,
+  },
+  {
+    id: "ai.trustProject",
+    label: t("IA: Confiar en este proyecto…"),
+    keywords: "ai ia confiar confianza trust proyecto agents.md",
+    run: () => void trustProject(),
+  },
+  {
+    id: "ai.connectProvider",
+    label: t("IA: Conectar un proveedor de modelos…"),
+    keywords: "ai ia modelos provider proveedor api key clave openai anthropic openrouter models.dev",
+    run: () => connectProvider(),
+  },
   { id: "file.openRecent", label: t("Archivo: Abrir carpeta reciente…"), run: pickRecent },
   { id: "file.closeFolder", label: t("Archivo: Cerrar carpeta"), run: closeWorkspace },
   { id: "file.newFile", label: t("Archivo: Nuevo archivo…"), key: "Ctrl+N", run: () => newEntry("file") },
   { id: "file.newFolder", label: t("Archivo: Nueva carpeta…"), run: () => newEntry("folder") },
   { id: "file.save", label: t("Archivo: Guardar"), key: "Ctrl+S", run: saveActive },
   { id: "file.saveAll", label: t("Archivo: Guardar todo"), key: "Ctrl+Shift+S", run: () => void saveAll() },
-  { id: "file.reveal", label: t("Archivo: Mostrar el archivo activo en el explorador"), run: () => { const p = activePath(); if (p) { showView("explorer"); void revealInTree(p); } } },
+  {
+    id: "file.reveal",
+    label: t("Archivo: Mostrar el archivo activo en el explorador"),
+    run: () => {
+      const p = activePath();
+      if (p) {
+        showView("explorer");
+        void revealInTree(p);
+      }
+    },
+  },
 
   { id: "tab.close", label: t("Pestaña: Cerrar"), key: "Ctrl+W", run: () => void closeActive() },
   { id: "tab.closeOthers", label: t("Pestaña: Cerrar las demás"), run: () => void closeOthers() },
   { id: "tab.closeAll", label: t("Pestaña: Cerrar todas las del grupo"), run: () => void closeAllInGroup() },
   { id: "tab.reopen", label: t("Pestaña: Reabrir la última cerrada"), key: "Ctrl+Shift+T", run: () => void reopenClosed() },
   { id: "nav.back", label: t("Ir: Atrás"), key: "Alt+ArrowLeft", keywords: "back atrás historial", run: () => void nav.back() },
-  { id: "nav.forward", label: t("Ir: Adelante"), key: "Alt+ArrowRight", keywords: "forward adelante historial", run: () => void nav.forward() },
+  {
+    id: "nav.forward",
+    label: t("Ir: Adelante"),
+    key: "Alt+ArrowRight",
+    keywords: "forward adelante historial",
+    run: () => void nav.forward(),
+  },
   { id: "tab.next", label: t("Pestaña: Siguiente"), key: "Ctrl+Tab", run: () => nextTab(1) },
   { id: "tab.prev", label: t("Pestaña: Anterior"), key: "Ctrl+Shift+Tab", run: () => nextTab(-1) },
-  { id: "tab.pin", label: t("Pestaña: Fijar o desfijar"), run: () => { const g = getFocused(); if (g.active) togglePin(g, g.active); } },
+  {
+    id: "tab.pin",
+    label: t("Pestaña: Fijar o desfijar"),
+    run: () => {
+      const g = getFocused();
+      if (g.active) togglePin(g, g.active);
+    },
+  },
 
-  { id: "layout.split", label: t("Diseño: Dividir el editor"), key: "Ctrl+Shift+D", run: () => { splitGroup()?.editor.focus(); } },
+  {
+    id: "layout.split",
+    label: t("Diseño: Dividir el editor"),
+    key: "Ctrl+Shift+D",
+    run: () => {
+      splitGroup()?.editor.focus();
+    },
+  },
   { id: "layout.orientation", label: t("Diseño: Cambiar orientación (lado a lado / apilado)"), run: toggleDirection },
   { id: "layout.closeGroup", label: t("Diseño: Cerrar el grupo de editores"), run: () => void closeGroup(getFocused()) },
   { id: "layout.moveTab", label: t("Diseño: Mover la pestaña al otro grupo"), key: "Ctrl+Alt+ArrowRight", run: moveToNextGroup },
@@ -549,85 +767,365 @@ register(
   { id: "layout.focus3", label: t("Diseño: Ir al grupo 3"), key: "Ctrl+3", run: () => focusGroup(2) },
   { id: "layout.focus4", label: t("Diseño: Ir al grupo 4"), key: "Ctrl+4", run: () => focusGroup(3) },
 
-  { id: "view.sidebar", label: t("Ver: Mostrar u ocultar la barra lateral"), key: "Ctrl+B", run: () => { $("app").classList.toggle("no-sidebar"); } },
-  { id: "view.activityCustomize", label: t("Ver: Organizar botones de la barra lateral…"), keywords: "barra lateral actividad iconos ordenar ocultar personalizar", run: customizeActivityBar },
-  { id: "view.activityReset", label: t("Ver: Restablecer botones de la barra lateral"), keywords: "barra lateral actividad iconos restablecer orden", run: resetActivityBar },
+  {
+    id: "view.sidebar",
+    label: t("Ver: Mostrar u ocultar la barra lateral"),
+    key: "Ctrl+B",
+    run: () => {
+      $("app").classList.toggle("no-sidebar");
+    },
+  },
+  {
+    id: "view.activityCustomize",
+    label: t("Ver: Organizar botones de la barra lateral…"),
+    keywords: "barra lateral actividad iconos ordenar ocultar personalizar",
+    run: customizeActivityBar,
+  },
+  {
+    id: "view.activityReset",
+    label: t("Ver: Restablecer botones de la barra lateral"),
+    keywords: "barra lateral actividad iconos restablecer orden",
+    run: resetActivityBar,
+  },
   { id: "view.explorer", label: t("Ver: Explorador"), key: "Ctrl+Shift+E", run: () => showView("explorer") },
-  { id: "view.search", label: t("Ver: Buscar en archivos"), key: "Ctrl+Shift+F", run: () => { showView("search"); focusSearch(selectionText()); } },
-  { id: "view.git", label: t("Ver: Control de código fuente (Git)"), key: "Ctrl+Shift+G", keywords: "git source control commit cambios stage preparar", run: () => showView("git") },
-  { id: "git.history", label: t("Git: Historial de commits"), keywords: "git historial log commits", run: () => { showView("git"); openHistoryTab(); } },
+  {
+    id: "view.search",
+    label: t("Ver: Buscar en archivos"),
+    key: "Ctrl+Shift+F",
+    run: () => {
+      showView("search");
+      focusSearch(selectionText());
+    },
+  },
+  {
+    id: "view.git",
+    label: t("Ver: Control de código fuente (Git)"),
+    key: "Ctrl+Shift+G",
+    keywords: "git source control commit cambios stage preparar",
+    run: () => showView("git"),
+  },
+  {
+    id: "git.history",
+    label: t("Git: Historial de commits"),
+    keywords: "git historial log commits",
+    run: () => {
+      showView("git");
+      openHistoryTab();
+    },
+  },
   { id: "git.blame", label: t("Git: Alternar culpa (blame) en línea"), keywords: "git blame culpa autor linea quien", run: toggleBlame },
-  { id: "git.fileHistory", label: t("Git: Historial del archivo activo"), keywords: "git historial archivo file history log", run: () => { showView("git"); showFileHistory(); } },
-  { id: "git.commit", label: t("Git: Confirmar los cambios preparados (commit)"), keywords: "git commit confirmar", run: () => { showView("git"); void commitStaged(); } },
-  { id: "git.amend", label: t("Git: Corregir el último commit (amend)"), keywords: "git commit amend corregir ultimo", run: () => { showView("git"); void amendLastCommit(); } },
-  { id: "git.branch", label: t("Git: Cambiar de rama o crear una nueva…"), keywords: "git branch rama checkout switch crear", run: () => void pickBranch() },
-  { id: "git.renameBranch", label: t("Git: Renombrar una rama local…"), keywords: "git branch rama rename renombrar", run: () => void renameBranch() },
-  { id: "git.deleteBranch", label: t("Git: Eliminar una rama local…"), keywords: "git branch rama delete eliminar borrar", run: () => void deleteBranch() },
-  { id: "git.merge", label: t("Git: Fusionar una rama (merge)…"), keywords: "git merge fusionar rama branch", run: () => void mergeBranch() },
-  { id: "git.rebase", label: t("Git: Rebasar sobre una rama (rebase)…"), keywords: "git rebase rebasar rama branch", run: () => void rebaseBranch() },
-  { id: "git.continueOp", label: t("Git: Continuar fusión o rebase"), keywords: "git merge rebase continue continuar conflicto", run: () => void continueGitOperation() },
-  { id: "git.abortOp", label: t("Git: Abortar fusión o rebase"), keywords: "git merge rebase abort abortar cancelar", run: () => void abortGitOperation() },
-  { id: "git.linkIssue", label: t("Git: Vincular una issue a los cambios locales…"), keywords: "git issue vincular relacionar commit", run: () => void linkIssueToLocalChanges() },
+  {
+    id: "git.fileHistory",
+    label: t("Git: Historial del archivo activo"),
+    keywords: "git historial archivo file history log",
+    run: () => {
+      showView("git");
+      showFileHistory();
+    },
+  },
+  {
+    id: "git.commit",
+    label: t("Git: Confirmar los cambios preparados (commit)"),
+    keywords: "git commit confirmar",
+    run: () => {
+      showView("git");
+      void commitStaged();
+    },
+  },
+  {
+    id: "git.amend",
+    label: t("Git: Corregir el último commit (amend)"),
+    keywords: "git commit amend corregir ultimo",
+    run: () => {
+      showView("git");
+      void amendLastCommit();
+    },
+  },
+  {
+    id: "git.branch",
+    label: t("Git: Cambiar de rama o crear una nueva…"),
+    keywords: "git branch rama checkout switch crear",
+    run: () => void pickBranch(),
+  },
+  {
+    id: "git.renameBranch",
+    label: t("Git: Renombrar una rama local…"),
+    keywords: "git branch rama rename renombrar",
+    run: () => void renameBranch(),
+  },
+  {
+    id: "git.deleteBranch",
+    label: t("Git: Eliminar una rama local…"),
+    keywords: "git branch rama delete eliminar borrar",
+    run: () => void deleteBranch(),
+  },
+  {
+    id: "git.merge",
+    label: t("Git: Fusionar una rama (merge)…"),
+    keywords: "git merge fusionar rama branch",
+    run: () => void mergeBranch(),
+  },
+  {
+    id: "git.rebase",
+    label: t("Git: Rebasar sobre una rama (rebase)…"),
+    keywords: "git rebase rebasar rama branch",
+    run: () => void rebaseBranch(),
+  },
+  {
+    id: "git.continueOp",
+    label: t("Git: Continuar fusión o rebase"),
+    keywords: "git merge rebase continue continuar conflicto",
+    run: () => void continueGitOperation(),
+  },
+  {
+    id: "git.abortOp",
+    label: t("Git: Abortar fusión o rebase"),
+    keywords: "git merge rebase abort abortar cancelar",
+    run: () => void abortGitOperation(),
+  },
+  {
+    id: "git.linkIssue",
+    label: t("Git: Vincular una issue a los cambios locales…"),
+    keywords: "git issue vincular relacionar commit",
+    run: () => void linkIssueToLocalChanges(),
+  },
   { id: "git.pull", label: t("Git: Traer cambios del remoto (pull)"), keywords: "git pull traer descargar", run: () => void pullChanges() },
   { id: "git.push", label: t("Git: Subir commits al remoto (push)"), keywords: "git push subir enviar", run: () => void pushChanges() },
   { id: "git.stageAll", label: t("Git: Preparar todos los cambios"), keywords: "git stage add preparar todo", run: () => void stage([]) },
   { id: "git.unstageAll", label: t("Git: Quitar todo de lo preparado"), keywords: "git unstage reset quitar", run: () => void unstage([]) },
-  { id: "task.script", label: t("Tareas: Ejecutar un script de package.json"), keywords: "npm run script tarea test build dev pnpm yarn bun", run: () => void pickScript() },
-  { id: "view.ai", label: t("Ver: Asistente de IA"), keywords: "ia ai asistente claude chat inteligencia artificial", run: () => showView("ai") },
-  { id: "ai.new", label: t("Asistente de IA: Nueva conversación"), keywords: "ia ai claude nueva conversacion", run: () => { showView("ai"); startNewConversation(); } },
+  {
+    id: "task.script",
+    label: t("Tareas: Ejecutar un script de package.json"),
+    keywords: "npm run script tarea test build dev pnpm yarn bun",
+    run: () => void pickScript(),
+  },
+  {
+    id: "view.ai",
+    label: t("Ver: Asistente de IA"),
+    keywords: "ia ai asistente claude chat inteligencia artificial",
+    run: () => showView("ai"),
+  },
+  {
+    id: "ai.new",
+    label: t("Asistente de IA: Nueva conversación"),
+    keywords: "ia ai claude nueva conversacion",
+    run: () => {
+      showView("ai");
+      startNewConversation();
+    },
+  },
   { id: "view.prs", label: t("Ver: Pull requests"), keywords: "pull request pr github revisar", run: () => showView("prs") },
-  { id: "git.newPull", label: t("Git: Nueva pull request desde la rama actual"), keywords: "pull request pr crear github", run: () => { showView("prs"); void newPull(); } },
-  { id: "workflow.createPr", label: t("Flujo: Crear pull request para la issue activa"), keywords: "flujo issue pr pull request cerrar closes", run: () => { showView("prs"); void createPrForActiveIssue(); } },
+  {
+    id: "git.newPull",
+    label: t("Git: Nueva pull request desde la rama actual"),
+    keywords: "pull request pr crear github",
+    run: () => {
+      showView("prs");
+      void newPull();
+    },
+  },
+  {
+    id: "workflow.createPr",
+    label: t("Flujo: Crear pull request para la issue activa"),
+    keywords: "flujo issue pr pull request cerrar closes",
+    run: () => {
+      showView("prs");
+      void createPrForActiveIssue();
+    },
+  },
   { id: "view.chat", label: t("Ver: Chat del equipo"), keywords: "chat mensajes equipo conversacion", run: () => showView("chat") },
-  { id: "view.problems", label: t("Ver: Problemas (errores y avisos)"), key: "Ctrl+Shift+M", keywords: "problems errores avisos diagnosticos", run: () => showView("problems") },
-  { id: "problems.project", label: t("Problemas: Analizar todo el proyecto"), keywords: "problems proyecto tsc cargo ruff diagnosticos", run: () => { showView("problems"); void runProjectProblemsCheck(); } },
+  {
+    id: "view.problems",
+    label: t("Ver: Problemas (errores y avisos)"),
+    key: "Ctrl+Shift+M",
+    keywords: "problems errores avisos diagnosticos",
+    run: () => showView("problems"),
+  },
+  {
+    id: "problems.project",
+    label: t("Problemas: Analizar todo el proyecto"),
+    keywords: "problems proyecto tsc cargo ruff diagnosticos",
+    run: () => {
+      showView("problems");
+      void runProjectProblemsCheck();
+    },
+  },
   { id: "view.tests", label: t("Ver: Pruebas"), keywords: "tests pruebas vitest jest cargo pytest", run: () => showView("tests") },
-  { id: "tests.runAll", label: t("Pruebas: Ejecutar todas las pruebas"), keywords: "tests pruebas correr ejecutar vitest jest cargo pytest", run: () => { showView("tests"); void runAllTests(); } },
+  {
+    id: "tests.runAll",
+    label: t("Pruebas: Ejecutar todas las pruebas"),
+    keywords: "tests pruebas correr ejecutar vitest jest cargo pytest",
+    run: () => {
+      showView("tests");
+      void runAllTests();
+    },
+  },
   { id: "view.issues", label: t("Ver: Issues de GitHub"), key: "Ctrl+Shift+I", run: () => showView("issues") },
-  { id: "view.board", label: t("Issues: Abrir el tablero kanban"), keywords: "kanban tablero board issues github", run: () => void openBoard() },
-  { id: "view.preview", label: t("Ver: Vista previa de Markdown o imagen"), key: "Ctrl+Shift+V", keywords: "preview vista previa markdown imagen svg png", run: () => void openPreviewFor(activePath()) },
+  {
+    id: "view.board",
+    label: t("Issues: Abrir el tablero kanban"),
+    keywords: "kanban tablero board issues github",
+    run: () => void openBoard(),
+  },
+  {
+    id: "view.preview",
+    label: t("Ver: Vista previa de Markdown o imagen"),
+    key: "Ctrl+Shift+V",
+    keywords: "preview vista previa markdown imagen svg png",
+    run: () => void openPreviewFor(activePath()),
+  },
   { id: "view.settings", label: t("Ver: Configuración"), key: "Ctrl+,", run: () => showView("settings") },
   { id: "view.zoomIn", label: t("Ver: Aumentar la fuente"), key: "Ctrl+=", run: zoom(1) },
   { id: "view.zoomOut", label: t("Ver: Reducir la fuente"), key: "Ctrl+-", run: zoom(-1) },
   { id: "view.zoomReset", label: t("Ver: Restablecer el tamaño de fuente"), key: "Ctrl+0", run: zoom(0) },
 
   { id: "view.fullscreen", label: t("Ver: Pantalla completa"), key: "F11", run: toggleFullscreen },
-  { id: "terminal.toggle", label: t("Terminal: Mostrar u ocultar"), key: "Ctrl+J", keywords: "terminal consola shell cmd powershell", run: () => void toggleTerminal() },
-  { id: "terminal.new", label: t("Terminal: Nueva terminal"), key: "Ctrl+Shift+J", keywords: "terminal consola shell", run: () => void newTerminal() },
-  { id: "terminal.adapt", label: t("Terminal: Adaptar a mi terminal (VS Code / Windows Terminal)…"), keywords: "terminal adaptar fuente colores esquema tema", run: () => void adaptToMyTerminal() },
+  {
+    id: "terminal.toggle",
+    label: t("Terminal: Mostrar u ocultar"),
+    key: "Ctrl+J",
+    keywords: "terminal consola shell cmd powershell",
+    run: () => void toggleTerminal(),
+  },
+  {
+    id: "terminal.new",
+    label: t("Terminal: Nueva terminal"),
+    key: "Ctrl+Shift+J",
+    keywords: "terminal consola shell",
+    run: () => void newTerminal(),
+  },
+  {
+    id: "terminal.adapt",
+    label: t("Terminal: Adaptar a mi terminal (VS Code / Windows Terminal)…"),
+    keywords: "terminal adaptar fuente colores esquema tema",
+    run: () => void adaptToMyTerminal(),
+  },
   { id: "terminal.clear", label: t("Terminal: Limpiar"), keywords: "terminal clear limpiar", run: clearTerminal },
   { id: "terminal.kill", label: t("Terminal: Terminar la terminal activa"), keywords: "terminal kill cerrar", run: killActiveTerminal },
-  { id: "terminal.runSelection", label: t("Terminal: Ejecutar la selección en la terminal"), keywords: "terminal run ejecutar", run: runSelectionInTerminal },
-  { id: "terminal.here", label: t("Terminal: Nueva terminal en la carpeta del archivo activo"), keywords: "terminal carpeta aquí", run: terminalHere },
+  {
+    id: "terminal.runSelection",
+    label: t("Terminal: Ejecutar la selección en la terminal"),
+    keywords: "terminal run ejecutar",
+    run: runSelectionInTerminal,
+  },
+  {
+    id: "terminal.here",
+    label: t("Terminal: Nueva terminal en la carpeta del archivo activo"),
+    keywords: "terminal carpeta aquí",
+    run: terminalHere,
+  },
   { id: "palette.commands", label: t("Paleta de comandos"), key: "Ctrl+Shift+P", run: openPalette },
   { id: "palette.files", label: t("Ir a un archivo…"), key: "Ctrl+P", run: quickOpenFiles },
-  { id: "lsp.restart", label: t("Lenguaje: Reiniciar inteligencia de TypeScript y JavaScript"), keywords: "lsp typescript javascript servidor lenguaje", run: () => { if (inTauri && ws.root) setLspWorkspace(ws.root); else setStatus(t("Abre una carpeta para iniciar el servidor de lenguaje")); } },
+  {
+    id: "lsp.restart",
+    label: t("Lenguaje: Reiniciar inteligencia de TypeScript y JavaScript"),
+    keywords: "lsp typescript javascript servidor lenguaje",
+    run: () => {
+      if (inTauri && ws.root) setLspWorkspace(ws.root);
+      else setStatus(t("Abre una carpeta para iniciar el servidor de lenguaje"));
+    },
+  },
 
-  { id: "pref.theme", label: t("Preferencias: Tema de color…"), keywords: "theme tema temas color colores apariencia", run: openThemeGallery },
+  {
+    id: "pref.theme",
+    label: t("Preferencias: Tema de color…"),
+    keywords: "theme tema temas color colores apariencia",
+    run: openThemeGallery,
+  },
   { id: "pref.syntax", label: t("Preferencias: Colores del código…"), keywords: "syntax sintaxis highlight colores", run: pickSyntax },
-  { id: "pref.importTheme", label: t("Preferencias: Importar tema de VS Code instalado…"), keywords: "import vscode theme importar", run: importInstalled },
+  {
+    id: "pref.importTheme",
+    label: t("Preferencias: Importar tema de VS Code instalado…"),
+    keywords: "import vscode theme importar",
+    run: importInstalled,
+  },
   { id: "pref.importThemeFile", label: t("Preferencias: Importar archivo de tema (.json)…"), run: () => void importFromFile() },
   { id: "pref.removeTheme", label: t("Preferencias: Quitar un tema importado…"), run: removeImported },
-  { id: "pref.wrap", label: t("Preferencias: Alternar ajuste de línea"), key: "Alt+Z", keywords: "toggle word wrap ajuste línea envolver wrap", run: toggle("wordWrap", t("Ajuste de línea")) },
+  {
+    id: "pref.wrap",
+    label: t("Preferencias: Alternar ajuste de línea"),
+    key: "Alt+Z",
+    keywords: "toggle word wrap ajuste línea envolver wrap",
+    run: toggle("wordWrap", t("Ajuste de línea")),
+  },
   { id: "pref.minimap", label: t("Preferencias: Minimapa"), run: toggle("minimap", t("Minimapa")) },
   { id: "pref.lines", label: t("Preferencias: Números de línea"), run: toggle("lineNumbers", t("Números de línea")) },
   { id: "pref.whitespace", label: t("Preferencias: Mostrar espacios"), run: toggle("whitespace", t("Mostrar espacios")) },
   { id: "pref.ligatures", label: t("Preferencias: Ligaduras de fuente"), run: toggle("ligatures", t("Ligaduras")) },
   { id: "pref.autosave", label: t("Preferencias: Autoguardado"), run: toggle("autoSave", t("Autoguardado")) },
-  { id: "pref.formatonsave", label: t("Preferencias: Formatear al guardar"), keywords: "format formatear guardar", run: toggle("formatOnSave", t("Formatear al guardar")) },
-  { id: "pref.inlineai", label: t("IA: Alternar autocompletado en línea (Ollama)"), keywords: "ia ollama autocompletado fantasma tab inline", run: () => { resetInlineAiBackoff(); toggle("inlineAiEnabled", t("Autocompletado de IA en línea"))(); } },
+  {
+    id: "pref.formatonsave",
+    label: t("Preferencias: Formatear al guardar"),
+    keywords: "format formatear guardar",
+    run: toggle("formatOnSave", t("Formatear al guardar")),
+  },
+  {
+    id: "pref.inlineai",
+    label: t("IA: Alternar autocompletado en línea (Ollama)"),
+    keywords: "ia ollama autocompletado fantasma tab inline",
+    run: () => {
+      resetInlineAiBackoff();
+      toggle("inlineAiEnabled", t("Autocompletado de IA en línea"))();
+    },
+  },
 
   { id: "explorer.refresh", label: t("Explorador: Actualizar"), run: () => void refreshTree() },
   { id: "explorer.collapse", label: t("Explorador: Contraer todo"), run: collapseAll },
   { id: "view.debug", label: t("Ver: Depurador"), keywords: "debug depurar breakpoint dap variables", run: () => showView("debug") },
-  { id: "debug.start", label: t("Depurador: Iniciar o continuar"), key: "F5", keywords: "debug depurar ejecutar continuar", run: () => { showView("debug"); void startOrContinueDebug(); } },
+  {
+    id: "debug.start",
+    label: t("Depurador: Iniciar o continuar"),
+    key: "F5",
+    keywords: "debug depurar ejecutar continuar",
+    run: () => {
+      showView("debug");
+      void startOrContinueDebug();
+    },
+  },
   { id: "debug.stop", label: t("Depurador: Detener"), key: "Shift+F5", keywords: "debug detener parar", run: () => void stopDebug() },
-  { id: "debug.stepOver", label: t("Depurador: Paso por encima"), key: "F10", keywords: "debug step over paso", run: () => void stepOverDebug() },
-  { id: "debug.stepInto", label: t("Depurador: Entrar en función"), key: "Shift+F10", keywords: "debug step into entrar", run: () => void stepIntoDebug() },
-  { id: "debug.stepOut", label: t("Depurador: Salir de función"), key: "Shift+F11", keywords: "debug step out salir", run: () => void stepOutDebug() },
-  { id: "debug.toggleBreakpoint", label: t("Depurador: Alternar punto de interrupción"), key: "F9", keywords: "debug breakpoint punto interrupcion", run: toggleCurrentBreakpoint },
-  { id: "view.extensions", label: t("Ver: Extensiones"), keywords: "extensions plugins complementos temas", run: () => showView("extensions") },
-  { id: "extensions.install", label: t("Extensiones: Instalar desde carpeta…"), keywords: "extensions install instalar manifest", run: () => { showView("extensions"); void installExtensionFromFolder(); } },
+  {
+    id: "debug.stepOver",
+    label: t("Depurador: Paso por encima"),
+    key: "F10",
+    keywords: "debug step over paso",
+    run: () => void stepOverDebug(),
+  },
+  {
+    id: "debug.stepInto",
+    label: t("Depurador: Entrar en función"),
+    key: "Shift+F10",
+    keywords: "debug step into entrar",
+    run: () => void stepIntoDebug(),
+  },
+  {
+    id: "debug.stepOut",
+    label: t("Depurador: Salir de función"),
+    key: "Shift+F11",
+    keywords: "debug step out salir",
+    run: () => void stepOutDebug(),
+  },
+  {
+    id: "debug.toggleBreakpoint",
+    label: t("Depurador: Alternar punto de interrupción"),
+    key: "F9",
+    keywords: "debug breakpoint punto interrupcion",
+    run: toggleCurrentBreakpoint,
+  },
+  {
+    id: "view.extensions",
+    label: t("Ver: Extensiones"),
+    keywords: "extensions plugins complementos temas",
+    run: () => showView("extensions"),
+  },
+  {
+    id: "extensions.install",
+    label: t("Extensiones: Instalar desde carpeta…"),
+    keywords: "extensions install instalar manifest",
+    run: () => {
+      showView("extensions");
+      void installExtensionFromFolder();
+    },
+  },
 );
 
 initKeys();
@@ -635,18 +1133,24 @@ initKeys();
 // ---------- Barra de título: menús ----------
 /** Acción de Monaco sobre el editor con foco (deshacer, comentar, ir a línea…). */
 const editorAction = (label: string, id: string, hint = ""): MenuEntry => ({
-  label, hint,
+  label,
+  hint,
   run: () => {
     const e = focusedEditor();
-    if (!e) { setStatus(t("Abre un archivo para usar esta acción")); return; }
+    if (!e) {
+      setStatus(t("Abre un archivo para usar esta acción"));
+      return;
+    }
     e.focus();
     const a = e.getAction(id);
-    if (a) void a.run(); else e.trigger("menu", id, null);
+    if (a) void a.run();
+    else e.trigger("menu", id, null);
   },
 });
 
 const pasteEntry: MenuEntry = {
-  label: t("Pegar"), hint: "Ctrl+V",
+  label: t("Pegar"),
+  hint: "Ctrl+V",
   run: async () => {
     const e = focusedEditor();
     if (!e) return;
@@ -661,121 +1165,161 @@ const pasteEntry: MenuEntry = {
 };
 
 const MENUS: MenuDef[] = [
-  { label: t("Archivo"), items: [
-    { cmd: "file.openFolder", label: t("Abrir carpeta…") },
-    { cmd: "file.openFolderNewWindow", label: t("Abrir carpeta en nueva ventana…") },
-    { cmd: "file.openRecent", label: t("Abrir carpeta reciente…") },
-    { cmd: "file.closeFolder", label: t("Cerrar carpeta") },
-    "sep",
-    { cmd: "file.newFile", label: t("Nuevo archivo…") },
-    { cmd: "file.newFolder", label: t("Nueva carpeta…") },
-    "sep",
-    { cmd: "file.save", label: t("Guardar") },
-    { cmd: "file.saveAll", label: t("Guardar todo") },
-    "sep",
-    { cmd: "tab.close", label: t("Cerrar pestaña") },
-    { cmd: "tab.reopen", label: t("Reabrir la última pestaña cerrada") },
-    { cmd: "tab.closeAll", label: t("Cerrar todas las pestañas del grupo") },
-    "sep",
-    { label: t("Salir"), hint: "Alt+F4", run: () => { if (inTauri) void getCurrentWindow().close(); } },
-  ] },
-  { label: t("Editar"), items: [
-    editorAction(t("Deshacer"), "undo", "Ctrl+Z"),
-    editorAction(t("Rehacer"), "redo", "Ctrl+Y"),
-    "sep",
-    editorAction(t("Cortar"), "editor.action.clipboardCutAction", "Ctrl+X"),
-    editorAction(t("Copiar"), "editor.action.clipboardCopyAction", "Ctrl+C"),
-    pasteEntry,
-    "sep",
-    editorAction(t("Buscar"), "actions.find", "Ctrl+F"),
-    editorAction(t("Reemplazar"), "editor.action.startFindReplace", "Ctrl+H"),
-    { cmd: "view.search", label: t("Buscar en archivos") },
-    "sep",
-    editorAction(t("Alternar comentario de línea"), "editor.action.commentLine", "Ctrl+/"),
-    editorAction(t("Formatear el documento"), "editor.action.formatDocument", "Shift+Alt+F"),
-  ] },
-  { label: t("Selección"), items: [
-    editorAction(t("Seleccionar todo"), "editor.action.selectAll", "Ctrl+A"),
-    editorAction(t("Expandir la selección"), "editor.action.smartSelect.expand", "Shift+Alt+\u2192"),
-    editorAction(t("Reducir la selección"), "editor.action.smartSelect.shrink", "Shift+Alt+\u2190"),
-    "sep",
-    editorAction(t("Copiar línea arriba"), "editor.action.copyLinesUpAction", "Shift+Alt+\u2191"),
-    editorAction(t("Copiar línea abajo"), "editor.action.copyLinesDownAction", "Shift+Alt+\u2193"),
-    editorAction(t("Mover línea arriba"), "editor.action.moveLinesUpAction", "Alt+\u2191"),
-    editorAction(t("Mover línea abajo"), "editor.action.moveLinesDownAction", "Alt+\u2193"),
-    "sep",
-    editorAction(t("Añadir cursor arriba"), "editor.action.insertCursorAbove", "Ctrl+Alt+\u2191"),
-    editorAction(t("Añadir cursor abajo"), "editor.action.insertCursorBelow", "Ctrl+Alt+\u2193"),
-    editorAction(t("Seleccionar todas las apariciones"), "editor.action.selectHighlights", "Ctrl+Shift+L"),
-  ] },
-  { label: t("Ver"), items: [
-    { cmd: "palette.commands", label: t("Paleta de comandos…") },
-    "sep",
-    { cmd: "view.explorer", label: t("Explorador") },
-    { cmd: "view.search", label: t("Buscar") },
-    { cmd: "view.git", label: t("Control de código fuente") },
-    { cmd: "view.issues", label: t("Issues de GitHub") },
-    { cmd: "view.board", label: t("Tablero kanban de issues") },
-    { cmd: "view.settings", label: t("Configuración") },
-    "sep",
-    { cmd: "layout.split", label: t("Dividir el editor") },
-    { cmd: "layout.orientation", label: t("Cambiar la orientación de los grupos") },
-    { cmd: "view.sidebar", label: t("Mostrar u ocultar la barra lateral") },
-    { cmd: "terminal.toggle", label: t("Terminal") },
-    "sep",
-    { cmd: "pref.wrap", label: t("Alternar ajuste de línea") },
-    { cmd: "pref.minimap", label: t("Minimapa") },
-    { cmd: "view.zoomIn", label: t("Aumentar la fuente") },
-    { cmd: "view.zoomOut", label: t("Reducir la fuente") },
-    { cmd: "view.zoomReset", label: t("Restablecer el tamaño de fuente") },
-    "sep",
-    { cmd: "pref.theme", label: t("Tema de color…") },
-    { cmd: "view.fullscreen", label: t("Pantalla completa") },
-  ] },
-  { label: t("Ir a"), items: [
-    { cmd: "palette.files", label: t("Ir a archivo…") },
-    editorAction(t("Ir a línea…"), "editor.action.gotoLine", "Ctrl+G"),
-    editorAction(t("Ir a símbolo del archivo…"), "editor.action.quickOutline", "Ctrl+Shift+O"),
-    "sep",
-    editorAction(t("Ir a la definición"), "editor.action.revealDefinition", "F12"),
-    editorAction(t("Buscar referencias"), "editor.action.goToReferences", "Shift+F12"),
-    "sep",
-    { cmd: "nav.back", label: t("Atrás") },
-    { cmd: "nav.forward", label: t("Adelante") },
-    "sep",
-    { cmd: "tab.next", label: t("Pestaña siguiente") },
-    { cmd: "tab.prev", label: t("Pestaña anterior") },
-    { cmd: "layout.focus1", label: t("Grupo de editores 1") },
-    { cmd: "layout.focus2", label: t("Grupo de editores 2") },
-  ] },
-  { label: t("Terminal"), items: [
-    { cmd: "terminal.new", label: t("Nueva terminal") },
-    { cmd: "terminal.toggle", label: t("Mostrar u ocultar la terminal") },
-    "sep",
-    { cmd: "terminal.here", label: t("Nueva terminal en la carpeta del archivo") },
-    { cmd: "terminal.runSelection", label: t("Ejecutar la selección en la terminal") },
-    "sep",
-    { cmd: "terminal.clear", label: t("Limpiar la terminal") },
-    { cmd: "terminal.kill", label: t("Terminar la terminal activa") },
-  ] },
-  { label: t("Ayuda"), items: [
-    { cmd: "palette.commands", label: t("Mostrar todos los comandos") },
-    { cmd: "view.settings", label: t("Configuración y atajos de teclado") },
-    { cmd: "app.checkUpdates", label: t("Buscar actualizaciones") },
-    { cmd: "app.copyDiagnostics", label: t("Copiar información de diagnóstico") },
-    { cmd: "app.onboarding", label: t("Asistente de bienvenida") },
-    "sep",
-    { label: t("Acerca de Pulso"), run: async () => { const version = inTauri ? await getVersion().catch(() => "") : ""; void showDialog({
-      title: "Pulso Editor",
-      message: t("Versión {version}", { version: version || t("desconocida") }) + "\n\n" + t("Editor de código con issues, tableros y repos integrados.") + "\n" + t("Hecho con Tauri 2 y Monaco Editor."),
-      buttons: [{ label: t("Cerrar"), value: "ok", primary: true }],
-    }); } },
-  ] },
+  {
+    label: t("Archivo"),
+    items: [
+      { cmd: "file.openFolder", label: t("Abrir carpeta…") },
+      { cmd: "file.openFolderNewWindow", label: t("Abrir carpeta en nueva ventana…") },
+      { cmd: "file.openRecent", label: t("Abrir carpeta reciente…") },
+      { cmd: "file.closeFolder", label: t("Cerrar carpeta") },
+      "sep",
+      { cmd: "file.newFile", label: t("Nuevo archivo…") },
+      { cmd: "file.newFolder", label: t("Nueva carpeta…") },
+      "sep",
+      { cmd: "file.save", label: t("Guardar") },
+      { cmd: "file.saveAll", label: t("Guardar todo") },
+      "sep",
+      { cmd: "tab.close", label: t("Cerrar pestaña") },
+      { cmd: "tab.reopen", label: t("Reabrir la última pestaña cerrada") },
+      { cmd: "tab.closeAll", label: t("Cerrar todas las pestañas del grupo") },
+      "sep",
+      {
+        label: t("Salir"),
+        hint: "Alt+F4",
+        run: () => {
+          if (inTauri) void getCurrentWindow().close();
+        },
+      },
+    ],
+  },
+  {
+    label: t("Editar"),
+    items: [
+      editorAction(t("Deshacer"), "undo", "Ctrl+Z"),
+      editorAction(t("Rehacer"), "redo", "Ctrl+Y"),
+      "sep",
+      editorAction(t("Cortar"), "editor.action.clipboardCutAction", "Ctrl+X"),
+      editorAction(t("Copiar"), "editor.action.clipboardCopyAction", "Ctrl+C"),
+      pasteEntry,
+      "sep",
+      editorAction(t("Buscar"), "actions.find", "Ctrl+F"),
+      editorAction(t("Reemplazar"), "editor.action.startFindReplace", "Ctrl+H"),
+      { cmd: "view.search", label: t("Buscar en archivos") },
+      "sep",
+      editorAction(t("Alternar comentario de línea"), "editor.action.commentLine", "Ctrl+/"),
+      editorAction(t("Formatear el documento"), "editor.action.formatDocument", "Shift+Alt+F"),
+    ],
+  },
+  {
+    label: t("Selección"),
+    items: [
+      editorAction(t("Seleccionar todo"), "editor.action.selectAll", "Ctrl+A"),
+      editorAction(t("Expandir la selección"), "editor.action.smartSelect.expand", "Shift+Alt+\u2192"),
+      editorAction(t("Reducir la selección"), "editor.action.smartSelect.shrink", "Shift+Alt+\u2190"),
+      "sep",
+      editorAction(t("Copiar línea arriba"), "editor.action.copyLinesUpAction", "Shift+Alt+\u2191"),
+      editorAction(t("Copiar línea abajo"), "editor.action.copyLinesDownAction", "Shift+Alt+\u2193"),
+      editorAction(t("Mover línea arriba"), "editor.action.moveLinesUpAction", "Alt+\u2191"),
+      editorAction(t("Mover línea abajo"), "editor.action.moveLinesDownAction", "Alt+\u2193"),
+      "sep",
+      editorAction(t("Añadir cursor arriba"), "editor.action.insertCursorAbove", "Ctrl+Alt+\u2191"),
+      editorAction(t("Añadir cursor abajo"), "editor.action.insertCursorBelow", "Ctrl+Alt+\u2193"),
+      editorAction(t("Seleccionar todas las apariciones"), "editor.action.selectHighlights", "Ctrl+Shift+L"),
+    ],
+  },
+  {
+    label: t("Ver"),
+    items: [
+      { cmd: "palette.commands", label: t("Paleta de comandos…") },
+      "sep",
+      { cmd: "view.explorer", label: t("Explorador") },
+      { cmd: "view.search", label: t("Buscar") },
+      { cmd: "view.git", label: t("Control de código fuente") },
+      { cmd: "view.issues", label: t("Issues de GitHub") },
+      { cmd: "view.board", label: t("Tablero kanban de issues") },
+      { cmd: "view.settings", label: t("Configuración") },
+      "sep",
+      { cmd: "layout.split", label: t("Dividir el editor") },
+      { cmd: "layout.orientation", label: t("Cambiar la orientación de los grupos") },
+      { cmd: "view.sidebar", label: t("Mostrar u ocultar la barra lateral") },
+      { cmd: "terminal.toggle", label: t("Terminal") },
+      "sep",
+      { cmd: "pref.wrap", label: t("Alternar ajuste de línea") },
+      { cmd: "pref.minimap", label: t("Minimapa") },
+      { cmd: "view.zoomIn", label: t("Aumentar la fuente") },
+      { cmd: "view.zoomOut", label: t("Reducir la fuente") },
+      { cmd: "view.zoomReset", label: t("Restablecer el tamaño de fuente") },
+      "sep",
+      { cmd: "pref.theme", label: t("Tema de color…") },
+      { cmd: "view.fullscreen", label: t("Pantalla completa") },
+    ],
+  },
+  {
+    label: t("Ir a"),
+    items: [
+      { cmd: "palette.files", label: t("Ir a archivo…") },
+      editorAction(t("Ir a línea…"), "editor.action.gotoLine", "Ctrl+G"),
+      editorAction(t("Ir a símbolo del archivo…"), "editor.action.quickOutline", "Ctrl+Shift+O"),
+      "sep",
+      editorAction(t("Ir a la definición"), "editor.action.revealDefinition", "F12"),
+      editorAction(t("Buscar referencias"), "editor.action.goToReferences", "Shift+F12"),
+      "sep",
+      { cmd: "nav.back", label: t("Atrás") },
+      { cmd: "nav.forward", label: t("Adelante") },
+      "sep",
+      { cmd: "tab.next", label: t("Pestaña siguiente") },
+      { cmd: "tab.prev", label: t("Pestaña anterior") },
+      { cmd: "layout.focus1", label: t("Grupo de editores 1") },
+      { cmd: "layout.focus2", label: t("Grupo de editores 2") },
+    ],
+  },
+  {
+    label: t("Terminal"),
+    items: [
+      { cmd: "terminal.new", label: t("Nueva terminal") },
+      { cmd: "terminal.toggle", label: t("Mostrar u ocultar la terminal") },
+      "sep",
+      { cmd: "terminal.here", label: t("Nueva terminal en la carpeta del archivo") },
+      { cmd: "terminal.runSelection", label: t("Ejecutar la selección en la terminal") },
+      "sep",
+      { cmd: "terminal.clear", label: t("Limpiar la terminal") },
+      { cmd: "terminal.kill", label: t("Terminar la terminal activa") },
+    ],
+  },
+  {
+    label: t("Ayuda"),
+    items: [
+      { cmd: "palette.commands", label: t("Mostrar todos los comandos") },
+      { cmd: "view.settings", label: t("Configuración y atajos de teclado") },
+      { cmd: "app.checkUpdates", label: t("Buscar actualizaciones") },
+      { cmd: "app.copyDiagnostics", label: t("Copiar información de diagnóstico") },
+      { cmd: "app.onboarding", label: t("Asistente de bienvenida") },
+      "sep",
+      {
+        label: t("Acerca de Pulso"),
+        run: async () => {
+          const version = inTauri ? await getVersion().catch(() => "") : "";
+          void showDialog({
+            title: "Pulso Editor",
+            message:
+              t("Versión {version}", { version: version || t("desconocida") }) +
+              "\n\n" +
+              t("Editor de código con issues, tableros y repos integrados.") +
+              "\n" +
+              t("Hecho con Tauri 2 y Monaco Editor."),
+            buttons: [{ label: t("Cerrar"), value: "ok", primary: true }],
+          });
+        },
+      },
+    ],
+  },
 ];
 
 initTitlebar({
   menus: MENUS,
-  onTitleClick: () => { void commands.find((c) => c.id === (ws.root ? "palette.files" : "palette.commands"))?.run(); },
+  onTitleClick: () => {
+    void commands.find((c) => c.id === (ws.root ? "palette.files" : "palette.commands"))?.run();
+  },
   onBack: () => void nav.back(),
   onForward: () => void nav.forward(),
 });
@@ -799,10 +1343,13 @@ let treeTimer = 0;
 onDocSaved(() => {
   beat();
   clearTimeout(treeTimer);
-  treeTimer = window.setTimeout(() => { if (ws.root) void refreshGitDecorations(); }, 1500);
+  treeTimer = window.setTimeout(() => {
+    if (ws.root) void refreshGitDecorations();
+  }, 1500);
 });
 
-const BRANCH_ICON = '<svg viewBox="0 0 24 24"><circle cx="6" cy="5" r="2.2"/><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="8" r="2.2"/><path d="M6 7.2v9.6M18 10.2c0 4-6 3-11 7"/></svg>';
+const BRANCH_ICON =
+  '<svg viewBox="0 0 24 24"><circle cx="6" cy="5" r="2.2"/><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="8" r="2.2"/><path d="M6 7.2v9.6M18 10.2c0 4-6 3-11 7"/></svg>';
 function paintBranch(info: GitInfo | null) {
   const el = $("status-branch");
   el.hidden = !info;
@@ -825,7 +1372,10 @@ initLsp();
 initGroups();
 initExplorer({
   onOpenFolder: pickFolder,
-  onSearchIn: (path) => { showView("search"); searchInFolder(path); },
+  onSearchIn: (path) => {
+    showView("search");
+    searchInFolder(path);
+  },
   onOpenTerminal: (dir) => void newTerminal({ cwd: dir }),
 });
 initSearch();
@@ -848,10 +1398,14 @@ syncSettingsUI();
 commit();
 updateStatus();
 
-document.addEventListener("contextmenu", (e) => { if (!(e.target instanceof HTMLInputElement)) e.preventDefault(); });
+document.addEventListener("contextmenu", (e) => {
+  if (!(e.target instanceof HTMLInputElement)) e.preventDefault();
+});
 
 window.addEventListener("blur", flushBackups);
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushBackups(); });
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") flushBackups();
+});
 
 window.addEventListener("focus", () => {
   if (!ws.root) return;
@@ -867,7 +1421,11 @@ if (inTauri) {
     event.preventDefault();
     const r = await showDialog({
       title: t("Hay cambios sin guardar"),
-      message: dirty.map((d) => `• ${baseName(d.path)}`).slice(0, 8).join("\n") + (dirty.length > 8 ? "\n" + t("… y {count} más", { count: dirty.length - 8 }) : ""),
+      message:
+        dirty
+          .map((d) => `• ${baseName(d.path)}`)
+          .slice(0, 8)
+          .join("\n") + (dirty.length > 8 ? "\n" + t("… y {count} más", { count: dirty.length - 8 }) : ""),
       buttons: [
         { label: t("Cancelar"), value: "cancel" },
         { label: t("Salir sin guardar"), value: "discard", danger: true },
@@ -886,7 +1444,9 @@ void (async () => {
   try {
     await loadIconManifest();
     await initToken();
-    void autoConnect().then((login) => { if (login) setStatus(t("Conectado a GitHub como {login} (con la sesión de Git de este equipo)", { login }), 6000); });
+    void autoConnect().then((login) => {
+      if (login) setStatus(t("Conectado a GitHub como {login} (con la sesión de Git de este equipo)", { login }), 6000);
+    });
     syncSettingsUI();
     rerenderGroups();
     if (!inTauri) return;
@@ -902,11 +1462,12 @@ void (async () => {
           ? (startupSession?.root ?? startupLastRoot)
           : null;
     if (root) {
-      const initialLayout = windowFolder
-        ? undefined
-        : (startupSession?.root ? (startupSession.layout as Layout) : undefined);
+      const initialLayout = windowFolder ? undefined : startupSession?.root ? (startupSession.layout as Layout) : undefined;
       const ok = await openWorkspace(root, initialLayout);
-      if (!ok && mainWin && !windowFolder) { clearSession(); clearLastRoot(); }
+      if (!ok && mainWin && !windowFolder) {
+        clearSession();
+        clearLastRoot();
+      }
     }
     // El aviso de recuperación espera una respuesta: la pantalla de carga debe retirarse antes,
     // o quedaría tapándolo hasta el límite de 12 s.
@@ -932,4 +1493,3 @@ void (async () => {
     revealApp();
   }
 })();
-

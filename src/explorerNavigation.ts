@@ -1,7 +1,11 @@
 import { dirName } from "./util";
 
 /** Entradas visibles en orden de lectura; los hijos de carpetas cerradas no están en la lista. */
-export interface ExplorerEntry { path: string; isDir: boolean; expanded: boolean }
+export interface ExplorerEntry {
+  path: string;
+  isDir: boolean;
+  expanded: boolean;
+}
 export type ExplorerAction = { kind: "select" | "expand" | "collapse" | "open"; path: string };
 
 /** Decide la acción sin mover el foco fuera del árbol. */
@@ -9,7 +13,8 @@ export function explorerKey(entries: ExplorerEntry[], selected: string | null, k
   if (!entries.length) return null;
   const index = entries.findIndex((entry) => entry.path === selected);
   if (index < 0) {
-    if (["ArrowDown", "ArrowUp", "Home", "End"].includes(key)) return { kind: "select", path: entries[key === "End" ? entries.length - 1 : 0].path };
+    if (["ArrowDown", "ArrowUp", "Home", "End"].includes(key))
+      return { kind: "select", path: entries[key === "End" ? entries.length - 1 : 0].path };
     return null;
   }
   const item = entries[index];

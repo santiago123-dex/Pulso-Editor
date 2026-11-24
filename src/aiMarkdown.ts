@@ -9,7 +9,12 @@ export function parseMarkdown(src: string): MdBlock[] {
   const out: MdBlock[] = [];
   const lines = src.replace(/\r\n/g, "\n").split("\n");
   let para: string[] = [];
-  const flush = () => { if (para.length) { out.push({ type: "p", text: para.join("\n") }); para = []; } };
+  const flush = () => {
+    if (para.length) {
+      out.push({ type: "p", text: para.join("\n") });
+      para = [];
+    }
+  };
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const fence = /^\s*```\s*([\w+#.-]*)\s*$/.exec(line);
@@ -18,7 +23,10 @@ export function parseMarkdown(src: string): MdBlock[] {
       const code: string[] = [];
       let closed = false;
       for (i++; i < lines.length; i++) {
-        if (/^\s*```\s*$/.test(lines[i])) { closed = true; break; }
+        if (/^\s*```\s*$/.test(lines[i])) {
+          closed = true;
+          break;
+        }
         code.push(lines[i]);
       }
       // Una cerca sin cerrar (la respuesta aún se está escribiendo) se muestra ya como código.
@@ -26,17 +34,32 @@ export function parseMarkdown(src: string): MdBlock[] {
       continue;
     }
     const h = /^(#{1,4})\s+(.*)$/.exec(line);
-    if (h) { flush(); out.push({ type: "h", level: h[1].length, text: h[2] }); continue; }
+    if (h) {
+      flush();
+      out.push({ type: "h", level: h[1].length, text: h[2] });
+      continue;
+    }
     const li = /^\s*([-*+]|\d+[.)])\s+(.*)$/.exec(line);
-    if (li) { flush(); out.push({ type: "li", ordered: /\d/.test(li[1]), text: li[2], marker: /\d/.test(li[1]) ? li[1] : "•" }); continue; }
-    if (!line.trim()) { flush(); continue; }
+    if (li) {
+      flush();
+      out.push({ type: "li", ordered: /\d/.test(li[1]), text: li[2], marker: /\d/.test(li[1]) ? li[1] : "•" });
+      continue;
+    }
+    if (!line.trim()) {
+      flush();
+      continue;
+    }
     para.push(line);
   }
   flush();
   return out;
 }
 
-export interface Inline { text: string; kind: "text" | "code" | "bold" | "link"; href?: string }
+export interface Inline {
+  text: string;
+  kind: "text" | "code" | "bold" | "link";
+  href?: string;
+}
 
 /** Parte una línea en texto, `código`, **negrita** y [enlaces](url). Un marcador sin cerrar se deja tal cual. */
 export function parseInline(src: string): Inline[] {
@@ -60,7 +83,11 @@ export function linkTarget(href: string): { kind: "file"; path: string; line: nu
   if (!/^file:\/\//i.test(href)) return null;
   const [rawPath, frag = ""] = href.replace(/^file:\/\/\/?/i, "").split("#");
   let path: string;
-  try { path = decodeURIComponent(rawPath ?? ""); } catch { return null; }
+  try {
+    path = decodeURIComponent(rawPath ?? "");
+  } catch {
+    return null;
+  }
   if (!path) return null;
   if (!/^[a-z]:/i.test(path) && !path.startsWith("/")) path = `/${path}`;
   const line = Number(/^L(\d+)/i.exec(frag)?.[1] ?? 1);

@@ -39,7 +39,9 @@ pub(super) fn branches_sync(root: &str) -> Result<Vec<Branch>, String> {
         if let Some(n) = name.strip_prefix("refs/heads/") {
             local.push(Branch { name: n.to_string(), current: head.trim() == "*", remote: false, upstream });
         } else if let Some(n) = name.strip_prefix("refs/remotes/") {
-            if n.ends_with("/HEAD") { continue; }
+            if n.ends_with("/HEAD") {
+                continue;
+            }
             remote.push(Branch { name: n.to_string(), current: false, remote: true, upstream: None });
         }
     }
@@ -52,8 +54,12 @@ pub(super) fn branches_sync(root: &str) -> Result<Vec<Branch>, String> {
 }
 
 pub(super) fn valid_branch_name(name: &str) -> Result<(), String> {
-    if name.trim().is_empty() { return Err(tr("Escribe un nombre para la rama").into()); }
-    if name.starts_with('-') { return Err(tr("El nombre de la rama no puede empezar por «-»").into()); }
+    if name.trim().is_empty() {
+        return Err(tr("Escribe un nombre para la rama").into());
+    }
+    if name.starts_with('-') {
+        return Err(tr("El nombre de la rama no puede empezar por «-»").into());
+    }
     Ok(())
 }
 
@@ -97,7 +103,11 @@ fn git_dir_of(top: &str) -> Result<std::path::PathBuf, String> {
     let raw = run(top, &["rev-parse", "--git-dir"])?;
     let trimmed = raw.trim();
     let p = std::path::PathBuf::from(trimmed);
-    if p.is_absolute() { Ok(p) } else { Ok(std::path::PathBuf::from(top).join(p)) }
+    if p.is_absolute() {
+        Ok(p)
+    } else {
+        Ok(std::path::PathBuf::from(top).join(p))
+    }
 }
 
 pub(super) fn operation_state_sync(root: &str) -> Result<OperationState, String> {
@@ -113,11 +123,7 @@ pub(super) fn operation_state_sync(root: &str) -> Result<OperationState, String>
 }
 
 fn run_with_no_editor(dir: &str, args: &[&str]) -> Result<String, String> {
-    let o = git_command(dir)
-        .env("GIT_EDITOR", "true")
-        .args(args)
-        .output()
-        .map_err(|e| trf("No se pudo ejecutar git: {e}", &[("e", &e)]))?;
+    let o = git_command(dir).env("GIT_EDITOR", "true").args(args).output().map_err(|e| trf("No se pudo ejecutar git: {e}", &[("e", &e)]))?;
     if o.status.success() {
         Ok(String::from_utf8_lossy(&o.stdout).trim().to_string())
     } else {
@@ -131,13 +137,8 @@ pub(super) fn merge_sync(root: &str, branch: &str) -> Result<MergeRebaseResult, 
     match run_with_no_editor(&top, &["merge", "--no-edit", branch]) {
         Ok(msg) => Ok(MergeRebaseResult { status: "ok".into(), message: msg }),
         Err(err) => {
-            if operation_state_sync(&top).map(|s| s.kind.as_deref() == Some("merge")).unwrap_or(false)
-                || err.contains("CONFLICT")
-            {
-                Ok(MergeRebaseResult {
-                    status: "conflicts".into(),
-                    message: tr("Fusión detenida por conflictos. Resuélvelos y continúa o aborta.").into(),
-                })
+            if operation_state_sync(&top).map(|s| s.kind.as_deref() == Some("merge")).unwrap_or(false) || err.contains("CONFLICT") {
+                Ok(MergeRebaseResult { status: "conflicts".into(), message: tr("Fusión detenida por conflictos. Resuélvelos y continúa o aborta.").into() })
             } else {
                 Err(err)
             }
@@ -151,9 +152,7 @@ pub(super) fn rebase_sync(root: &str, branch: &str) -> Result<MergeRebaseResult,
     match run_with_no_editor(&top, &["rebase", branch]) {
         Ok(msg) => Ok(MergeRebaseResult { status: "ok".into(), message: msg }),
         Err(err) => {
-            if operation_state_sync(&top).map(|s| s.kind.as_deref() == Some("rebase")).unwrap_or(false)
-                || err.contains("CONFLICT")
-            {
+            if operation_state_sync(&top).map(|s| s.kind.as_deref() == Some("rebase")).unwrap_or(false) || err.contains("CONFLICT") {
                 Ok(MergeRebaseResult {
                     status: "conflicts".into(),
                     message: tr("Rebase detenido por conflictos. Resuélvelos, prepáralos y continúa o aborta.").into(),
@@ -178,13 +177,8 @@ pub(super) fn operation_action_sync(root: &str, action: &str) -> Result<MergeReb
     match run_with_no_editor(&top, &[&kind, flag]) {
         Ok(msg) => Ok(MergeRebaseResult { status: "ok".into(), message: msg }),
         Err(err) => {
-            if action == "continue"
-                && (operation_state_sync(&top).map(|s| s.kind.is_some()).unwrap_or(false) || err.contains("CONFLICT"))
-            {
-                Ok(MergeRebaseResult {
-                    status: "conflicts".into(),
-                    message: err,
-                })
+            if action == "continue" && (operation_state_sync(&top).map(|s| s.kind.is_some()).unwrap_or(false) || err.contains("CONFLICT")) {
+                Ok(MergeRebaseResult { status: "conflicts".into(), message: err })
             } else {
                 Err(err)
             }

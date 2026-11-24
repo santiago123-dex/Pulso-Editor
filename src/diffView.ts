@@ -6,8 +6,19 @@ import type { DiffHunk } from "./gitHunksModel";
 import { setStatus } from "./ui";
 import { $, baseName, h } from "./util";
 
-export interface DiffTarget { root: string; top: string; path: string; orig: string | null; staged: boolean; status: string }
-export interface Sources { original: string; modified: string; binary: boolean }
+export interface DiffTarget {
+  root: string;
+  top: string;
+  path: string;
+  orig: string | null;
+  staged: boolean;
+  status: string;
+}
+export interface Sources {
+  original: string;
+  modified: string;
+  binary: boolean;
+}
 
 export interface DiffAction {
   label: string;
@@ -62,7 +73,11 @@ export function closeDiff() {
 }
 
 function onKey(e: KeyboardEvent) {
-  if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeDiff(); }
+  if (e.key === "Escape") {
+    e.preventDefault();
+    e.stopPropagation();
+    closeDiff();
+  }
 }
 
 export async function openDiffRequest(t: DiffRequest) {
@@ -87,7 +102,10 @@ export async function openDiffRequest(t: DiffRequest) {
   if (t.openPath) {
     const open = h("button", "diff-btn", tr("Abrir archivo"));
     const p = t.openPath;
-    open.onclick = () => { closeDiff(); void openFile(p); };
+    open.onclick = () => {
+      closeDiff();
+      void openFile(p);
+    };
     head.append(open);
   }
   for (const act of t.actions ?? []) {
@@ -105,19 +123,27 @@ export async function openDiffRequest(t: DiffRequest) {
   try {
     src = await t.load();
   } catch (e) {
-    if (mine === token) body.replaceChildren(h("div", "diff-msg", tr("No se pudo cargar la comparación: {error}", { error: e instanceof Error ? e.message : String(e) })));
+    if (mine === token)
+      body.replaceChildren(
+        h("div", "diff-msg", tr("No se pudo cargar la comparación: {error}", { error: e instanceof Error ? e.message : String(e) })),
+      );
     return;
   }
   if (mine !== token) return;
-  if (src.binary) { body.replaceChildren(h("div", "diff-msg", tr("Archivo binario: no se muestran diferencias."))); return; }
+  if (src.binary) {
+    body.replaceChildren(h("div", "diff-msg", tr("Archivo binario: no se muestran diferencias.")));
+    return;
+  }
 
   body.replaceChildren();
-  if (src.original === src.modified) body.append(h("div", "diff-msg", tr("Sin diferencias de contenido (por ejemplo, solo cambió el modo o el nombre).")));
+  if (src.original === src.modified)
+    body.append(h("div", "diff-msg", tr("Sin diferencias de contenido (por ejemplo, solo cambió el modo o el nombre).")));
   const holder = h("div", "diff-editor");
   body.append(holder);
   const lang = languageOf(t.path);
   const stamp = `${Date.now()}-${mine}`;
-  const side = (name: string, text: string) => monaco.editor.createModel(text, lang, monaco.Uri.from({ scheme: "pulso-diff", path: `/${stamp}/${name}/${t.path}` }));
+  const side = (name: string, text: string) =>
+    monaco.editor.createModel(text, lang, monaco.Uri.from({ scheme: "pulso-diff", path: `/${stamp}/${name}/${t.path}` }));
   models = [side("a", src.original), side("b", src.modified)];
   editor = monaco.editor.createDiffEditor(holder, {
     readOnly: true,
@@ -164,7 +190,7 @@ export async function openDiff(t: DiffTarget, onHunkApplied?: () => void | Promi
           add: hk.added,
           del: hk.removed,
         }),
-        2500
+        2500,
       );
     };
     if (hunks.length > 1) {

@@ -1,6 +1,9 @@
 import { t } from "./i18n";
 /** Lógica pura para ejecutar los scripts de package.json desde la terminal. */
-export interface ScriptItem { name: string; command: string }
+export interface ScriptItem {
+  name: string;
+  command: string;
+}
 export type Manager = "npm" | "pnpm" | "yarn" | "bun";
 
 /** Solo nombres seguros: se escriben tal cual en la terminal, así que no se admite nada que un shell interprete. */
@@ -9,7 +12,11 @@ const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9:_.\-/@]*$/;
 /** Scripts de un package.json (texto). Devuelve [] si no es JSON válido o no tiene scripts. Omite nombres no seguros. */
 export function parseScripts(text: string): ScriptItem[] {
   let data: unknown;
-  try { data = JSON.parse(text); } catch { return []; }
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return [];
+  }
   const scripts = (data as { scripts?: unknown } | null)?.scripts;
   if (!scripts || typeof scripts !== "object" || Array.isArray(scripts)) return [];
   const out: ScriptItem[] = [];

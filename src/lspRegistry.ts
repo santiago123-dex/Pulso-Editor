@@ -7,15 +7,7 @@ export interface LspTarget {
   languageId: string;
 }
 
-export const LSP_MONACO_LANGUAGES: readonly string[] = [
-  "typescript",
-  "javascript",
-  "python",
-  "rust",
-  "go",
-  "c",
-  "cpp",
-];
+export const LSP_MONACO_LANGUAGES: readonly string[] = ["typescript", "javascript", "python", "rust", "go", "c", "cpp"];
 
 export const LSP_SERVER_SHORT: Record<LspServerId, string> = {
   typescript: "TS",
@@ -49,5 +41,4 @@ export function lspTargetForPath(rawPath: string): LspTarget | null {
 }
 
 /** Propietario de marcadores de Monaco para un servidor (conserva `pulso-lsp` para TypeScript). */
-export const lspMarkerOwner = (server: LspServerId) =>
-  server === "typescript" ? "pulso-lsp" : `pulso-lsp-${server}`;
+export const lspMarkerOwner = (server: LspServerId) => (server === "typescript" ? "pulso-lsp" : `pulso-lsp-${server}`);

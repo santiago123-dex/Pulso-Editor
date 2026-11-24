@@ -14,9 +14,7 @@ pub(crate) const MAX_THEME_FILE_BYTES: u64 = 2 * 1024 * 1024;
 #[tauri::command]
 pub(crate) async fn list_dir(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: String) -> Result<Vec<Entry>, String> {
     let safe = guard.ensure_read(&path)?;
-    tauri::async_runtime::spawn_blocking(move || list_dir_sync(safe.to_string_lossy().into_owned()))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || list_dir_sync(safe.to_string_lossy().into_owned())).await.map_err(|e| e.to_string())?
 }
 
 pub(crate) fn list_dir_sync(path: String) -> Result<Vec<Entry>, String> {
@@ -58,29 +56,21 @@ pub(crate) fn walk(root: &str, mut f: impl FnMut(PathBuf) -> bool) {
 #[tauri::command]
 pub(crate) async fn list_files(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: String) -> Result<Vec<String>, String> {
     let safe = guard.ensure_read(&path)?;
-    tauri::async_runtime::spawn_blocking(move || list_files_sync(safe.to_string_lossy().into_owned()))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || list_files_sync(safe.to_string_lossy().into_owned())).await.map_err(|e| e.to_string())?
 }
 
 pub(crate) fn list_files_sync(path: String) -> Result<Vec<String>, String> {
     let mut out = Vec::new();
     let mut builder = ignore::WalkBuilder::new(&path);
-    builder
-        .hidden(false)
-        .git_ignore(true)
-        .git_global(false)
-        .git_exclude(true)
-        .require_git(false)
-        .filter_entry(|entry| {
-            if entry.depth() == 0 {
-                return true;
-            }
-            if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-                return !SKIP_DIRS.contains(&entry.file_name().to_string_lossy().as_ref());
-            }
-            true
-        });
+    builder.hidden(false).git_ignore(true).git_global(false).git_exclude(true).require_git(false).filter_entry(|entry| {
+        if entry.depth() == 0 {
+            return true;
+        }
+        if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            return !SKIP_DIRS.contains(&entry.file_name().to_string_lossy().as_ref());
+        }
+        true
+    });
     for entry in builder.build().flatten() {
         if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
             out.push(norm(entry.path()));
@@ -97,10 +87,7 @@ pub(crate) fn read_file_sync(path: &Path) -> Result<String, String> {
     if meta.len() > MAX_OPEN_FILE_BYTES {
         return Err(trf(
             "El archivo es demasiado grande ({size} MB; límite {limit} MB)",
-            &[
-                ("size", &format!("{:.1}", meta.len() as f64 / (1024.0 * 1024.0))),
-                ("limit", &(MAX_OPEN_FILE_BYTES / (1024 * 1024))),
-            ],
+            &[("size", &format!("{:.1}", meta.len() as f64 / (1024.0 * 1024.0))), ("limit", &(MAX_OPEN_FILE_BYTES / (1024 * 1024)))],
         ));
     }
     fs::read_to_string(path).map_err(|e| e.to_string())
@@ -127,10 +114,7 @@ pub(crate) fn image_mime_for(path: &Path) -> Option<&'static str> {
 }
 
 #[tauri::command]
-pub(crate) async fn read_image_file(
-    guard: tauri::State<'_, fsguard::WorkspaceGuard>,
-    path: String,
-) -> Result<ImagePreview, String> {
+pub(crate) async fn read_image_file(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: String) -> Result<ImagePreview, String> {
     use base64::Engine;
     let safe = guard.ensure_read(&path)?;
     let mime = image_mime_for(&safe).ok_or_else(|| tr("Formato de imagen no soportado").to_string())?;
@@ -139,22 +123,14 @@ pub(crate) async fn read_image_file(
         return Err(tr("La imagen es demasiado grande (máximo 15 MB)").into());
     }
     let bytes = meta.len();
-    let data = tauri::async_runtime::spawn_blocking(move || fs::read(&safe).map_err(|e| e.to_string()))
-        .await
-        .map_err(|e| e.to_string())??;
-    Ok(ImagePreview {
-        data_url: format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(&data)),
-        bytes,
-        mime: mime.to_string(),
-    })
+    let data = tauri::async_runtime::spawn_blocking(move || fs::read(&safe).map_err(|e| e.to_string())).await.map_err(|e| e.to_string())??;
+    Ok(ImagePreview { data_url: format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(&data)), bytes, mime: mime.to_string() })
 }
 
 #[tauri::command]
 pub(crate) async fn read_file(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: String) -> Result<String, String> {
     let safe = guard.ensure_read(&path)?;
-    tauri::async_runtime::spawn_blocking(move || read_file_sync(&safe))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || read_file_sync(&safe)).await.map_err(|e| e.to_string())?
 }
 
 /// Lectura acotada para importar archivos de tema `.json`/`.jsonc` elegidos con el diálogo del sistema.
@@ -208,7 +184,9 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let path = if fs::symlink_metadata(path).map(|m| m.file_type().is_symlink()).unwrap_or(false) {
         resolved = fs::canonicalize(path)?;
         resolved.as_path()
-    } else { path };
+    } else {
+        path
+    };
     let meta = fs::metadata(path).ok();
     let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -228,7 +206,9 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     match result {
         Ok(()) => Ok(()),
         Err(e) => {
-            if created { let _ = fs::remove_file(&tmp); }
+            if created {
+                let _ = fs::remove_file(&tmp);
+            }
             // Si no se puede reemplazar, preservar el original y comunicar el error.
             Err(e)
         }
@@ -254,11 +234,9 @@ pub(crate) async fn write_file(
     expected_mtime: Option<u64>,
 ) -> Result<u64, String> {
     let safe = guard.ensure_write(&path)?;
-    tauri::async_runtime::spawn_blocking(move || {
-        write_file_sync(safe.to_string_lossy().into_owned(), contents, expected_mtime)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || write_file_sync(safe.to_string_lossy().into_owned(), contents, expected_mtime))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 pub(crate) fn write_file_sync(path: String, contents: String, expected_mtime: Option<u64>) -> Result<u64, String> {
@@ -269,9 +247,7 @@ pub(crate) fn write_file_sync(path: String, contents: String, expected_mtime: Op
 #[tauri::command]
 pub(crate) async fn file_mtime(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: String) -> Result<u64, String> {
     let safe = guard.ensure_read(&path)?;
-    tauri::async_runtime::spawn_blocking(move || file_mtime_sync(safe.to_string_lossy().into_owned()))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || file_mtime_sync(safe.to_string_lossy().into_owned())).await.map_err(|e| e.to_string())?
 }
 
 pub(crate) fn file_mtime_sync(path: String) -> Result<u64, String> {
@@ -286,9 +262,7 @@ pub(crate) fn create_file_sync(path: &Path) -> Result<(), String> {
     }
     match fs::OpenOptions::new().write(true).create_new(true).open(path) {
         Ok(_) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            Err(tr("Ya existe un archivo o carpeta con ese nombre").into())
-        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(tr("Ya existe un archivo o carpeta con ese nombre").into()),
         Err(e) => Err(e.to_string()),
     }
 }
@@ -296,9 +270,7 @@ pub(crate) fn create_file_sync(path: &Path) -> Result<(), String> {
 #[tauri::command]
 pub(crate) async fn create_file(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: String) -> Result<(), String> {
     let safe = guard.ensure_write(&path)?;
-    tauri::async_runtime::spawn_blocking(move || create_file_sync(&safe))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || create_file_sync(&safe)).await.map_err(|e| e.to_string())?
 }
 
 pub(crate) fn create_dir_sync(path: &Path) -> Result<(), String> {
@@ -311,9 +283,7 @@ pub(crate) fn create_dir_sync(path: &Path) -> Result<(), String> {
 #[tauri::command]
 pub(crate) async fn create_dir(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: String) -> Result<(), String> {
     let safe = guard.ensure_write(&path)?;
-    tauri::async_runtime::spawn_blocking(move || create_dir_sync(&safe))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || create_dir_sync(&safe)).await.map_err(|e| e.to_string())?
 }
 
 pub(crate) fn rename_path_sync(from: &Path, to: &Path) -> Result<(), String> {
@@ -329,25 +299,17 @@ pub(crate) fn rename_path_sync(from: &Path, to: &Path) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub(crate) async fn rename_path(
-    guard: tauri::State<'_, fsguard::WorkspaceGuard>,
-    from: String,
-    to: String,
-) -> Result<(), String> {
+pub(crate) async fn rename_path(guard: tauri::State<'_, fsguard::WorkspaceGuard>, from: String, to: String) -> Result<(), String> {
     let safe_from = guard.ensure_write(&from)?;
     let safe_to = guard.ensure_write(&to)?;
-    tauri::async_runtime::spawn_blocking(move || rename_path_sync(&safe_from, &safe_to))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || rename_path_sync(&safe_from, &safe_to)).await.map_err(|e| e.to_string())?
 }
 
 /// Mueve el archivo o carpeta a la papelera de reciclaje.
 #[tauri::command]
 pub(crate) async fn delete_path(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: String) -> Result<(), String> {
     let safe = guard.ensure_write(&path)?;
-    tauri::async_runtime::spawn_blocking(move || trash::delete(&safe).map_err(|e| e.to_string()))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || trash::delete(&safe).map_err(|e| e.to_string())).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -371,11 +333,7 @@ pub(crate) async fn reveal_in_explorer(guard: tauri::State<'_, fsguard::Workspac
         };
         #[cfg(all(unix, not(target_os = "macos")))]
         let mut cmd = {
-            let dir = if safe.is_dir() {
-                safe.clone()
-            } else {
-                safe.parent().map(|d| d.to_path_buf()).unwrap_or(safe)
-            };
+            let dir = if safe.is_dir() { safe.clone() } else { safe.parent().map(|d| d.to_path_buf()).unwrap_or(safe) };
             let mut c = Command::new("xdg-open");
             c.arg(dir);
             c

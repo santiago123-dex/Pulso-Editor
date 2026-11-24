@@ -4,7 +4,9 @@ import { diagnosticsStillValid, lspConfiguration } from "./lspConfig";
 describe("lspConfiguration", () => {
   it("activa las indicaciones en línea en las secciones de TypeScript y JavaScript", () => {
     for (const section of ["js/ts", "typescript", "javascript"]) {
-      expect(lspConfiguration(section)).toMatchObject({ inlayHints: { parameterNames: { enabled: "literals" }, enumMemberValues: { enabled: true } } });
+      expect(lspConfiguration(section)).toMatchObject({
+        inlayHints: { parameterNames: { enabled: "literals" }, enumMemberValues: { enabled: true } },
+      });
     }
   });
   it("responde vacío a cualquier otra sección", () => {

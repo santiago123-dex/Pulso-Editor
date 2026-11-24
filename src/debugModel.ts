@@ -72,9 +72,7 @@ export function toggleBreakpoint(map: BreakpointMap, rawPath: string, line: numb
   if (!path || !Number.isInteger(line) || line < 1) return map;
   const current = map[path] ?? [];
   const exists = current.includes(line);
-  const nextLines = exists
-    ? current.filter((l) => l !== line)
-    : [...current, line].sort((a, b) => a - b);
+  const nextLines = exists ? current.filter((l) => l !== line) : [...current, line].sort((a, b) => a - b);
   const next: BreakpointMap = { ...map };
   if (nextLines.length === 0) delete next[path];
   else next[path] = nextLines;
@@ -122,9 +120,9 @@ export function loadBreakpoints(store?: DebugStore): BreakpointMap {
   for (const [k, v] of Object.entries(parsed)) {
     const path = normalizeBpPath(k);
     if (!path || !Array.isArray(v)) continue;
-    const clean = Array.from(
-      new Set(v.filter((n): n is number => typeof n === "number" && Number.isInteger(n) && n >= 1)),
-    ).sort((a, b) => a - b);
+    const clean = Array.from(new Set(v.filter((n): n is number => typeof n === "number" && Number.isInteger(n) && n >= 1))).sort(
+      (a, b) => a - b,
+    );
     if (clean.length > 0) out[path] = clean;
   }
   return out;
@@ -132,17 +130,17 @@ export function loadBreakpoints(store?: DebugStore): BreakpointMap {
 
 export function saveBreakpoints(map: BreakpointMap, store?: DebugStore): void {
   if (store) {
-    try { store.setItem(BP_STORAGE_KEY, JSON.stringify(map)); } catch { /* sin espacio */ }
+    try {
+      store.setItem(BP_STORAGE_KEY, JSON.stringify(map));
+    } catch {
+      /* sin espacio */
+    }
     return;
   }
   writeJsonStorage(BP_STORAGE_KEY, map);
 }
 
-export function appendConsole(
-  entries: readonly DebugConsoleEntry[],
-  entry: DebugConsoleEntry,
-  max = 300,
-): DebugConsoleEntry[] {
+export function appendConsole(entries: readonly DebugConsoleEntry[], entry: DebugConsoleEntry, max = 300): DebugConsoleEntry[] {
   const next = [...entries, entry];
   return next.length > max ? next.slice(next.length - max) : next;
 }

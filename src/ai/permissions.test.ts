@@ -1,13 +1,30 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { addRequest, clearConversation, decisionOptions, parsePermissionEvent, pendingFor, resolveRequest, type PermissionRequest } from "./permissions";
+import {
+  addRequest,
+  clearConversation,
+  decisionOptions,
+  parsePermissionEvent,
+  pendingFor,
+  resolveRequest,
+  type PermissionRequest,
+} from "./permissions";
 
-const req = (o: Partial<PermissionRequest> = {}): PermissionRequest => ({ id: "perm-c-1", tool: "command", detail: "npm test", risky: false, agent: "", ...o });
+const req = (o: Partial<PermissionRequest> = {}): PermissionRequest => ({
+  id: "perm-c-1",
+  tool: "command",
+  detail: "npm test",
+  risky: false,
+  agent: "",
+  ...o,
+});
 
 describe("aprobación de comandos", () => {
   beforeEach(() => clearConversation("c"));
 
   it("lee los eventos de la herramienta y se ignora todo lo demás", () => {
-    expect(parsePermissionEvent({ type: "pulso_permission", id: "p1", tool: "command", detail: "git push", risky: true, agent: "general" })).toEqual({
+    expect(
+      parsePermissionEvent({ type: "pulso_permission", id: "p1", tool: "command", detail: "git push", risky: true, agent: "general" }),
+    ).toEqual({
       kind: "ask",
       req: { id: "p1", tool: "command", detail: "git push", risky: true, agent: "general" },
     });
@@ -20,7 +37,16 @@ describe("aprobación de comandos", () => {
       req: { id: "p3", tool: "mcp", detail: "docs → buscar\n{}", risky: false, agent: "" },
     });
     expect(parsePermissionEvent({ type: "pulso_permission_resolved", id: "p1" })).toEqual({ kind: "resolved", id: "p1" });
-    for (const other of [null, 5, "x", {}, { type: "assistant" }, { type: "pulso_permission" }, { type: "pulso_permission", id: 3, detail: "x" }, { type: "pulso_permission", id: "a" }]) {
+    for (const other of [
+      null,
+      5,
+      "x",
+      {},
+      { type: "assistant" },
+      { type: "pulso_permission" },
+      { type: "pulso_permission", id: 3, detail: "x" },
+      { type: "pulso_permission", id: "a" },
+    ]) {
       expect(parsePermissionEvent(other)).toBeNull();
     }
   });

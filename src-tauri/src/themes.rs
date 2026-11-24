@@ -13,9 +13,7 @@ pub(crate) struct ThemeRef {
 /// Busca los temas de color de las extensiones instaladas en VS Code.
 #[tauri::command]
 pub(crate) async fn scan_vscode_themes() -> Vec<ThemeRef> {
-    tauri::async_runtime::spawn_blocking(scan_vscode_themes_sync)
-        .await
-        .unwrap_or_default()
+    tauri::async_runtime::spawn_blocking(scan_vscode_themes_sync).await.unwrap_or_default()
 }
 
 pub(crate) fn scan_vscode_themes_sync() -> Vec<ThemeRef> {

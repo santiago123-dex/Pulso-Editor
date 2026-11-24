@@ -20,14 +20,7 @@ fn clip_head(s: &str, max_chars: usize) -> String {
 
 /// Elige el modelo más adecuado para autocompletado de código entre los instalados en Ollama.
 pub fn pick_best_model(models: &[String]) -> Option<String> {
-    const PREFERRED: [&str; 6] = [
-        "qwen2.5-coder",
-        "qwen3-coder",
-        "deepseek-coder",
-        "starcoder",
-        "codellama",
-        "coder",
-    ];
+    const PREFERRED: [&str; 6] = ["qwen2.5-coder", "qwen3-coder", "deepseek-coder", "starcoder", "codellama", "coder"];
     for pref in PREFERRED {
         if let Some(found) = models.iter().find(|m| m.to_lowercase().contains(pref)) {
             return Some(found.clone());
@@ -63,11 +56,7 @@ async fn resolve_model(client: &reqwest::Client, base: &str, requested: &str) ->
     if !req.is_empty() {
         return Ok(req.to_string());
     }
-    let resp = client
-        .get(format!("{base}/api/tags"))
-        .send()
-        .await
-        .map_err(|_| "Ollama no responde en este equipo".to_string())?;
+    let resp = client.get(format!("{base}/api/tags")).send().await.map_err(|_| "Ollama no responde en este equipo".to_string())?;
     if !resp.status().is_success() {
         return Err(format!("Ollama devolvió HTTP {}", resp.status()));
     }
@@ -77,18 +66,9 @@ async fn resolve_model(client: &reqwest::Client, base: &str, requested: &str) ->
 }
 
 #[tauri::command]
-pub async fn ai_inline_complete(
-    prefix: String,
-    suffix: String,
-    language: String,
-    model: String,
-) -> Result<String, String> {
+pub async fn ai_inline_complete(prefix: String, suffix: String, language: String, model: String) -> Result<String, String> {
     let base = ollama::base_url();
-    let client = reqwest::Client::builder()
-        .user_agent("Pulso-Editor")
-        .timeout(Duration::from_secs(5))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = reqwest::Client::builder().user_agent("Pulso-Editor").timeout(Duration::from_secs(5)).build().map_err(|e| e.to_string())?;
 
     let chosen = resolve_model(&client, &base, &model).await?;
     let clipped_prefix = clip_tail(&prefix, MAX_PREFIX_CHARS);
@@ -109,12 +89,7 @@ pub async fn ai_inline_complete(
         }
     });
 
-    let resp = client
-        .post(format!("{base}/api/generate"))
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("Error consultando Ollama: {e}"))?;
+    let resp = client.post(format!("{base}/api/generate")).json(&body).send().await.map_err(|e| format!("Error consultando Ollama: {e}"))?;
 
     if !resp.status().is_success() {
         return Err(format!("Ollama devolvió HTTP {}", resp.status()));

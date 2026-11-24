@@ -52,7 +52,9 @@ export async function initToken(): Promise<void> {
         if (!saved) return;
       }
       removeStorage(LEGACY_KEY);
-    } catch { /* se deja donde estaba para no perderlo */ }
+    } catch {
+      /* se deja donde estaba para no perderlo */
+    }
   }
 }
 
@@ -167,10 +169,15 @@ export function explainStatus(status: number, writing: boolean): string {
   if (status === 401) return t("GitHub rechazó el token (no es válido o caducó). Vuelve a conectar tu cuenta en Configuración → GitHub.");
   if (status === 403 || status === 429) {
     return writing
-      ? t("GitHub no permitió el cambio: el token necesita permiso de escritura en las issues del repositorio, o se alcanzó el límite de uso de la API.")
+      ? t(
+          "GitHub no permitió el cambio: el token necesita permiso de escritura en las issues del repositorio, o se alcanzó el límite de uso de la API.",
+        )
       : t("GitHub no permitió la consulta: puede faltar un token o se alcanzó el límite de uso de la API.");
   }
-  if (status === 404) return t("GitHub no encontró el repositorio o la issue. Si el repositorio es privado, conecta tu cuenta de GitHub (debe tener acceso a él).");
+  if (status === 404)
+    return t(
+      "GitHub no encontró el repositorio o la issue. Si el repositorio es privado, conecta tu cuenta de GitHub (debe tener acceso a él).",
+    );
   if (status === 422) return t("GitHub no pudo aplicar el cambio (datos no válidos).");
   return t("GitHub respondió {status}", { status });
 }
@@ -196,7 +203,12 @@ export async function deleteIssue(nodeId: string): Promise<void> {
 
 /** Fallo de la API con su código, para que la interfaz ofrezca conectar la cuenta cuando es un problema de acceso. */
 export class GithubError extends Error {
-  constructor(readonly status: number, writing = false) { super(explainStatus(status, writing)); }
+  constructor(
+    readonly status: number,
+    writing = false,
+  ) {
+    super(explainStatus(status, writing));
+  }
 }
 
 /** 401, 403 y 404 suelen significar «falta iniciar sesión o permisos»: GitHub responde 404 a un repositorio privado sin acceso. */
@@ -226,7 +238,13 @@ export async function connectGithub(interactive: boolean): Promise<string> {
 }
 
 /** Código que da GitHub para iniciar sesión desde Pulso (OAuth device flow). */
-export interface DeviceCode { device_code: string; user_code: string; verification_uri: string; expires_in: number; interval: number }
+export interface DeviceCode {
+  device_code: string;
+  user_code: string;
+  verification_uri: string;
+  expires_in: number;
+  interval: number;
+}
 
 /** Dirección web de GitHub; en desarrollo las pruebas la apuntan a un servidor simulado. */
 function customWebBase(): string | null {
@@ -244,8 +262,11 @@ export const deviceLoginStart = () => invoke<DeviceCode>("github_device_start", 
 /** Espera a que se autorice el código en GitHub; deja el token guardado en Rust y devuelve el usuario. */
 export async function deviceLoginFinish(code: DeviceCode): Promise<string> {
   const login = await invoke<string>("github_device_poll", {
-    deviceCode: code.device_code, interval: code.interval, expiresIn: code.expires_in,
-    webBase: customWebBase(), apiBase: customApiBase(),
+    deviceCode: code.device_code,
+    interval: code.interval,
+    expiresIn: code.expires_in,
+    webBase: customWebBase(),
+    apiBase: customApiBase(),
   });
   etagCache.clear();
   connected = true;
@@ -259,13 +280,24 @@ export const deviceLoginCancel = () => invoke("github_device_cancel").catch(() =
 export async function autoConnect(): Promise<string | null> {
   // `pulso.noAutoConnect` lo fijan las pruebas para que no adopten la sesión real de quien las ejecuta.
   if (!inTauri() || hasToken() || readStorage("pulso.noAutoConnect")) return null;
-  try { return await connectGithub(false); } catch { return null; }
+  try {
+    return await connectGithub(false);
+  } catch {
+    return null;
+  }
 }
 
 /** Usuario del token actual, o "" si no hay token o no es válido. */
 export async function refreshAccount(): Promise<string> {
-  if (!hasToken()) { account = ""; return ""; }
-  try { account = await whoAmI(); } catch { account = ""; }
+  if (!hasToken()) {
+    account = "";
+    return "";
+  }
+  try {
+    account = await whoAmI();
+  } catch {
+    account = "";
+  }
   return account;
 }
 
@@ -309,7 +341,10 @@ export async function fetchIssues(owner: string, repo: string, state: string, pa
   return data.filter((i) => !i.pull_request);
 }
 
-export interface IssuePage { issues: Issue[]; truncated: boolean }
+export interface IssuePage {
+  issues: Issue[];
+  truncated: boolean;
+}
 
 /** Todas las issues de un estado, página a página, hasta `max` (las más recientemente actualizadas primero). */
 export async function fetchAllIssues(owner: string, repo: string, state: "open" | "closed", max = 300): Promise<IssuePage> {
@@ -317,11 +352,16 @@ export async function fetchAllIssues(owner: string, repo: string, state: "open" 
   const out: Issue[] = [];
   let truncated = false;
   for (let page = 1; ; page++) {
-    const data = await getJson<Issue[]>(`/repos/${owner}/${repo}/issues?state=${state}&per_page=${perPage}&page=${page}&sort=updated&direction=desc`);
+    const data = await getJson<Issue[]>(
+      `/repos/${owner}/${repo}/issues?state=${state}&per_page=${perPage}&page=${page}&sort=updated&direction=desc`,
+    );
     out.push(...data.filter((i) => !i.pull_request));
     if (data.length < perPage) break;
     // Las PR cuentan para la paginación pero no para el límite: se corta por páginas recibidas.
-    if (page * perPage >= max) { truncated = true; break; }
+    if (page * perPage >= max) {
+      truncated = true;
+      break;
+    }
   }
   return { issues: out, truncated };
 }
@@ -348,7 +388,11 @@ async function writeJson<T>(method: string, path: string, body: unknown): Promis
   return res.json<T>();
 }
 
-export interface IssueDraft { title: string; body: string; labels: string[] }
+export interface IssueDraft {
+  title: string;
+  body: string;
+  labels: string[];
+}
 
 /** Crea una issue y devuelve la que GitHub registró (con su número). */
 export const createIssue = (owner: string, repo: string, draft: IssueDraft) =>

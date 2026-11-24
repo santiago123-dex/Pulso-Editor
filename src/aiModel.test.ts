@@ -1,5 +1,37 @@
 import { describe, expect, it } from "vitest";
-import { createProviderNormalizer, emptyConversation, exitEvent, formatModelName, isAuthError, isFileChange, MAX_RESULT, needsCommandPermission, parseDeniedActions, percent, planLabel, friendlyToolError, parseResetText, parseUsageText, pruneUsage, reduce, remainingPercent, resetClockText, resetCountdown, resetIn, resetTimeFromIso, MAX_SUBAGENT_STEPS, stepSummary, toolSummary, touchedFiles, usedPercent, usedRatio, userEvent, type AiEvent, type Block, type Conversation } from "./aiModel";
+import {
+  createProviderNormalizer,
+  emptyConversation,
+  exitEvent,
+  formatModelName,
+  isAuthError,
+  isFileChange,
+  MAX_RESULT,
+  needsCommandPermission,
+  parseDeniedActions,
+  percent,
+  planLabel,
+  friendlyToolError,
+  parseResetText,
+  parseUsageText,
+  pruneUsage,
+  reduce,
+  remainingPercent,
+  resetClockText,
+  resetCountdown,
+  resetIn,
+  resetTimeFromIso,
+  MAX_SUBAGENT_STEPS,
+  stepSummary,
+  toolSummary,
+  touchedFiles,
+  usedPercent,
+  usedRatio,
+  userEvent,
+  type AiEvent,
+  type Block,
+  type Conversation,
+} from "./aiModel";
 
 const run = (events: AiEvent[], start: Conversation = emptyConversation()) => events.reduce(reduce, start);
 const se = (event: unknown): AiEvent => ({ type: "stream_event", event });
@@ -46,7 +78,10 @@ describe("respuesta de texto en vivo", () => {
       se({ type: "content_block_start", index: 1, content_block: { type: "text", text: "" } }),
       delta(1, { type: "text_delta", text: "digo" }),
     ]);
-    expect(c.messages[0].blocks).toEqual([{ kind: "thinking", text: "pienso" }, { kind: "text", text: "digo" }]);
+    expect(c.messages[0].blocks).toEqual([
+      { kind: "thinking", text: "pienso" },
+      { kind: "text", text: "digo" },
+    ]);
   });
 });
 
@@ -68,7 +103,10 @@ describe("herramientas", () => {
     const c = run([
       ...toolTurn,
       { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t1", content: "1\tcontenido" }] } },
-      { type: "assistant", message: { id: "m1", content: [{ type: "tool_use", id: "t1", name: "Read", input: { file_path: "C:\\p\\a.ts" } }] } },
+      {
+        type: "assistant",
+        message: { id: "m1", content: [{ type: "tool_use", id: "t1", name: "Read", input: { file_path: "C:\\p\\a.ts" } }] },
+      },
     ]);
     const b = c.messages[0].blocks[0] as Extract<Block, { kind: "tool" }>;
     expect(b.result).toBe("1\tcontenido");
@@ -77,12 +115,30 @@ describe("herramientas", () => {
   it("un resultado en lista de bloques se une y uno enorme se recorta; un error se marca", () => {
     const c = run([
       ...toolTurn,
-      { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t1", content: [{ type: "text", text: "a" }, { type: "text", text: "b" }], is_error: true }] } },
+      {
+        type: "user",
+        message: {
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "t1",
+              content: [
+                { type: "text", text: "a" },
+                { type: "text", text: "b" },
+              ],
+              is_error: true,
+            },
+          ],
+        },
+      },
     ]);
     const b = c.messages[0].blocks[0] as Extract<Block, { kind: "tool" }>;
     expect(b.result).toBe("a\nb");
     expect(b.error).toBe(true);
-    const big = run([...toolTurn, { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t1", content: "x".repeat(MAX_RESULT + 500) }] } }]);
+    const big = run([
+      ...toolTurn,
+      { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t1", content: "x".repeat(MAX_RESULT + 500) }] } },
+    ]);
     expect((big.messages[0].blocks[0] as Extract<Block, { kind: "tool" }>).result!.length).toBeLessThan(MAX_RESULT + 40);
   });
   it("cuenta los cambios de archivo correctos para recargar lo abierto, y no los fallidos ni las lecturas", () => {
@@ -90,11 +146,14 @@ describe("herramientas", () => {
       se({ type: "content_block_start", index: 0, content_block: { type: "tool_use", id, name, input: {} } }),
     ];
     const c = run([
-      msgStart("m1"), ...edit("e1", "Edit"),
+      msgStart("m1"),
+      ...edit("e1", "Edit"),
       { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "e1", content: "ok" }] } },
-      msgStart("m2"), ...edit("e2", "Write"),
+      msgStart("m2"),
+      ...edit("e2", "Write"),
       { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "e2", content: "no", is_error: true }] } },
-      msgStart("m3"), ...edit("r1", "Read"),
+      msgStart("m3"),
+      ...edit("r1", "Read"),
       { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "r1", content: "ok" }] } },
     ]);
     expect(c.touched).toBe(1);
@@ -102,7 +161,13 @@ describe("herramientas", () => {
     expect(isFileChange({ kind: "text", text: "" })).toBe(false);
   });
   it("resume en español lo que hizo cada herramienta", () => {
-    const t = (name: string, input: Record<string, unknown>): Extract<Block, { kind: "tool" }> => ({ kind: "tool", id: "x", name, input, json: "" });
+    const t = (name: string, input: Record<string, unknown>): Extract<Block, { kind: "tool" }> => ({
+      kind: "tool",
+      id: "x",
+      name,
+      input,
+      json: "",
+    });
     expect(toolSummary(t("Edit", { file_path: "src/b.ts" }))).toBe("Editó b.ts");
     expect(toolSummary(t("Write", { file_path: "src/c.ts" }))).toBe("Escribió c.ts");
     expect(toolSummary(t("Glob", { pattern: "**/*.ts" }))).toBe("Buscó archivos «**/*.ts»");
@@ -114,21 +179,39 @@ describe("herramientas", () => {
 
 describe("resultado, uso del plan y salida del proceso", () => {
   it("el resultado cierra el turno con coste y duración", () => {
-    const c = run([userEvent("x"), { type: "result", subtype: "success", is_error: false, session_id: "S2", total_cost_usd: 0.05, duration_ms: 1200, result: "hecho", permission_denials: [{}, {}] }]);
+    const c = run([
+      userEvent("x"),
+      {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        session_id: "S2",
+        total_cost_usd: 0.05,
+        duration_ms: 1200,
+        result: "hecho",
+        permission_denials: [{}, {}],
+      },
+    ]);
     expect(c.running).toBe(false);
     expect(c.sessionId).toBe("S2");
     expect(c.outcome).toEqual({ ok: true, costUsd: 0.05, durationMs: 1200, message: "hecho", denials: 2 });
     expect(c.error).toBe("");
   });
   it("un resultado con error lo deja como error visible", () => {
-    const c = run([userEvent("x"), { type: "result", subtype: "error_during_execution", is_error: true, result: "Invalid API key · Please run /login" }]);
+    const c = run([
+      userEvent("x"),
+      { type: "result", subtype: "error_during_execution", is_error: true, result: "Invalid API key · Please run /login" },
+    ]);
     expect(c.outcome?.ok).toBe(false);
     expect(c.error).toContain("Invalid API key");
     expect(isAuthError(c.error)).toBe(true);
     expect(isAuthError("se acabó el tiempo")).toBe(false);
   });
   it("guarda el uso de las ventanas del plan y los eventos siguientes lo actualizan", () => {
-    const rl = (a: number, b: number) => ({ type: "rate_limit_event", rate_limit_info: { unifiedWindows: { five_hour: { utilization: a, resetsAt: 100 }, seven_day: { utilization: b, resetsAt: 200 } } } });
+    const rl = (a: number, b: number) => ({
+      type: "rate_limit_event",
+      rate_limit_info: { unifiedWindows: { five_hour: { utilization: a, resetsAt: 100 }, seven_day: { utilization: b, resetsAt: 200 } } },
+    });
     const c = run([rl(0.51, 0.42), rl(0.54, 0.42)]);
     expect(c.usage).toEqual({ fiveHour: { utilization: 0.54, resetsAt: 100 }, sevenDay: { utilization: 0.42, resetsAt: 200 } });
     expect(percent(c.usage.fiveHour)).toBe("54 %");
@@ -147,7 +230,19 @@ describe("resultado, uso del plan y salida del proceso", () => {
   it("los eventos desconocidos y los mal formados no rompen nada, y la entrada no se modifica", () => {
     const base = run([userEvent("x")]);
     const copia = JSON.stringify(base);
-    expect(run([{ type: "raro" }, { type: "stream_event" }, { type: "user" }, { type: "assistant" }, { type: "system" }, { type: "pulso_truncated" }], base).messages.length).toBeGreaterThanOrEqual(1);
+    expect(
+      run(
+        [
+          { type: "raro" },
+          { type: "stream_event" },
+          { type: "user" },
+          { type: "assistant" },
+          { type: "system" },
+          { type: "pulso_truncated" },
+        ],
+        base,
+      ).messages.length,
+    ).toBeGreaterThanOrEqual(1);
     reduce(base, { type: "result", subtype: "success" });
     expect(JSON.stringify(base)).toBe(copia);
   });
@@ -164,7 +259,10 @@ describe("etiquetas del plan", () => {
     expect(resetIn(w(3 * 86400), NOW)).toBe("en 3 d");
     expect(resetIn(undefined, NOW)).toBe("");
   });
-  it("capitaliza el nombre del plan", () => { expect(planLabel("pro")).toBe("Pro"); expect(planLabel("")).toBe(""); });
+  it("capitaliza el nombre del plan", () => {
+    expect(planLabel("pro")).toBe("Pro");
+    expect(planLabel("")).toBe("");
+  });
   it("calcula el porcentaje usado, descarta ventanas vencidas, formatea modelos y archivos modificados", () => {
     const w = (u: number, s: number) => ({ utilization: u, resetsAt: NOW / 1000 + s });
     expect(usedRatio(w(0.67, 10))).toBeCloseTo(0.67);
@@ -182,19 +280,21 @@ describe("etiquetas del plan", () => {
     expect(formatModelName("claude-sonnet-5-5-20260514")).toBe("Claude Sonnet 5.5");
     expect(formatModelName("claude-sonnet-4-8")).toBe("Claude Sonnet 4.8");
     expect(formatModelName("claude-3-7-sonnet-20250219")).toBe("Claude Sonnet 3.7");
-    expect(touchedFiles([
-      {
-        id: "1",
-        role: "assistant",
-        done: true,
-        blocks: [
-          { kind: "tool", id: "a", name: "Read", input: { file_path: "a.ts" }, json: "", result: "ok" },
-          { kind: "tool", id: "b", name: "Edit", input: { file_path: "src\\b.ts" }, json: "", result: "ok" },
-          { kind: "tool", id: "c", name: "Write", input: { file_path: "src/b.ts" }, json: "", result: "ok" },
-          { kind: "tool", id: "d", name: "Edit", input: { file_path: "src/fail.ts" }, json: "", result: "err", error: true },
-        ],
-      },
-    ])).toEqual(["src/b.ts"]);
+    expect(
+      touchedFiles([
+        {
+          id: "1",
+          role: "assistant",
+          done: true,
+          blocks: [
+            { kind: "tool", id: "a", name: "Read", input: { file_path: "a.ts" }, json: "", result: "ok" },
+            { kind: "tool", id: "b", name: "Edit", input: { file_path: "src\\b.ts" }, json: "", result: "ok" },
+            { kind: "tool", id: "c", name: "Write", input: { file_path: "src/b.ts" }, json: "", result: "ok" },
+            { kind: "tool", id: "d", name: "Edit", input: { file_path: "src/fail.ts" }, json: "", result: "err", error: true },
+          ],
+        },
+      ]),
+    ).toEqual(["src/b.ts"]);
   });
 
   it("usa structural sharing durante el streaming sin clonar turnos anteriores", () => {
@@ -202,7 +302,10 @@ describe("etiquetas del plan", () => {
     c = reduce(c, { type: "stream_event", event: { type: "message_start", message: { id: "a1" } } });
     c = reduce(c, { type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } } });
     const before = c;
-    const after = reduce(before, { type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "hola" } } });
+    const after = reduce(before, {
+      type: "stream_event",
+      event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "hola" } },
+    });
     expect(after).not.toBe(before);
     expect(after.messages[0]).toBe(before.messages[0]); // turno previo intacto por referencia
     expect(after.messages[1]).not.toBe(before.messages[1]); // solo el turno activo cambia
@@ -257,9 +360,18 @@ describe("adaptadores para Codex CLI y Gemini CLI", () => {
     const raw: AiEvent[] = [
       { type: "thread.started", thread_id: "th_99" },
       { type: "item.completed", item: { id: "i1", type: "reasoning", text: "Analizo el módulo." } },
-      { type: "item.completed", item: { id: "i2", type: "file_change", status: "completed", changes: [{ path: "src/app.ts", kind: "update" }] } },
+      {
+        type: "item.completed",
+        item: { id: "i2", type: "file_change", status: "completed", changes: [{ path: "src/app.ts", kind: "update" }] },
+      },
       { type: "item.completed", item: { id: "i3", type: "agent_message", text: "Listo." } },
-      { type: "event_msg", payload: { type: "token_count", rate_limits: { primary: { used_percent: 25, resets_at: 1900000100 }, secondary: { used_percent: 14, resets_at: 1900500000 } } } },
+      {
+        type: "event_msg",
+        payload: {
+          type: "token_count",
+          rate_limits: { primary: { used_percent: 25, resets_at: 1900000100 }, secondary: { used_percent: 14, resets_at: 1900500000 } },
+        },
+      },
       { type: "turn.completed" },
     ];
     let convo = reduce(emptyConversation(), userEvent("mejora app.ts"));
@@ -279,11 +391,43 @@ describe("adaptadores para Codex CLI y Gemini CLI", () => {
     const raw = [
       { type: "init", event: "init", conversation_id: "agy_1", init: { cwd: "." } },
       { type: "step_update", event: "step_update", step_update: { step_index: 0, state: "DONE", step_type: "user_input" } },
-      { type: "step_update", event: "step_update", step_update: { step_index: 1, state: "ACTIVE", step_type: "tool", tool_name: "read_file", tool_info: { name: "read_file", parameters: { Path: "src/a.ts" } } } },
-      { type: "step_update", event: "step_update", step_update: { step_index: 1, state: "DONE", step_type: "tool", tool_name: "read_file", tool_info: { name: "read_file", parameters: { Path: "src/a.ts" }, output: "ok" } } },
-      { type: "step_update", event: "step_update", step_update: { step_index: 2, state: "ACTIVE", step_type: "agent_response", text_delta: "Hola " } },
-      { type: "step_update", event: "step_update", step_update: { step_index: 2, state: "DONE", step_type: "agent_response", text_delta: "mundo" } },
-      { type: "result", event: "result", result: { conversation_id: "agy_1", status: "SUCCESS", response: "Hola mundo", duration_seconds: 1.5 } },
+      {
+        type: "step_update",
+        event: "step_update",
+        step_update: {
+          step_index: 1,
+          state: "ACTIVE",
+          step_type: "tool",
+          tool_name: "read_file",
+          tool_info: { name: "read_file", parameters: { Path: "src/a.ts" } },
+        },
+      },
+      {
+        type: "step_update",
+        event: "step_update",
+        step_update: {
+          step_index: 1,
+          state: "DONE",
+          step_type: "tool",
+          tool_name: "read_file",
+          tool_info: { name: "read_file", parameters: { Path: "src/a.ts" }, output: "ok" },
+        },
+      },
+      {
+        type: "step_update",
+        event: "step_update",
+        step_update: { step_index: 2, state: "ACTIVE", step_type: "agent_response", text_delta: "Hola " },
+      },
+      {
+        type: "step_update",
+        event: "step_update",
+        step_update: { step_index: 2, state: "DONE", step_type: "agent_response", text_delta: "mundo" },
+      },
+      {
+        type: "result",
+        event: "result",
+        result: { conversation_id: "agy_1", status: "SUCCESS", response: "Hola mundo", duration_seconds: 1.5 },
+      },
     ] as unknown as AiEvent[];
     let convo = reduce(emptyConversation(), userEvent("lee a.ts"));
     for (const r of raw) for (const ev of norm(r)) convo = reduce(convo, ev);
@@ -304,7 +448,9 @@ describe("adaptadores para Codex CLI y Gemini CLI", () => {
 
 describe("errores conocidos de las herramientas", () => {
   it("explica que Gemini CLI ya no sirve con cuentas personales", () => {
-    const msg = friendlyToolError("An unexpected critical error occurred:IneligibleTierError: This client is no longer supported for Gemini Code Assist for individuals.");
+    const msg = friendlyToolError(
+      "An unexpected critical error occurred:IneligibleTierError: This client is no longer supported for Gemini Code Assist for individuals.",
+    );
     expect(msg).toContain("Antigravity");
     expect(msg).toContain("GEMINI_API_KEY");
   });
@@ -333,7 +479,8 @@ describe("errores conocidos de las herramientas", () => {
         response: "Necesito comprobar node.",
         denied_actions: [{ tool: "run_command", input: { command: "node -v" }, reason: "requires approval" }],
       },
-    })) convo = reduce(convo, ev);
+    }))
+      convo = reduce(convo, ev);
     expect(convo.outcome?.denials).toBe(1);
     expect(convo.outcome?.deniedActions?.[0]?.tool).toBe("run_command");
     expect(convo.outcome?.deniedActions?.[0]?.detail).toBe("node -v");
@@ -341,12 +488,26 @@ describe("errores conocidos de las herramientas", () => {
 });
 
 describe("actividad del asistente", () => {
-  const tool = (name: string, done = true): Block => ({ kind: "tool", id: name, name, input: { file_path: "src/a.ts" }, json: "", result: done ? "ok" : undefined, error: false });
+  const tool = (name: string, done = true): Block => ({
+    kind: "tool",
+    id: name,
+    name,
+    input: { file_path: "src/a.ts" },
+    json: "",
+    result: done ? "ok" : undefined,
+    error: false,
+  });
   const text = (t: string): Block => ({ kind: "text", text: t });
 
   it("separa el proceso de la respuesta final", async () => {
     const { splitAssistantTurn } = await import("./aiModel");
-    const r = splitAssistantTurn([text("Voy a mirar el archivo."), tool("Read"), { kind: "thinking", text: "ya lo tengo" }, text("Listo: el fallo está en a.ts"), text("  ")]);
+    const r = splitAssistantTurn([
+      text("Voy a mirar el archivo."),
+      tool("Read"),
+      { kind: "thinking", text: "ya lo tengo" },
+      text("Listo: el fallo está en a.ts"),
+      text("  "),
+    ]);
     expect(r.final).toBe("Listo: el fallo está en a.ts");
     expect(r.activity.map((b) => b.kind)).toEqual(["text", "tool", "thinking"]);
   });
@@ -394,9 +555,23 @@ describe("agente local (Ollama)", () => {
       msgStart("local_1_0"),
       se({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }),
       se({ type: "content_block_stop", index: 0 }),
-      { type: "assistant", message: { id: "local_1_0", content: [{ type: "text", text: "" }, { type: "tool_use", id: "local_1_0_t0", name: "Read", input: { file_path: "src/main.ts" } }] } },
+      {
+        type: "assistant",
+        message: {
+          id: "local_1_0",
+          content: [
+            { type: "text", text: "" },
+            { type: "tool_use", id: "local_1_0_t0", name: "Read", input: { file_path: "src/main.ts" } },
+          ],
+        },
+      },
       se({ type: "message_stop" }),
-      { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "local_1_0_t0", content: "    1  export function sumar() {}", is_error: false }] } },
+      {
+        type: "user",
+        message: {
+          content: [{ type: "tool_result", tool_use_id: "local_1_0_t0", content: "    1  export function sumar() {}", is_error: false }],
+        },
+      },
       msgStart("local_1_1"),
       se({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }),
       delta(0, { type: "text_delta", text: "sumar " }),
@@ -404,7 +579,15 @@ describe("agente local (Ollama)", () => {
       se({ type: "content_block_stop", index: 0 }),
       { type: "assistant", message: { id: "local_1_1", content: [{ type: "text", text: "sumar suma." }] } },
       se({ type: "message_stop" }),
-      { type: "result", subtype: "success", is_error: false, session_id: "c1", duration_ms: 1200, total_cost_usd: 0, result: "sumar suma." },
+      {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        session_id: "c1",
+        duration_ms: 1200,
+        total_cost_usd: 0,
+        result: "sumar suma.",
+      },
     ];
     expect(events.flatMap(normalize)).toEqual(events);
     const c = run([userEvent("¿Qué hace sumar?"), ...events]);
@@ -432,22 +615,63 @@ describe("herramientas del agente propio", () => {
 });
 
 describe("pasos de un subagente", () => {
-  const card = (id: string): AiEvent => ({ type: "assistant", message: { id: "m1", content: [{ type: "text", text: "Voy a delegar." }, { type: "tool_use", id, name: "Task", input: { agent: "general", description: "Buscar" } }] } });
-  const step = (parent: string, name: string, input: Record<string, unknown> = {}, error = false): AiEvent => ({ type: "pulso_subagent_step", parent, agent: "general", name, input, error });
-  const taskOf = (c: Conversation, id = "m1_t0") => c.messages.flatMap((m) => m.blocks).find((b) => b.kind === "tool" && b.id === id) as Extract<Block, { kind: "tool" }>;
+  const card = (id: string): AiEvent => ({
+    type: "assistant",
+    message: {
+      id: "m1",
+      content: [
+        { type: "text", text: "Voy a delegar." },
+        { type: "tool_use", id, name: "Task", input: { agent: "general", description: "Buscar" } },
+      ],
+    },
+  });
+  const step = (parent: string, name: string, input: Record<string, unknown> = {}, error = false): AiEvent => ({
+    type: "pulso_subagent_step",
+    parent,
+    agent: "general",
+    name,
+    input,
+    error,
+  });
+  const taskOf = (c: Conversation, id = "m1_t0") =>
+    c.messages.flatMap((m) => m.blocks).find((b) => b.kind === "tool" && b.id === id) as Extract<Block, { kind: "tool" }>;
 
   it("cuelga cada paso de la tarjeta de su tarea, en orden, mientras la tarea sigue en marcha", () => {
-    const c = run([msgStart("m1"), card("m1_t0"), step("m1_t0", "Glob", { pattern: "**/*.ts" }), step("m1_t0", "Read", { path: "src/a.ts" }, true)]);
+    const c = run([
+      msgStart("m1"),
+      card("m1_t0"),
+      step("m1_t0", "Glob", { pattern: "**/*.ts" }),
+      step("m1_t0", "Read", { path: "src/a.ts" }, true),
+    ]);
     const t = taskOf(c);
     expect(t.result).toBeUndefined();
-    expect(t.steps?.map((s) => [s.name, s.error])).toEqual([["Glob", false], ["Read", true]]);
+    expect(t.steps?.map((s) => [s.name, s.error])).toEqual([
+      ["Glob", false],
+      ["Read", true],
+    ]);
     expect(stepSummary(t.steps![1])).toContain("a.ts");
     expect(stepSummary(t.steps![0])).toContain("**/*.ts");
   });
 
   it("separa los pasos de dos subagentes en paralelo", () => {
-    const two: AiEvent = { type: "assistant", message: { id: "m1", content: [{ type: "text", text: "" }, { type: "tool_use", id: "m1_t0", name: "Task", input: {} }, { type: "tool_use", id: "m1_t1", name: "Task", input: {} }] } };
-    const c = run([msgStart("m1"), two, step("m1_t1", "Grep", { pattern: "x" }), step("m1_t0", "Glob", { pattern: "*.rs" }), step("m1_t1", "Read", { path: "b.ts" })]);
+    const two: AiEvent = {
+      type: "assistant",
+      message: {
+        id: "m1",
+        content: [
+          { type: "text", text: "" },
+          { type: "tool_use", id: "m1_t0", name: "Task", input: {} },
+          { type: "tool_use", id: "m1_t1", name: "Task", input: {} },
+        ],
+      },
+    };
+    const c = run([
+      msgStart("m1"),
+      two,
+      step("m1_t1", "Grep", { pattern: "x" }),
+      step("m1_t0", "Glob", { pattern: "*.rs" }),
+      step("m1_t1", "Read", { path: "b.ts" }),
+    ]);
     expect(taskOf(c, "m1_t0").steps?.map((s) => s.name)).toEqual(["Glob"]);
     expect(taskOf(c, "m1_t1").steps?.map((s) => s.name)).toEqual(["Grep", "Read"]);
   });

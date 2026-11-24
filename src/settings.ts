@@ -95,14 +95,18 @@ export function loadSettings(): Settings {
     const saved = readJsonStorage<Record<string, unknown>>(KEY, {});
     if (saved.v !== DEFAULTS.v) {
       // Antes el tema y el acento eran independientes; ahora cada tema define su acento.
-      delete saved.theme; delete saved.accent; delete saved.syntaxTheme;
+      delete saved.theme;
+      delete saved.accent;
+      delete saved.syntaxTheme;
     }
     // El acento morado era el de fábrica del tema Pulso; quien no lo cambió pasa al nuevo (azul). Uno elegido a propósito se respeta.
     if ((saved.theme ?? DEFAULTS.theme) === "pulso-dark" && String(saved.accent).toLowerCase() === "#7c3aed") delete saved.accent;
     // La letra de fábrica ahora es Consolas (como VS Code): quien no la cambió pasa a ella; quien eligió otra la conserva.
     dropOldFontDefault(saved);
     return {
-      ...DEFAULTS, ...saved, v: DEFAULTS.v,
+      ...DEFAULTS,
+      ...saved,
+      v: DEFAULTS.v,
       keybindings: { ...((saved.keybindings as Record<string, string>) ?? {}) },
       customThemes: { ...((saved.customThemes as Record<string, Theme>) ?? {}) },
     };
@@ -111,7 +115,9 @@ export function loadSettings(): Settings {
   }
 }
 
-export const saveSettings = (s: Settings) => { writeJsonStorage(KEY, s); };
+export const saveSettings = (s: Settings) => {
+  writeJsonStorage(KEY, s);
+};
 
 /** Estado compartido de la configuración actual. */
 export const state = { settings: loadSettings() };
@@ -125,7 +131,9 @@ const kindOf = (t: Theme) => (t.base === "vs" ? "light" : "dark");
 export function syntaxOptionsFor(themeId: string): [string, string][] {
   const all = allThemes();
   const kind = kindOf(all[themeId] ?? THEMES["pulso-dark"]);
-  return Object.entries(all).filter(([id, t]) => kindOf(t) === kind && id !== themeId).map(([id, t]) => [id, t.label]);
+  return Object.entries(all)
+    .filter(([id, t]) => kindOf(t) === kind && id !== themeId)
+    .map(([id, t]) => [id, t.label]);
 }
 
 function syntaxFor(s: Settings, theme: Theme) {
@@ -134,7 +142,9 @@ function syntaxFor(s: Settings, theme: Theme) {
 }
 
 const subs = new Set<() => void>();
-export const onSettingsChange = (f: () => void) => { subs.add(f); };
+export const onSettingsChange = (f: () => void) => {
+  subs.add(f);
+};
 
 /** Guarda, aplica el tema y avisa a quien dependa de la configuración. */
 export function commit() {
@@ -156,14 +166,17 @@ export function setTheme(id: string) {
 /** Luminancia relativa WCAG de un color #rrggbb. */
 function luminance(hex: string): number {
   const n = parseInt(hex.slice(1), 16);
-  const lin = (c: number) => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+  const lin = (c: number) => {
+    const v = c / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
   return 0.2126 * lin(n >> 16) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
 }
 
 /** Texto blanco o negro, el que tenga más contraste sobre el color (así un acento claro lleva texto oscuro). */
 export function readableOn(hex: string): string {
   const L = luminance(hex);
-  return (1.05 / (L + 0.05)) >= ((L + 0.05) / 0.05) ? "#ffffff" : "#111111";
+  return 1.05 / (L + 0.05) >= (L + 0.05) / 0.05 ? "#ffffff" : "#111111";
 }
 
 export function applyTheme(s: Settings, previewId?: string) {
@@ -174,9 +187,18 @@ export function applyTheme(s: Settings, previewId?: string) {
   const light = p.base === "vs";
   const root = document.documentElement.style;
   const vars: Record<string, string> = {
-    bg: p.bg, editor: p.editor, sidebar: p.sidebar, activity: p.activity,
-    border: p.border, hover: p.hover, selected: p.selected, fg: p.fg, muted: p.muted,
-    accent, status: accent, "on-accent": readableOn(accent),
+    bg: p.bg,
+    editor: p.editor,
+    sidebar: p.sidebar,
+    activity: p.activity,
+    border: p.border,
+    hover: p.hover,
+    selected: p.selected,
+    fg: p.fg,
+    muted: p.muted,
+    accent,
+    status: accent,
+    "on-accent": readableOn(accent),
     "git-modified": light ? "#895503" : "#e2c08d",
     "git-added": light ? "#2e7d32" : "#73c991",
     "git-deleted": light ? "#ad0707" : "#c74e39",
@@ -193,25 +215,34 @@ export function applyTheme(s: Settings, previewId?: string) {
 
   const sx = previewId ? p.syntax : syntaxFor(s, p);
   monaco.editor.defineTheme("pulso-active", {
-    base: p.base, inherit: true,
+    base: p.base,
+    inherit: true,
     rules: tokenRules(sx),
     colors: {
-      "editor.background": p.editor, "editor.foreground": p.fg,
-      "editorGutter.background": p.editor, "editor.lineHighlightBackground": p.hover,
-      "editorLineNumber.foreground": p.muted, "editorLineNumber.activeForeground": p.fg,
-      "editorIndentGuide.background1": p.border, "editorWidget.background": p.sidebar,
+      "editor.background": p.editor,
+      "editor.foreground": p.fg,
+      "editorGutter.background": p.editor,
+      "editor.lineHighlightBackground": p.hover,
+      "editorLineNumber.foreground": p.muted,
+      "editorLineNumber.activeForeground": p.fg,
+      "editorIndentGuide.background1": p.border,
+      "editorWidget.background": p.sidebar,
       "editorWidget.border": p.border,
-      "editorSuggestWidget.background": p.sidebar, "editorSuggestWidget.border": p.border,
-      "editorHoverWidget.background": p.sidebar, "editorHoverWidget.border": p.border,
+      "editorSuggestWidget.background": p.sidebar,
+      "editorSuggestWidget.border": p.border,
+      "editorHoverWidget.background": p.sidebar,
+      "editorHoverWidget.border": p.border,
       "minimap.background": p.editor,
       "editor.selectionBackground": accent + "44",
       "editor.inactiveSelectionBackground": accent + "22",
       "editorCursor.foreground": accent,
       "scrollbarSlider.background": p.selected + "aa",
       "scrollbarSlider.hoverBackground": p.muted + "88",
-      "input.background": p.editor, "input.border": p.border,
-      "list.hoverBackground": p.hover, "list.activeSelectionBackground": p.selected,
-      "focusBorder": accent,
+      "input.background": p.editor,
+      "input.border": p.border,
+      "list.hoverBackground": p.hover,
+      "list.activeSelectionBackground": p.selected,
+      focusBorder: accent,
       "editorBracketHighlight.foreground1": "#" + sx.type,
       "editorBracketHighlight.foreground2": "#" + sx.keyword,
       "editorBracketHighlight.foreground3": "#" + sx.string,

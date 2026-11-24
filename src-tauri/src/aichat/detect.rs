@@ -125,7 +125,8 @@ pub fn gemini_auth_from(home: Option<&Path>, has_api_key: bool, has_vertex: bool
             let settings = dir.join("settings.json");
             if let Ok(raw) = std::fs::read_to_string(&settings) {
                 if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
-                    let kind = v.get("security")
+                    let kind = v
+                        .get("security")
                         .and_then(|s| s.get("auth"))
                         .and_then(|a| a.get("selectedType"))
                         .or_else(|| v.get("selectedAuthType"))
@@ -147,26 +148,10 @@ pub fn gemini_auth_from(home: Option<&Path>, has_api_key: bool, has_vertex: bool
 /// Modelos estándar (alias oficiales) de Claude Code para selección rápida en CLI.
 pub fn claude_default_models() -> Vec<AiModelInfo> {
     vec![
-        AiModelInfo {
-            id: "sonnet".into(),
-            label: "Claude Sonnet".into(),
-            note: tr("Equilibrado y rápido para uso diario").into(),
-        },
-        AiModelInfo {
-            id: "opus".into(),
-            label: "Claude Opus".into(),
-            note: tr("Máxima capacidad para tareas complejas").into(),
-        },
-        AiModelInfo {
-            id: "haiku".into(),
-            label: "Claude Haiku".into(),
-            note: tr("Ultrarrápido y ligero").into(),
-        },
-        AiModelInfo {
-            id: "fable".into(),
-            label: "Claude Fable".into(),
-            note: tr("Alias más reciente del plan").into(),
-        },
+        AiModelInfo { id: "sonnet".into(), label: "Claude Sonnet".into(), note: tr("Equilibrado y rápido para uso diario").into() },
+        AiModelInfo { id: "opus".into(), label: "Claude Opus".into(), note: tr("Máxima capacidad para tareas complejas").into() },
+        AiModelInfo { id: "haiku".into(), label: "Claude Haiku".into(), note: tr("Ultrarrápido y ligero").into() },
+        AiModelInfo { id: "fable".into(), label: "Claude Fable".into(), note: tr("Alias más reciente del plan").into() },
     ]
 }
 
@@ -179,11 +164,17 @@ pub fn detect_claude() -> AiTool {
     let mut tool = AiTool { installed: true, version, models: claude_default_models(), ..Default::default() };
     // Un fallo puntual (la herramienta renovando la sesión, otro proceso ocupado) no significa «sin sesión»: se reintenta una vez.
     let status = (0..2).find_map(|attempt| {
-        if attempt > 0 { thread::sleep(Duration::from_millis(1500)); }
+        if attempt > 0 {
+            thread::sleep(Duration::from_millis(1500));
+        }
         capture(&program, &["auth", "status"], 20).ok().and_then(|t| parse_auth_status(&t))
     });
     match status {
-        Some((logged, method, plan)) => { tool.logged_in = logged; tool.auth_method = method; tool.plan = plan; }
+        Some((logged, method, plan)) => {
+            tool.logged_in = logged;
+            tool.auth_method = method;
+            tool.plan = plan;
+        }
         None => tool.error = tr("No se pudo comprobar si hay una sesión iniciada.").into(),
     }
     tool
@@ -242,6 +233,8 @@ pub(super) fn detect_cloud(app: &AppHandle) -> AiTool {
 /// Extrae el texto de `claude -p /usage --output-format json` (campo `result`).
 pub fn parse_usage_result(text: &str) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
-    if v.get("is_error").and_then(|x| x.as_bool()).unwrap_or(false) { return None; }
+    if v.get("is_error").and_then(|x| x.as_bool()).unwrap_or(false) {
+        return None;
+    }
     v.get("result")?.as_str().map(|s| s.to_string())
 }

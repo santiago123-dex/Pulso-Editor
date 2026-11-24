@@ -1,6 +1,8 @@
 use super::*;
 
-fn opts(mode: &str) -> ChatOptions { ChatOptions { session: None, model: None, effort: None, mode: mode.into() } }
+fn opts(mode: &str) -> ChatOptions {
+    ChatOptions { session: None, model: None, effort: None, mode: mode.into() }
+}
 
 #[test]
 fn lee_el_estado_de_la_sesion_sin_exponer_el_correo() {
@@ -76,7 +78,12 @@ fn lee_el_texto_del_uso_del_plan() {
 
 #[test]
 fn sesion_y_modelo_se_validan_y_se_pasan() {
-    let o = ChatOptions { session: Some("3f1e2c1a-aaaa-bbbb-cccc-1234567890ab".into()), model: Some("sonnet".into()), effort: Some("high".into()), mode: "read".into() };
+    let o = ChatOptions {
+        session: Some("3f1e2c1a-aaaa-bbbb-cccc-1234567890ab".into()),
+        model: Some("sonnet".into()),
+        effort: Some("high".into()),
+        mode: "read".into(),
+    };
     let a = build_claude_args(&o).unwrap();
     assert_eq!(a[a.iter().position(|x| x == "--resume").unwrap() + 1], "3f1e2c1a-aaaa-bbbb-cccc-1234567890ab");
     assert_eq!(a[a.iter().position(|x| x == "--model").unwrap() + 1], "sonnet");
@@ -87,7 +94,9 @@ fn sesion_y_modelo_se_validan_y_se_pasan() {
         assert!(build_claude_args(&ChatOptions { session: None, model: None, effort: Some(malo.into()), mode: "read".into() }).is_err(), "{malo}");
     }
     assert!(build_claude_args(&opts("todo")).is_err());
-    assert!(!build_claude_args(&ChatOptions { session: None, model: Some("".into()), effort: Some("".into()), mode: "read".into() }).unwrap().contains(&"--model".to_string()));
+    assert!(!build_claude_args(&ChatOptions { session: None, model: Some("".into()), effort: Some("".into()), mode: "read".into() })
+        .unwrap()
+        .contains(&"--model".to_string()));
 }
 
 #[test]
@@ -97,9 +106,21 @@ fn el_proceso_recibe_el_mensaje_por_stdin_y_sus_lineas_llegan_en_orden() {
     let done = Arc::new(Mutex::new(None::<Option<i32>>));
     let (l2, d2) = (lines.clone(), done.clone());
     let cwd = std::env::temp_dir();
-    spawn_stream(program, &args, &cwd.to_string_lossy(), "hola\nmundo\n", Arc::new(move |l| l2.lock().unwrap().push(l)), Arc::new(move |c, _| { *d2.lock().unwrap() = Some(c); })).unwrap();
+    spawn_stream(
+        program,
+        &args,
+        &cwd.to_string_lossy(),
+        "hola\nmundo\n",
+        Arc::new(move |l| l2.lock().unwrap().push(l)),
+        Arc::new(move |c, _| {
+            *d2.lock().unwrap() = Some(c);
+        }),
+    )
+    .unwrap();
     let t = Instant::now();
-    while done.lock().unwrap().is_none() && t.elapsed().as_secs() < 15 { thread::sleep(Duration::from_millis(20)); }
+    while done.lock().unwrap().is_none() && t.elapsed().as_secs() < 15 {
+        thread::sleep(Duration::from_millis(20));
+    }
     assert_eq!(*done.lock().unwrap(), Some(Some(0)));
     let got: Vec<String> = lines.lock().unwrap().iter().map(|l| l.trim().to_string()).collect();
     assert_eq!(got, ["hola", "mundo"]);
@@ -128,7 +149,11 @@ fn interpreta_estado_de_codex_y_antigravity() {
     assert_eq!(gemini_auth_from(Some(&tmp), false, false), (true, "google".into(), "Google".into()));
 
     std::fs::create_dir_all(tmp.join(".codex")).unwrap();
-    std::fs::write(tmp.join(".codex").join("models_cache.json"), r#"{"models":[{"slug":"gpt-5.4","display_name":"GPT-5.4","visibility":"list"},{"slug":"hidden-1","visibility":"hide"}]}"#).unwrap();
+    std::fs::write(
+        tmp.join(".codex").join("models_cache.json"),
+        r#"{"models":[{"slug":"gpt-5.4","display_name":"GPT-5.4","visibility":"list"},{"slug":"hidden-1","visibility":"hide"}]}"#,
+    )
+    .unwrap();
     let codex_models = read_codex_models_from(Some(&tmp));
     assert_eq!(codex_models.len(), 1);
     assert_eq!(codex_models[0].id, "gpt-5.4");
@@ -149,14 +174,43 @@ fn interpreta_estado_de_codex_y_antigravity() {
 #[test]
 fn argumentos_de_codex_y_antigravity() {
     let cr = build_codex_args(&ChatOptions { session: None, model: Some("gpt-6.2-sol".into()), effort: Some("max".into()), mode: "read".into() }).unwrap();
-    assert_eq!(cr, ["exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", "--model", "gpt-6.2-sol", "-c", "model_reasoning_effort=\"xhigh\"", "-"]);
-    let ce = build_codex_args(&ChatOptions { session: Some("thread_123".into()), model: Some("gpt-6.2-sol".into()), effort: Some("high".into()), mode: "edit".into() }).unwrap();
-    assert_eq!(ce, ["exec", "resume", "--json", "-c", "sandbox_mode=\"workspace-write\"", "--skip-git-repo-check", "--model", "gpt-6.2-sol", "-c", "model_reasoning_effort=\"high\"", "thread_123", "-"]);
+    assert_eq!(
+        cr,
+        ["exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", "--model", "gpt-6.2-sol", "-c", "model_reasoning_effort=\"xhigh\"", "-"]
+    );
+    let ce = build_codex_args(&ChatOptions {
+        session: Some("thread_123".into()),
+        model: Some("gpt-6.2-sol".into()),
+        effort: Some("high".into()),
+        mode: "edit".into(),
+    })
+    .unwrap();
+    assert_eq!(
+        ce,
+        [
+            "exec",
+            "resume",
+            "--json",
+            "-c",
+            "sandbox_mode=\"workspace-write\"",
+            "--skip-git-repo-check",
+            "--model",
+            "gpt-6.2-sol",
+            "-c",
+            "model_reasoning_effort=\"high\"",
+            "thread_123",
+            "-"
+        ]
+    );
     let cf = build_codex_args(&ChatOptions { session: None, model: None, effort: None, mode: "full".into() }).unwrap();
     assert_eq!(cf, ["exec", "--json", "--sandbox", "danger-full-access", "--skip-git-repo-check", "-"]);
     assert!(build_codex_args(&opts("bad")).is_err());
 
-    let ar = build_agy_args(&ChatOptions { session: None, model: Some("gemini-4-hydrogen-high".into()), effort: Some("medium".into()), mode: "read".into() }, "hola").unwrap();
+    let ar = build_agy_args(
+        &ChatOptions { session: None, model: Some("gemini-4-hydrogen-high".into()), effort: Some("medium".into()), mode: "read".into() },
+        "hola",
+    )
+    .unwrap();
     assert_eq!(&ar[..6], ["--output-format", "stream-json", "--mode", "plan", "--model", "gemini-4-hydrogen-high"]);
     assert_eq!(ar[6], "-p");
     assert!(ar[7].ends_with("hola") && ar[7].contains("Solo leer"));

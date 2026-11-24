@@ -52,7 +52,10 @@ pub fn encrypt(key: &Key, plain: &[u8]) -> Result<Vec<u8>, String> {
 
 /// Descifra. Falla si la clave no es la que cifró el archivo o si el archivo se alteró.
 pub fn decrypt(key: &Key, data: &[u8]) -> Result<Vec<u8>, String> {
-    let body = data.strip_prefix(MAGIC.as_slice()).filter(|b| b.len() >= NONCE_LEN + aead::AES_256_GCM.tag_len()).ok_or_else(|| tr("El historial cifrado está incompleto.").to_string())?;
+    let body = data
+        .strip_prefix(MAGIC.as_slice())
+        .filter(|b| b.len() >= NONCE_LEN + aead::AES_256_GCM.tag_len())
+        .ok_or_else(|| tr("El historial cifrado está incompleto.").to_string())?;
     let (nonce, sealed) = body.split_at(NONCE_LEN);
     let nonce: [u8; NONCE_LEN] = nonce.try_into().map_err(|_| tr("El historial cifrado está incompleto.").to_string())?;
     let mut buf = sealed.to_vec();

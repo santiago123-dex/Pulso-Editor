@@ -9,10 +9,7 @@ pub(crate) fn build_regex(query: &str, case_sensitive: bool, use_regex: bool, wh
     if whole_word {
         pat = format!(r"\b(?:{})\b", pat);
     }
-    RegexBuilder::new(&pat)
-        .case_insensitive(!case_sensitive)
-        .build()
-        .map_err(|e| trf("Expresión regular no válida: {e}", &[("e", &e)]))
+    RegexBuilder::new(&pat).case_insensitive(!case_sensitive).build().map_err(|e| trf("Expresión regular no válida: {e}", &[("e", &e)]))
 }
 
 #[derive(Serialize)]
@@ -28,13 +25,7 @@ pub(crate) fn prepare_include(include: &[String]) -> Option<Vec<String>> {
     if include.is_empty() {
         return None;
     }
-    Some(
-        include
-            .iter()
-            .map(|p| p.trim().to_lowercase().replace('\\', "/"))
-            .filter(|p| !p.is_empty())
-            .collect(),
-    )
+    Some(include.iter().map(|p| p.trim().to_lowercase().replace('\\', "/")).filter(|p| !p.is_empty()).collect())
 }
 
 pub(crate) fn included_prepared(path: &str, patterns: &Option<Vec<String>>) -> bool {
@@ -68,7 +59,12 @@ pub(crate) fn read_text(path: &Path) -> Option<String> {
 #[tauri::command]
 pub(crate) async fn search_files(
     guard: tauri::State<'_, fsguard::WorkspaceGuard>,
-    root: String, query: String, case_sensitive: bool, use_regex: bool, whole_word: bool, include: Vec<String>,
+    root: String,
+    query: String,
+    case_sensitive: bool,
+    use_regex: bool,
+    whole_word: bool,
+    include: Vec<String>,
     unsaved: Option<std::collections::HashMap<String, String>>,
 ) -> Result<Vec<Match>, String> {
     let safe_root = guard.ensure_read(&root)?;
@@ -97,24 +93,18 @@ pub(crate) fn search_files_sync(
     let total = AtomicUsize::new(0);
 
     let mut builder = ignore::WalkBuilder::new(&root);
-    builder
-        .hidden(false)
-        .git_ignore(true)
-        .git_global(false)
-        .git_exclude(true)
-        .require_git(false)
-        .filter_entry(|entry| {
-            if entry.depth() == 0 {
-                return true;
+    builder.hidden(false).git_ignore(true).git_global(false).git_exclude(true).require_git(false).filter_entry(|entry| {
+        if entry.depth() == 0 {
+            return true;
+        }
+        if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+            let name = entry.file_name().to_string_lossy();
+            if SKIP_DIRS.contains(&name.as_ref()) {
+                return false;
             }
-            if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
-                let name = entry.file_name().to_string_lossy();
-                if SKIP_DIRS.contains(&name.as_ref()) {
-                    return false;
-                }
-            }
-            true
-        });
+        }
+        true
+    });
 
     builder.build_parallel().run(|| {
         Box::new(|entry_res| {
@@ -135,7 +125,10 @@ pub(crate) fn search_files_sync(
             let text: &str = match unsaved.get(&path) {
                 Some(t) => t.as_str(),
                 None => match read_text(p) {
-                    Some(t) => { owned = t; owned.as_str() }
+                    Some(t) => {
+                        owned = t;
+                        owned.as_str()
+                    }
                     None => return ignore::WalkState::Continue,
                 },
             };
@@ -190,7 +183,12 @@ pub(crate) fn search_files_sync(
 #[tauri::command]
 pub(crate) async fn replace_in_file(
     guard: tauri::State<'_, fsguard::WorkspaceGuard>,
-    path: String, query: String, replacement: String, case_sensitive: bool, use_regex: bool, whole_word: bool,
+    path: String,
+    query: String,
+    replacement: String,
+    case_sensitive: bool,
+    use_regex: bool,
+    whole_word: bool,
     expected: Option<u32>,
 ) -> Result<u32, String> {
     let safe = guard.ensure_write(&path)?;

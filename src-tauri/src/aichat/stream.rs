@@ -13,11 +13,7 @@ pub(super) fn read_bounded_line(reader: &mut impl BufRead, max: usize) -> std::i
     loop {
         let avail = reader.fill_buf()?;
         if avail.is_empty() {
-            return if any {
-                Ok(Some((String::from_utf8_lossy(&buf).into_owned(), truncated)))
-            } else {
-                Ok(None)
-            };
+            return if any { Ok(Some((String::from_utf8_lossy(&buf).into_owned(), truncated))) } else { Ok(None) };
         }
         any = true;
         if let Some(pos) = avail.iter().position(|&b| b == b'\n') {
@@ -60,15 +56,9 @@ pub fn spawn_stream(
     on_exit: Arc<dyn Fn(Option<i32>, String) + Send + Sync>,
 ) -> Result<u32, String> {
     let mut cmd = background_command(program);
-    cmd.args(args)
-        .current_dir(cwd)
-        .stdin(if prompt.is_empty() { Stdio::null() } else { Stdio::piped() })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    cmd.args(args).current_dir(cwd).stdin(if prompt.is_empty() { Stdio::null() } else { Stdio::piped() }).stdout(Stdio::piped()).stderr(Stdio::piped());
     crate::procguard::configure_child(&mut cmd);
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| trf("No se pudo iniciar {program}: {e}", &[("program", &program), ("e", &e)]))?;
+    let mut child = cmd.spawn().map_err(|e| trf("No se pudo iniciar {program}: {e}", &[("program", &program), ("e", &e)]))?;
     crate::procguard::attach_job(&child);
     let pid = child.id();
 
@@ -128,6 +118,13 @@ pub fn spawn_stream(
 }
 
 #[derive(Serialize, Clone)]
-pub(super) struct AiLine { pub(super) id: String, pub(super) line: String }
+pub(super) struct AiLine {
+    pub(super) id: String,
+    pub(super) line: String,
+}
 #[derive(Serialize, Clone)]
-pub(super) struct AiExit { pub(super) id: String, pub(super) code: Option<i32>, pub(super) stderr: String }
+pub(super) struct AiExit {
+    pub(super) id: String,
+    pub(super) code: Option<i32>,
+    pub(super) stderr: String,
+}

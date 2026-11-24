@@ -1,7 +1,7 @@
 //! Operaciones de Git de la interfaz: cambios preparados y sin preparar, stage, unstage, commit y las dos
 //! versiones de un archivo para mostrar diferencias. Todo se hace con el ejecutable `git` del sistema.
-use crate::i18n::{tr, trf};
 use super::background_command;
+use crate::i18n::{tr, trf};
 use serde::Serialize;
 use std::{
     fs,
@@ -12,21 +12,27 @@ use std::{
 fn git_command(dir: &str) -> Command {
     let mut c = background_command("git");
     c.arg("-C").arg(dir).args(["-c", "core.quotepath=false"]);
-    c.env("GIT_TERMINAL_PROMPT", "0")
-        .env("GIT_OPTIONAL_LOCKS", "0")
-        .env("LC_ALL", "C");
+    c.env("GIT_TERMINAL_PROMPT", "0").env("GIT_OPTIONAL_LOCKS", "0").env("LC_ALL", "C");
     c
 }
 
 fn text(o: &Output) -> String {
     let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
-    if err.is_empty() { String::from_utf8_lossy(&o.stdout).trim().to_string() } else { err }
+    if err.is_empty() {
+        String::from_utf8_lossy(&o.stdout).trim().to_string()
+    } else {
+        err
+    }
 }
 
 /// Ejecuta git y devuelve la salida estándar, o el mensaje de error de git tal cual.
 fn run(dir: &str, args: &[&str]) -> Result<String, String> {
     let o = git_command(dir).args(args).output().map_err(|e| trf("No se pudo ejecutar git: {e}", &[("e", &e)]))?;
-    if o.status.success() { Ok(String::from_utf8_lossy(&o.stdout).into_owned()) } else { Err(text(&o)) }
+    if o.status.success() {
+        Ok(String::from_utf8_lossy(&o.stdout).into_owned())
+    } else {
+        Err(text(&o))
+    }
 }
 
 fn succeeds(dir: &str, args: &[&str]) -> bool {
@@ -151,7 +157,12 @@ pub async fn git_delete_branch(guard: tauri::State<'_, crate::fsguard::Workspace
 }
 
 #[tauri::command]
-pub async fn git_rename_branch(guard: tauri::State<'_, crate::fsguard::WorkspaceGuard>, root: String, old_name: String, new_name: String) -> Result<(), String> {
+pub async fn git_rename_branch(
+    guard: tauri::State<'_, crate::fsguard::WorkspaceGuard>,
+    root: String,
+    old_name: String,
+    new_name: String,
+) -> Result<(), String> {
     // Solo carpetas de trabajo abiertas en Pulso: la ventana no puede apuntar git a cualquier ruta.
     guard.ensure_dir(&root)?;
     tauri::async_runtime::spawn_blocking(move || rename_branch_sync(&root, &old_name, &new_name)).await.map_err(|e| e.to_string())?
@@ -182,17 +193,33 @@ pub async fn git_operation_action(guard: tauri::State<'_, crate::fsguard::Worksp
 }
 
 #[tauri::command]
-pub async fn git_diff_sources(guard: tauri::State<'_, crate::fsguard::WorkspaceGuard>, root: String, path: String, orig: Option<String>, staged: bool) -> Result<DiffSources, String> {
+pub async fn git_diff_sources(
+    guard: tauri::State<'_, crate::fsguard::WorkspaceGuard>,
+    root: String,
+    path: String,
+    orig: Option<String>,
+    staged: bool,
+) -> Result<DiffSources, String> {
     // Solo carpetas de trabajo abiertas en Pulso: la ventana no puede apuntar git a cualquier ruta.
     guard.ensure_dir(&root)?;
     tauri::async_runtime::spawn_blocking(move || diff_sources_sync(&root, &path, orig.as_deref(), staged)).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub async fn git_log(guard: tauri::State<'_, crate::fsguard::WorkspaceGuard>, root: String, path: Option<String>, skip: u32, limit: u32, query: Option<String>, all: Option<bool>) -> Result<Vec<Commit>, String> {
+pub async fn git_log(
+    guard: tauri::State<'_, crate::fsguard::WorkspaceGuard>,
+    root: String,
+    path: Option<String>,
+    skip: u32,
+    limit: u32,
+    query: Option<String>,
+    all: Option<bool>,
+) -> Result<Vec<Commit>, String> {
     // Solo carpetas de trabajo abiertas en Pulso: la ventana no puede apuntar git a cualquier ruta.
     guard.ensure_dir(&root)?;
-    tauri::async_runtime::spawn_blocking(move || log_sync(&root, path.as_deref(), skip, limit, query.as_deref(), all.unwrap_or(false))).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || log_sync(&root, path.as_deref(), skip, limit, query.as_deref(), all.unwrap_or(false)))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -203,7 +230,13 @@ pub async fn git_commit_files(guard: tauri::State<'_, crate::fsguard::WorkspaceG
 }
 
 #[tauri::command]
-pub async fn git_commit_sources(guard: tauri::State<'_, crate::fsguard::WorkspaceGuard>, root: String, hash: String, path: String, orig: Option<String>) -> Result<DiffSources, String> {
+pub async fn git_commit_sources(
+    guard: tauri::State<'_, crate::fsguard::WorkspaceGuard>,
+    root: String,
+    hash: String,
+    path: String,
+    orig: Option<String>,
+) -> Result<DiffSources, String> {
     // Solo carpetas de trabajo abiertas en Pulso: la ventana no puede apuntar git a cualquier ruta.
     guard.ensure_dir(&root)?;
     tauri::async_runtime::spawn_blocking(move || commit_sources_sync(&root, &hash, &path, orig.as_deref())).await.map_err(|e| e.to_string())?

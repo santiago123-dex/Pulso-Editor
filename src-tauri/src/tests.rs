@@ -25,12 +25,7 @@ impl Drop for Tmp {
 }
 
 fn leftovers(dir: &Path) -> Vec<String> {
-    fs::read_dir(dir)
-        .unwrap()
-        .flatten()
-        .map(|e| e.file_name().to_string_lossy().into_owned())
-        .filter(|n| n.ends_with(".tmp"))
-        .collect()
+    fs::read_dir(dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.ends_with(".tmp")).collect()
 }
 
 // ---------- Guardado seguro ----------
@@ -467,7 +462,8 @@ fn hist_dir(tag: &str) -> PathBuf {
 }
 
 fn locked_files(dir: &Path) -> Vec<PathBuf> {
-    let mut v: Vec<PathBuf> = fs::read_dir(dir).unwrap().flatten().map(|e| e.path()).filter(|p| p.file_name().unwrap().to_string_lossy().starts_with("ai-chats.locked-")).collect();
+    let mut v: Vec<PathBuf> =
+        fs::read_dir(dir).unwrap().flatten().map(|e| e.path()).filter(|p| p.file_name().unwrap().to_string_lossy().starts_with("ai-chats.locked-")).collect();
     v.sort();
     v
 }

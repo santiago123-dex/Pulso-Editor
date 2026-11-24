@@ -1,7 +1,16 @@
 /** Cuotas y uso real del plan: tarjeta de cuotas, franja de contexto y popovers de uso y de atajos. */
 
 import { type EditorContext } from "../aiContext";
-import { type AiProvider, type UsageWindow, formatModelName, planLabel, remainingPercent, remainingRatio, resetClockText, resetCountdown } from "../aiModel";
+import {
+  type AiProvider,
+  type UsageWindow,
+  formatModelName,
+  planLabel,
+  remainingPercent,
+  remainingRatio,
+  resetClockText,
+  resetCountdown,
+} from "../aiModel";
 import { t as tr } from "../i18n";
 import { baseName, h } from "../util";
 import { renderFoot } from "./accountView";
@@ -16,7 +25,7 @@ export async function syncAccountAndUsage(): Promise<void> {
   await ctl.detect(true);
   await Promise.all([
     tools.claude?.logged_in ? (S.usageInFlight ?? refreshUsage()) : Promise.resolve(false),
-    (tools.codex?.logged_in || tools.antigravity?.logged_in) ? refreshExtraUsage() : Promise.resolve(false),
+    tools.codex?.logged_in || tools.antigravity?.logged_in ? refreshExtraUsage() : Promise.resolve(false),
   ]);
 }
 
@@ -32,15 +41,17 @@ export function fillQuotaCard(card: HTMLElement) {
   card.replaceChildren();
   const head = h("div", "ai-inst-head");
   const headLeft = h("div", "ai-inst-head-left");
-  const planBadgeText = S.activeProvider === "claude"
-    ? (S.tool?.plan ? tr("Plan {plan}", { plan: planLabel(S.tool.plan) }) : tr("Conectado"))
-    : S.activeProvider === "codex"
-      ? (S.tool?.plan && S.tool.plan !== "ChatGPT" ? tr("Plan {plan}", { plan: planLabel(S.tool.plan) }) : "ChatGPT")
-      : (S.tool?.plan || meta.short);
-  headLeft.append(
-    h("span", "ai-inst-kicker", tr("Cuotas del plan")),
-    h("span", "ai-inst-plan", planBadgeText),
-  );
+  const planBadgeText =
+    S.activeProvider === "claude"
+      ? S.tool?.plan
+        ? tr("Plan {plan}", { plan: planLabel(S.tool.plan) })
+        : tr("Conectado")
+      : S.activeProvider === "codex"
+        ? S.tool?.plan && S.tool.plan !== "ChatGPT"
+          ? tr("Plan {plan}", { plan: planLabel(S.tool.plan) })
+          : "ChatGPT"
+        : S.tool?.plan || meta.short;
+  headLeft.append(h("span", "ai-inst-kicker", tr("Cuotas del plan")), h("span", "ai-inst-plan", planBadgeText));
   const syncBtn = h("button", "ai-inst-sync", S.usageSyncing ? tr("Actualizando…") : tr("Sincronizar"));
   syncBtn.type = "button";
   syncBtn.disabled = S.usageSyncing;
@@ -48,7 +59,9 @@ export function fillQuotaCard(card: HTMLElement) {
   syncBtn.onclick = () => {
     syncBtn.disabled = true;
     syncBtn.textContent = tr("Actualizando…");
-    void syncAccountAndUsage().finally(() => { if (card.isConnected) fillQuotaCard(card); });
+    void syncAccountAndUsage().finally(() => {
+      if (card.isConnected) fillQuotaCard(card);
+    });
   };
   head.append(headLeft, syncBtn);
   card.append(head);
@@ -61,7 +74,10 @@ export function fillQuotaCard(card: HTMLElement) {
           const w = agyWindowFromBucket(b);
           const row = h("div", "ai-inst-row");
           const top = h("div", "ai-inst-row-top");
-          top.append(h("span", "ai-inst-lbl", `${g.name} · ${agyBucketLabel(b)}`), h("span", "ai-inst-val", tr("{pct} disp.", { pct: remainingPercent(w) })));
+          top.append(
+            h("span", "ai-inst-lbl", `${g.name} · ${agyBucketLabel(b)}`),
+            h("span", "ai-inst-val", tr("{pct} disp.", { pct: remainingPercent(w) })),
+          );
           const track = h("div", "ai-inst-track");
           const rem = remainingRatio(w);
           const bar = h("div", `ai-inst-fill${rem <= 0.1 ? " high" : rem <= 0.3 ? " warn" : ""}`);
@@ -83,7 +99,10 @@ export function fillQuotaCard(card: HTMLElement) {
   }
 
   const meters = h("div", "ai-inst-meters");
-  for (const [label, w] of [[tr("Ventana 5 h"), curUsage.fiveHour], [tr("Semanal"), curUsage.sevenDay]] as const) {
+  for (const [label, w] of [
+    [tr("Ventana 5 h"), curUsage.fiveHour],
+    [tr("Semanal"), curUsage.sevenDay],
+  ] as const) {
     const row = h("div", "ai-inst-row");
     const top = h("div", "ai-inst-row-top");
     top.append(h("span", "ai-inst-lbl", label), h("span", "ai-inst-val", w ? `${remainingPercent(w)} disp.` : "—"));
@@ -94,10 +113,13 @@ export function fillQuotaCard(card: HTMLElement) {
     track.append(bar);
     const cd = resetCountdown(w);
     const clock = resetClockText(w);
-    const emptyMsg = S.activeProvider === "claude"
-      ? (S.usageSyncing ? tr("Leyendo /usage…") : tr("Sin datos en esta ventana"))
-      : tr("Consultando límites de ChatGPT…");
-    const reset = cd && cd !== "ahora" ? tr("Se reinicia en {time}", { time: cd }) : (clock || emptyMsg);
+    const emptyMsg =
+      S.activeProvider === "claude"
+        ? S.usageSyncing
+          ? tr("Leyendo /usage…")
+          : tr("Sin datos en esta ventana")
+        : tr("Consultando límites de ChatGPT…");
+    const reset = cd && cd !== "ahora" ? tr("Se reinicia en {time}", { time: cd }) : clock || emptyMsg;
     row.append(top, track, h("div", "ai-inst-sub", reset));
     meters.append(row);
   }
@@ -167,7 +189,10 @@ export function populateUsageContainer(pop: HTMLElement, onRefreshDone: () => vo
   head.append(syncBtn);
   pop.append(head);
 
-  const order: AiProvider[] = [prov, ...(["claude", "codex", "antigravity", "local", "cloud"] as const).filter((p) => p !== prov && !!tools[p]?.logged_in)];
+  const order: AiProvider[] = [
+    prov,
+    ...(["claude", "codex", "antigravity", "local", "cloud"] as const).filter((p) => p !== prov && !!tools[p]?.logged_in),
+  ];
   for (const id of order) {
     const t = tools[id] ?? (id === prov ? S.tool : null);
     if (id === "antigravity") {
@@ -189,13 +214,19 @@ export function populateUsageContainer(pop: HTMLElement, onRefreshDone: () => vo
     }
     const sec = h("div", "ai-usage-section");
     if (id === "cloud") {
-      sec.append(h("div", "ai-usage-sec-title", tr("Modelos en la nube")), h("div", "ai-usage-note", tr("Pagas a tu proveedor según los tokens usados. Cada respuesta muestra su coste.")));
+      sec.append(
+        h("div", "ai-usage-sec-title", tr("Modelos en la nube")),
+        h("div", "ai-usage-note", tr("Pagas a tu proveedor según los tokens usados. Cada respuesta muestra su coste.")),
+      );
       pop.append(sec);
       continue;
     }
     if (id === "local") {
       // Un modelo local no tiene cuotas ni límites de plan.
-      sec.append(h("div", "ai-usage-sec-title", "Ollama (local)"), h("div", "ai-usage-note", tr("Se ejecuta en este equipo: sin límites de uso.")));
+      sec.append(
+        h("div", "ai-usage-sec-title", "Ollama (local)"),
+        h("div", "ai-usage-note", tr("Se ejecuta en este equipo: sin límites de uso.")),
+      );
       pop.append(sec);
       continue;
     }
@@ -210,7 +241,8 @@ export function populateUsageContainer(pop: HTMLElement, onRefreshDone: () => vo
       if (S.usageError) sec.append(h("div", "ai-usage-note err", S.usageError));
     } else {
       const cur = providerUsage("codex");
-      const title = t?.plan && t.plan !== "ChatGPT" ? "ChatGPT / Codex · " + tr("Plan {plan}", { plan: planLabel(t.plan) }) : "ChatGPT / Codex";
+      const title =
+        t?.plan && t.plan !== "ChatGPT" ? "ChatGPT / Codex · " + tr("Plan {plan}", { plan: planLabel(t.plan) }) : "ChatGPT / Codex";
       sec.append(
         h("div", "ai-usage-sec-title", title),
         usageRingRow(tr("Límite semanal"), cur.sevenDay, tr("Consultando app-server…")),
@@ -224,22 +256,31 @@ export function populateUsageContainer(pop: HTMLElement, onRefreshDone: () => vo
   if (convo && (convo.model || convo.outcome)) {
     const sess = h("div", "ai-usage-sess");
     if (convo.model) sess.append(h("div", "ai-usage-meta", tr("Modelo activo: {model}", { model: formatModelName(convo.model) })));
-    if (convo.outcome?.durationMs) sess.append(h("div", "ai-usage-meta", tr("Último turno: {secs} s", { secs: seconds(convo.outcome.durationMs) })));
-    if (convo.outcome && convo.outcome.costUsd > 0) sess.append(h("div", "ai-usage-meta", tr("Coste reportado: {cost}", { cost: "$" + convo.outcome.costUsd.toFixed(4) })));
+    if (convo.outcome?.durationMs)
+      sess.append(h("div", "ai-usage-meta", tr("Último turno: {secs} s", { secs: seconds(convo.outcome.durationMs) })));
+    if (convo.outcome && convo.outcome.costUsd > 0)
+      sess.append(h("div", "ai-usage-meta", tr("Coste reportado: {cost}", { cost: "$" + convo.outcome.costUsd.toFixed(4) })));
     pop.append(sess);
   }
 }
 
 export function openUsagePopover(anchor: HTMLElement) {
   const pop = h("div", "ai-popover ai-usage-pop");
-  const fill = () => populateUsageContainer(pop, () => { if (pop.isConnected) fill(); });
+  const fill = () =>
+    populateUsageContainer(pop, () => {
+      if (pop.isConnected) fill();
+    });
   fill();
   openPopover(anchor, pop, "above");
   if (tools.claude?.logged_in || S.activeProvider === "claude") {
-    void refreshUsage().finally(() => { if (pop.isConnected) fill(); });
+    void refreshUsage().finally(() => {
+      if (pop.isConnected) fill();
+    });
   }
   if (tools.codex?.logged_in || tools.antigravity?.logged_in) {
-    void refreshExtraUsage().finally(() => { if (pop.isConnected) fill(); });
+    void refreshExtraUsage().finally(() => {
+      if (pop.isConnected) fill();
+    });
   }
 }
 

@@ -83,7 +83,11 @@ pub fn check_request(method: &str, path: &str, body: Option<&str>) -> Result<(),
         "POST" | "PATCH" | "PUT" => body.is_none_or(|b| serde_json::from_str::<Value>(b).is_ok()),
         _ => body.is_none(),
     };
-    if ok && body_ok && body_shape_ok(method, &segs, body) { Ok(()) } else { Err(()) }
+    if ok && body_ok && body_shape_ok(method, &segs, body) {
+        Ok(())
+    } else {
+        Err(())
+    }
 }
 
 /// Fusionar y revisar solo admiten los campos que usa el panel, con valores conocidos: nada de `sha` ajeno ni de eventos raros.
@@ -155,7 +159,9 @@ fn graphql_is_delete_issue(body: Option<&str>) -> bool {
 mod tests {
     use super::*;
 
-    fn ok(m: &str, p: &str, b: Option<&str>) -> bool { check_request(m, p, b).is_ok() }
+    fn ok(m: &str, p: &str, b: Option<&str>) -> bool {
+        check_request(m, p, b).is_ok()
+    }
 
     #[test]
     fn permite_lo_que_usa_la_interfaz() {
@@ -246,8 +252,18 @@ mod tests {
         // Otra consulta, otra mutación, variables de más o sin cuerpo: no.
         assert!(!ok("POST", "/graphql", Some(r#"{"query":"{ viewer { login } }"}"#)));
         assert!(!ok("POST", "/graphql", Some(r#"{"query":"mutation { deleteRepository(input:{repositoryId:\"x\"}) { clientMutationId } }"}"#)));
-        assert!(!ok("POST", "/graphql", Some(r#"{"query":"mutation($id: ID!) { deleteIssue(input: { issueId: $id }) { clientMutationId } }","variables":{"id":"I_abc","otra":1}}"#)));
-        assert!(!ok("POST", "/graphql", Some(r#"{"query":"mutation($id: ID!) { deleteIssue(input: { issueId: $id }) { clientMutationId } }","operationName":"x","variables":{"id":"I_abc"}}"#)));
+        assert!(!ok(
+            "POST",
+            "/graphql",
+            Some(r#"{"query":"mutation($id: ID!) { deleteIssue(input: { issueId: $id }) { clientMutationId } }","variables":{"id":"I_abc","otra":1}}"#)
+        ));
+        assert!(!ok(
+            "POST",
+            "/graphql",
+            Some(
+                r#"{"query":"mutation($id: ID!) { deleteIssue(input: { issueId: $id }) { clientMutationId } }","operationName":"x","variables":{"id":"I_abc"}}"#
+            )
+        ));
         assert!(!ok("POST", "/graphql", None));
         assert!(!ok("GET", "/graphql", None));
     }

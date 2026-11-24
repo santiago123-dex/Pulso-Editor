@@ -28,9 +28,7 @@ export function openPopover(anchor: HTMLElement, pop: HTMLElement, placement: "b
   const ar = anchor.getBoundingClientRect();
   const pr = pop.getBoundingClientRect();
   const left = Math.max(8, Math.min(ar.left, window.innerWidth - pr.width - 8));
-  const top = placement === "above"
-    ? Math.max(8, ar.top - pr.height - 6)
-    : Math.min(window.innerHeight - pr.height - 8, ar.bottom + 6);
+  const top = placement === "above" ? Math.max(8, ar.top - pr.height - 6) : Math.min(window.innerHeight - pr.height - 8, ar.bottom + 6);
   pop.style.left = `${left}px`;
   pop.style.top = `${top}px`;
 
@@ -38,7 +36,11 @@ export function openPopover(anchor: HTMLElement, pop: HTMLElement, placement: "b
     if (!pop.contains(e.target as Node) && !anchor.contains(e.target as Node)) dismissPopover();
   };
   const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); dismissPopover(); }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      dismissPopover();
+    }
   };
   const onBlur = () => dismissPopover();
   window.addEventListener("pointerdown", onDown, true);

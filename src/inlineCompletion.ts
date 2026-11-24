@@ -52,12 +52,7 @@ export function initInlineCompletions() {
           items: [
             {
               insertText: suggestion,
-              range: new monaco.Range(
-                position.lineNumber,
-                position.column,
-                position.lineNumber,
-                position.column
-              ),
+              range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column),
             },
           ],
         };

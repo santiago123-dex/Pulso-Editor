@@ -23,9 +23,13 @@ export function makeThumbnail(dataUrl: string): Promise<string> {
       const h = Math.max(1, Math.round(img.height * scale));
       try {
         const canvas = document.createElement("canvas");
-        canvas.width = w; canvas.height = h;
+        canvas.width = w;
+        canvas.height = h;
         const ctx = canvas.getContext("2d");
-        if (!ctx) { resolve(dataUrl.length <= 35_000 ? dataUrl : ""); return; }
+        if (!ctx) {
+          resolve(dataUrl.length <= 35_000 ? dataUrl : "");
+          return;
+        }
         ctx.drawImage(img, 0, 0, w, h);
         resolve(canvas.toDataURL("image/jpeg", 0.78));
       } catch {

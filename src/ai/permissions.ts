@@ -29,7 +29,13 @@ export function parsePermissionEvent(raw: unknown): { kind: "ask"; req: Permissi
   if (e.type !== "pulso_permission" || typeof e.id !== "string" || typeof e.detail !== "string") return null;
   return {
     kind: "ask",
-    req: { id: e.id, tool: e.tool === "web" ? "web" : e.tool === "mcp" ? "mcp" : "command", detail: e.detail, risky: e.risky === true, agent: typeof e.agent === "string" ? e.agent : "" },
+    req: {
+      id: e.id,
+      tool: e.tool === "web" ? "web" : e.tool === "mcp" ? "mcp" : "command",
+      detail: e.detail,
+      risky: e.risky === true,
+      agent: typeof e.agent === "string" ? e.agent : "",
+    },
   };
 }
 
@@ -57,8 +63,14 @@ export function clearConversation(conversation: string): void {
 
 /** Opciones que se ofrecen: lo de riesgo solo una vez; la web no guarda reglas. */
 export function decisionOptions(req: PermissionRequest): { decision: Decision; label: string; primary?: boolean; ghost?: boolean }[] {
-  if (req.risky) return [{ decision: "once", label: tr("Permitir una vez") }, { decision: "deny", label: tr("Denegar"), primary: true }];
-  const opts: { decision: Decision; label: string; primary?: boolean; ghost?: boolean }[] = [{ decision: "once", label: tr("Permitir una vez"), primary: true }];
+  if (req.risky)
+    return [
+      { decision: "once", label: tr("Permitir una vez") },
+      { decision: "deny", label: tr("Denegar"), primary: true },
+    ];
+  const opts: { decision: Decision; label: string; primary?: boolean; ghost?: boolean }[] = [
+    { decision: "once", label: tr("Permitir una vez"), primary: true },
+  ];
   if (req.tool === "command") opts.push({ decision: "always", label: tr("Permitir siempre este comando") });
   opts.push({ decision: "all", label: tr("Permitir todo en esta conversación") }, { decision: "deny", label: tr("Denegar"), ghost: true });
   return opts;
@@ -94,22 +106,38 @@ export function buildPermissionCard(conversation: string, req: PermissionRequest
   for (const o of decisionOptions(req)) {
     const b = h("button", `ai-denial-btn${o.primary ? " primary" : ""}${o.ghost ? " ghost" : ""}`, o.label);
     b.type = "button";
-    b.onclick = () => { void respond(conversation, req, o.decision).then(onChange); onChange(); };
+    b.onclick = () => {
+      void respond(conversation, req, o.decision).then(onChange);
+      onChange();
+    };
     acts.append(b);
   }
   card.append(head, code);
-  if (req.risky) card.append(h("p", "ai-denial-msg", tr("Este comando puede borrar datos, publicar cambios o modificar el sistema. Revísalo bien: no se puede dejar permitido.")));
+  if (req.risky)
+    card.append(
+      h(
+        "p",
+        "ai-denial-msg",
+        tr("Este comando puede borrar datos, publicar cambios o modificar el sistema. Revísalo bien: no se puede dejar permitido."),
+      ),
+    );
   card.append(acts);
   return card;
 }
 
 // ---------- Reglas guardadas ----------
 
-interface RuleEntry { kind: "allow" | "deny"; rule: string }
+interface RuleEntry {
+  kind: "allow" | "deny";
+  rule: string;
+}
 
 /** Lista las reglas de comandos guardadas para este proyecto; elegir una la quita. */
 export function showPermissionRules(): void {
-  if (!ws.root) { setStatus(tr("Abre una carpeta de proyecto primero."), 5000); return; }
+  if (!ws.root) {
+    setStatus(tr("Abre una carpeta de proyecto primero."), 5000);
+    return;
+  }
   const cwd = ws.root;
   quickPick({
     placeholder: tr("Comandos permitidos para este proyecto (elige uno para quitarlo)"),
@@ -127,7 +155,10 @@ export function showPermissionRules(): void {
         detail: tr("Por ejemplo «git push *»: el agente no podrá ejecutarlo ni pidiéndolo"),
         keywords: "denegar bloquear prohibir deny",
         run: async () => {
-          const rule = await promptText({ title: tr("Comando que el agente nunca podrá ejecutar (usa * al final para un prefijo)"), placeholder: "git push *" });
+          const rule = await promptText({
+            title: tr("Comando que el agente nunca podrá ejecutar (usa * al final para un prefijo)"),
+            placeholder: "git push *",
+          });
           if (!rule?.trim()) return;
           try {
             await invoke("agent_rules_add_deny", { cwd, rule: rule.trim() });
@@ -137,18 +168,21 @@ export function showPermissionRules(): void {
           }
         },
       };
-      return [addDeny, ...list.map<PickItem>((r) => ({
-        label: r.rule,
-        detail: r.kind === "deny" ? tr("Denegado siempre · elegir para quitar") : tr("Permitido siempre · elegir para quitar"),
-        run: async () => {
-          try {
-            await invoke("agent_rules_remove", { cwd, kind: r.kind, rule: r.rule });
-            setStatus(tr("Regla quitada: {rule}", { rule: r.rule }), 5000);
-          } catch (e) {
-            setStatus(tr("No se pudo quitar la regla: {error}", { error: String(e) }), 8000);
-          }
-        },
-      }))];
+      return [
+        addDeny,
+        ...list.map<PickItem>((r) => ({
+          label: r.rule,
+          detail: r.kind === "deny" ? tr("Denegado siempre · elegir para quitar") : tr("Permitido siempre · elegir para quitar"),
+          run: async () => {
+            try {
+              await invoke("agent_rules_remove", { cwd, kind: r.kind, rule: r.rule });
+              setStatus(tr("Regla quitada: {rule}", { rule: r.rule }), 5000);
+            } catch (e) {
+              setStatus(tr("No se pudo quitar la regla: {error}", { error: String(e) }), 8000);
+            }
+          },
+        })),
+      ];
     },
   });
 }

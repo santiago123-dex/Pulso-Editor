@@ -25,9 +25,19 @@ pub struct Call {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Msg {
     /// `images`: direcciones `data:image/...;base64,...`.
-    User { text: String, images: Vec<String> },
-    Assistant { text: String, calls: Vec<Call> },
-    Tool { id: String, name: String, content: String },
+    User {
+        text: String,
+        images: Vec<String>,
+    },
+    Assistant {
+        text: String,
+        calls: Vec<Call>,
+    },
+    Tool {
+        id: String,
+        name: String,
+        content: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -72,7 +82,10 @@ pub fn openai_body(model: &str, system: &str, msgs: &[Msg], tools: &[Spec], max_
                 let mut v = json!({ "role": "assistant", "content": if text.is_empty() { Value::Null } else { json!(text) } });
                 if !calls.is_empty() {
                     v["tool_calls"] = Value::Array(
-                        calls.iter().map(|c| json!({ "id": c.id, "type": "function", "function": { "name": c.name, "arguments": c.args.to_string() } })).collect(),
+                        calls
+                            .iter()
+                            .map(|c| json!({ "id": c.id, "type": "function", "function": { "name": c.name, "arguments": c.args.to_string() } }))
+                            .collect(),
                     );
                 }
                 v
@@ -82,7 +95,12 @@ pub fn openai_body(model: &str, system: &str, msgs: &[Msg], tools: &[Spec], max_
     }
     let mut body = json!({ "model": model, "messages": messages, "stream": true, "stream_options": { "include_usage": true } });
     if !tools.is_empty() {
-        body["tools"] = Value::Array(tools.iter().map(|t| json!({ "type": "function", "function": { "name": t.name, "description": t.description, "parameters": t.parameters } })).collect());
+        body["tools"] = Value::Array(
+            tools
+                .iter()
+                .map(|t| json!({ "type": "function", "function": { "name": t.name, "description": t.description, "parameters": t.parameters } }))
+                .collect(),
+        );
     }
     if let Some(n) = max_tokens {
         body["max_tokens"] = json!(n);
@@ -163,7 +181,12 @@ pub fn ollama_body(model: &str, system: &str, msgs: &[Msg], tools: &[Spec], num_
     }
     let mut body = json!({ "model": model, "messages": messages, "stream": true, "options": options });
     if !tools.is_empty() {
-        body["tools"] = Value::Array(tools.iter().map(|t| json!({ "type": "function", "function": { "name": t.name, "description": t.description, "parameters": t.parameters } })).collect());
+        body["tools"] = Value::Array(
+            tools
+                .iter()
+                .map(|t| json!({ "type": "function", "function": { "name": t.name, "description": t.description, "parameters": t.parameters } }))
+                .collect(),
+        );
     }
     body
 }
@@ -302,7 +325,10 @@ impl AnthropicAcc {
             "content_block_start" => {
                 let b = &v["content_block"];
                 if b["type"] == "tool_use" {
-                    self.blocks.insert(v["index"].as_u64().unwrap_or(0), (b["id"].as_str().unwrap_or("").into(), b["name"].as_str().unwrap_or("").into(), String::new()));
+                    self.blocks.insert(
+                        v["index"].as_u64().unwrap_or(0),
+                        (b["id"].as_str().unwrap_or("").into(), b["name"].as_str().unwrap_or("").into(), String::new()),
+                    );
                 }
             }
             "content_block_delta" => {
@@ -333,7 +359,8 @@ impl AnthropicAcc {
     }
 
     pub fn finish(self) -> Round {
-        let calls = self.blocks.into_values().filter(|(_, name, _)| !name.is_empty()).map(|(id, name, args)| Call { id, name, args: parse_args(&args) }).collect();
+        let calls =
+            self.blocks.into_values().filter(|(_, name, _)| !name.is_empty()).map(|(id, name, args)| Call { id, name, args: parse_args(&args) }).collect();
         Round { text: self.text, calls, usage: self.usage }
     }
 }
@@ -445,7 +472,11 @@ fn http_error(status: u16, body: &str) -> String {
         429 => tr("Demasiadas solicitudes o sin crédito en el proveedor."),
         _ => "",
     };
-    if hint.is_empty() { trf("El proveedor respondió {status}: {detail}", &[("status", &status), ("detail", &detail)]) } else { format!("{hint} ({detail})") }
+    if hint.is_empty() {
+        trf("El proveedor respondió {status}: {detail}", &[("status", &status), ("detail", &detail)])
+    } else {
+        format!("{hint} ({detail})")
+    }
 }
 
 /// El error de red con su causa («error sending request: connection refused…»), sin la dirección (que puede llevar datos).
@@ -501,10 +532,13 @@ pub async fn stream_round(
         }
         Protocol::Anthropic => {
             let url = format!("{}/messages", ep.base.trim_end_matches('/'));
-            c.post(&url)
-                .header("x-api-key", ep.key)
-                .header("anthropic-version", ANTHROPIC_VERSION)
-                .json(&anthropic_body(model, system, msgs, tools, max_tokens.unwrap_or(8192)))
+            c.post(&url).header("x-api-key", ep.key).header("anthropic-version", ANTHROPIC_VERSION).json(&anthropic_body(
+                model,
+                system,
+                msgs,
+                tools,
+                max_tokens.unwrap_or(8192),
+            ))
         }
         Protocol::Ollama => {
             let url = format!("{}/api/chat", ep.base.trim_end_matches('/'));
@@ -571,7 +605,11 @@ pub fn specs_from_openai(list: &Value) -> Vec<Spec> {
         .flatten()
         .filter_map(|t| {
             let f = &t["function"];
-            Some(Spec { name: f["name"].as_str()?.to_string(), description: f["description"].as_str().unwrap_or("").to_string(), parameters: f["parameters"].clone() })
+            Some(Spec {
+                name: f["name"].as_str()?.to_string(),
+                description: f["description"].as_str().unwrap_or("").to_string(),
+                parameters: f["parameters"].clone(),
+            })
         })
         .collect()
 }
@@ -589,7 +627,13 @@ mod tests {
     fn conversation() -> Vec<Msg> {
         vec![
             Msg::User { text: "mira a.ts".into(), images: vec![] },
-            Msg::Assistant { text: "Voy.".into(), calls: vec![Call { id: "c1".into(), name: "read_file".into(), args: json!({ "path": "a.ts" }) }, Call { id: "c2".into(), name: "read_file".into(), args: json!({ "path": "b.ts" }) }] },
+            Msg::Assistant {
+                text: "Voy.".into(),
+                calls: vec![
+                    Call { id: "c1".into(), name: "read_file".into(), args: json!({ "path": "a.ts" }) },
+                    Call { id: "c2".into(), name: "read_file".into(), args: json!({ "path": "b.ts" }) },
+                ],
+            },
             Msg::Tool { id: "c1".into(), name: "read_file".into(), content: "uno".into() },
             Msg::Tool { id: "c2".into(), name: "read_file".into(), content: "dos".into() },
         ]
@@ -706,7 +750,10 @@ mod tests {
                 req.extend_from_slice(&buf[..n]);
                 let text = String::from_utf8_lossy(&req).into_owned();
                 if let Some(pos) = text.find("\r\n\r\n") {
-                    let len = text[..pos].lines().find_map(|l| l.to_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0))).unwrap_or(0);
+                    let len = text[..pos]
+                        .lines()
+                        .find_map(|l| l.to_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0)))
+                        .unwrap_or(0);
                     if req.len() >= pos + 4 + len {
                         break;
                     }
@@ -730,7 +777,11 @@ mod tests {
         let cancel = AtomicBool::new(false);
         let mut streamed = String::new();
         let ep = Endpoint { protocol: Protocol::OpenAi, base: &base, key: "sk-secreta", context: 0 };
-        let r = tauri::async_runtime::block_on(stream_round(&ep, "m", "s", &[Msg::User { text: "hola".into(), images: vec![] }], &[spec()], None, &cancel, |t| streamed.push_str(t))).unwrap();
+        let r =
+            tauri::async_runtime::block_on(stream_round(&ep, "m", "s", &[Msg::User { text: "hola".into(), images: vec![] }], &[spec()], None, &cancel, |t| {
+                streamed.push_str(t)
+            }))
+            .unwrap();
         assert_eq!((r.text.as_str(), streamed.as_str()), ("Hola", "Hola"));
         assert_eq!(r.calls[0].name, "read_file");
         assert_eq!(r.usage, Usage { input: 7, output: 3 });
@@ -745,7 +796,17 @@ mod tests {
         let (base, server) = mock(sse);
         let cancel = AtomicBool::new(false);
         let ep = Endpoint { protocol: Protocol::Anthropic, base: &base, key: "ak-secreta", context: 0 };
-        let r = tauri::async_runtime::block_on(stream_round(&ep, "claude-x", "s", &[Msg::User { text: "hola".into(), images: vec![] }], &[], Some(2000), &cancel, |_| {})).unwrap();
+        let r = tauri::async_runtime::block_on(stream_round(
+            &ep,
+            "claude-x",
+            "s",
+            &[Msg::User { text: "hola".into(), images: vec![] }],
+            &[],
+            Some(2000),
+            &cancel,
+            |_| {},
+        ))
+        .unwrap();
         assert_eq!((r.text.as_str(), r.usage), ("Listo", Usage { input: 5, output: 2 }));
         let request = server.join().unwrap().to_lowercase();
         assert!(request.starts_with("post /v1/messages"), "{request}");
@@ -762,7 +823,14 @@ mod tests {
         assert_eq!(b["messages"][2]["tool_calls"][1]["function"], json!({ "name": "read_file", "arguments": { "path": "b.ts" } }));
         assert_eq!(b["messages"][3], json!({ "role": "tool", "tool_name": "read_file", "content": "uno" }));
         assert_eq!(b["tools"][0]["function"]["name"], "read_file");
-        let con_imagen = ollama_body("m", "s", &[Msg::User { text: "hola".into(), images: vec!["data:image/png;base64,AAA".into(), "no-es-data-url".into()] }], &[], 0, None);
+        let con_imagen = ollama_body(
+            "m",
+            "s",
+            &[Msg::User { text: "hola".into(), images: vec!["data:image/png;base64,AAA".into(), "no-es-data-url".into()] }],
+            &[],
+            0,
+            None,
+        );
         assert_eq!(con_imagen["messages"][1]["images"], json!(["AAA"]));
         // Sin contexto conocido ni límite de salida no se manda ninguna opción.
         assert_eq!(con_imagen["options"], json!({}));
@@ -786,7 +854,13 @@ mod tests {
         }
         let r = acc.finish();
         assert_eq!((got.as_str(), r.text.as_str()), ("Hola mundo", "Hola mundo"));
-        assert_eq!(r.calls, vec![Call { id: "call_0".into(), name: "read_file".into(), args: json!({ "path": "a.ts" }) }, Call { id: "call_1".into(), name: "grep".into(), args: json!({ "pattern": "x" }) }]);
+        assert_eq!(
+            r.calls,
+            vec![
+                Call { id: "call_0".into(), name: "read_file".into(), args: json!({ "path": "a.ts" }) },
+                Call { id: "call_1".into(), name: "grep".into(), args: json!({ "pattern": "x" }) }
+            ]
+        );
         assert_eq!(r.usage, Usage { input: 120, output: 30 });
         let mut e = OllamaAcc::default();
         assert_eq!(e.feed(r#"{"error":"model 'x' not found"}"#, &mut |_| {}), Err("model 'x' not found".to_string()));
@@ -817,19 +891,41 @@ mod tests {
         let (base, _server) = mock(format!("{line}\n"));
         let base = base.trim_end_matches("/v1").to_string();
         let ep = Endpoint { protocol: Protocol::Ollama, base: &base, key: "", context: 0 };
-        let r = tauri::async_runtime::block_on(stream_round(&ep, "m", "s", &[Msg::User { text: "hola".into(), images: vec![] }], &[spec()], None, &AtomicBool::new(false), |_| {})).unwrap();
+        let r = tauri::async_runtime::block_on(stream_round(
+            &ep,
+            "m",
+            "s",
+            &[Msg::User { text: "hola".into(), images: vec![] }],
+            &[spec()],
+            None,
+            &AtomicBool::new(false),
+            |_| {},
+        ))
+        .unwrap();
         assert_eq!((r.text.as_str(), r.calls.len(), r.calls[0].name.as_str()), ("", 1, "read_file"));
     }
 
     #[test]
     fn de_extremo_a_extremo_con_ollama_simulado() {
-        let ndjson = "{\"message\":{\"content\":\"Listo\"},\"done\":false}\n{\"message\":{\"content\":\"\"},\"done\":true,\"prompt_eval_count\":9,\"eval_count\":2}\n".to_string();
+        let ndjson =
+            "{\"message\":{\"content\":\"Listo\"},\"done\":false}\n{\"message\":{\"content\":\"\"},\"done\":true,\"prompt_eval_count\":9,\"eval_count\":2}\n"
+                .to_string();
         let (base, server) = mock(ndjson);
         // `mock` devuelve `.../v1`; Ollama habla en `/api/chat` desde la raíz.
         let base = base.trim_end_matches("/v1").to_string();
         let cancel = AtomicBool::new(false);
         let ep = Endpoint { protocol: Protocol::Ollama, base: &base, key: "", context: 8192 };
-        let r = tauri::async_runtime::block_on(stream_round(&ep, "qwen", "s", &[Msg::User { text: "hola".into(), images: vec![] }], &[spec()], None, &cancel, |_| {})).unwrap();
+        let r = tauri::async_runtime::block_on(stream_round(
+            &ep,
+            "qwen",
+            "s",
+            &[Msg::User { text: "hola".into(), images: vec![] }],
+            &[spec()],
+            None,
+            &cancel,
+            |_| {},
+        ))
+        .unwrap();
         assert_eq!((r.text.as_str(), r.usage), ("Listo", Usage { input: 9, output: 2 }));
         let request = server.join().unwrap();
         assert!(request.starts_with("POST /api/chat"), "{request}");
@@ -847,7 +943,9 @@ mod tests {
 
     #[test]
     fn convierte_el_esquema_de_herramientas() {
-        let specs = specs_from_openai(&json!([{ "type": "function", "function": { "name": "x", "description": "d", "parameters": { "type": "object" } } }, { "bad": 1 }]));
+        let specs = specs_from_openai(
+            &json!([{ "type": "function", "function": { "name": "x", "description": "d", "parameters": { "type": "object" } } }, { "bad": 1 }]),
+        );
         assert_eq!(specs.len(), 1);
         assert_eq!((specs[0].name.as_str(), specs[0].description.as_str()), ("x", "d"));
     }

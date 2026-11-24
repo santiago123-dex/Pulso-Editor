@@ -3,13 +3,35 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const store = new Map<string, string>();
 vi.stubGlobal("localStorage", {
   getItem: (k: string) => store.get(k) ?? null,
-  setItem: (k: string, v: string) => { store.set(k, v); },
-  removeItem: (k: string) => { store.delete(k); },
+  setItem: (k: string, v: string) => {
+    store.set(k, v);
+  },
+  removeItem: (k: string) => {
+    store.delete(k);
+  },
 });
 
-import { addRecent, clearLastRoot, clearSession, createSessionPersister, getLastRoot, getRecent, loadProjectLayout, loadSession, rel, removeRecent, saveProjectLayout, saveSession, setLastRoot, ws } from "./workspace";
+import {
+  addRecent,
+  clearLastRoot,
+  clearSession,
+  createSessionPersister,
+  getLastRoot,
+  getRecent,
+  loadProjectLayout,
+  loadSession,
+  rel,
+  removeRecent,
+  saveProjectLayout,
+  saveSession,
+  setLastRoot,
+  ws,
+} from "./workspace";
 
-beforeEach(() => { store.clear(); ws.root = null; });
+beforeEach(() => {
+  store.clear();
+  ws.root = null;
+});
 
 describe("rel", () => {
   it("quita el prefijo de la carpeta abierta", () => {
@@ -29,7 +51,9 @@ describe("rel", () => {
 
 describe("carpetas recientes", () => {
   it("la última abierta va primero y no se repite", () => {
-    addRecent("C:/a"); addRecent("C:/b"); addRecent("C:/a");
+    addRecent("C:/a");
+    addRecent("C:/b");
+    addRecent("C:/a");
     expect(getRecent()).toEqual(["C:/a", "C:/b"]);
   });
 
@@ -41,7 +65,8 @@ describe("carpetas recientes", () => {
   });
 
   it("se puede quitar una", () => {
-    addRecent("C:/a"); addRecent("C:/b");
+    addRecent("C:/a");
+    addRecent("C:/b");
     removeRecent("C:/a");
     expect(getRecent()).toEqual(["C:/b"]);
   });
@@ -86,8 +111,13 @@ describe("última carpeta", () => {
 });
 
 describe("guardado de sesión protegido", () => {
-  beforeEach(() => { vi.useFakeTimers(); vi.stubGlobal("window", globalThis); });
-  afterEach(() => { vi.useRealTimers(); });
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", globalThis);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
   it("no guarda nada mientras no se haya restaurado la sesión anterior", () => {
     const save = vi.fn();
@@ -125,7 +155,10 @@ describe("guardado de sesión protegido", () => {
     p.markReady();
     vi.advanceTimersByTime(600);
     save.mockClear();
-    for (let i = 0; i < 20; i++) { p.schedule(); vi.advanceTimersByTime(100); }
+    for (let i = 0; i < 20; i++) {
+      p.schedule();
+      vi.advanceTimersByTime(100);
+    }
     vi.advanceTimersByTime(600);
     expect(save).toHaveBeenCalledTimes(1);
   });

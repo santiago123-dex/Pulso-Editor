@@ -13,7 +13,12 @@ export function providerCatalog(prov: AiProvider): { models: ModelOption[]; spec
   const toOption = (d: AiModelInfo): ModelOption => {
     const rawLabel = d.label || titleFromId(d.id);
     const { name, tier } = splitLabelLevel(rawLabel);
-    const isNew = prov === "cloud" ? false : prov === "antigravity" ? /gemini-4|opus-5-5|sonnet-5-5|orchestrator/i.test(d.id) : /gpt-6|new|preview/i.test(d.id);
+    const isNew =
+      prov === "cloud"
+        ? false
+        : prov === "antigravity"
+          ? /gemini-4|opus-5-5|sonnet-5-5|orchestrator/i.test(d.id)
+          : /gpt-6|new|preview/i.test(d.id);
     return {
       value: d.id,
       label: name,
@@ -37,9 +42,15 @@ export function providerCatalog(prov: AiProvider): { models: ModelOption[]; spec
 
 export function findModelOption(val: string, prov: AiProvider = S.activeProvider): ModelOption {
   const cat = providerCatalog(prov);
-  return cat.models.find((m) => m.value === val)
-    ?? cat.specific.find((m) => m.value === val)
-    ?? { value: val, label: formatModelName(val) || val, tier: tr("Personalizado"), hint: tr("Modelo específico: {model}", { model: val }) };
+  return (
+    cat.models.find((m) => m.value === val) ??
+    cat.specific.find((m) => m.value === val) ?? {
+      value: val,
+      label: formatModelName(val) || val,
+      tier: tr("Personalizado"),
+      hint: tr("Modelo específico: {model}", { model: val }),
+    }
+  );
 }
 
 export function modelButtonText(): string {

@@ -16,7 +16,13 @@ describe("letra de fábrica del editor", () => {
   });
 
   it("quien eligió una letra a propósito la conserva, incluida Cascadia Code (se guarda con otra cadena)", () => {
-    for (const choice of ['"Cascadia Code", Consolas, monospace', '"JetBrains Mono", Consolas, monospace', '"Fira Code", Consolas, monospace', "Consolas, monospace", "Iosevka"]) {
+    for (const choice of [
+      '"Cascadia Code", Consolas, monospace',
+      '"JetBrains Mono", Consolas, monospace',
+      '"Fira Code", Consolas, monospace',
+      "Consolas, monospace",
+      "Iosevka",
+    ]) {
       const saved: Record<string, unknown> = { fontFamily: choice };
       dropOldFontDefault(saved);
       expect(saved.fontFamily).toBe(choice);

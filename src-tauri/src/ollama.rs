@@ -52,7 +52,11 @@ pub async fn detect_with(base: &str) -> AiTool {
         logged_in: !models.is_empty(),
         auth_method: "local".into(),
         plan: String::new(),
-        error: if models.is_empty() { tr("Ollama no tiene ningún modelo descargado. Descarga uno con «ollama pull qwen2.5-coder:7b».").into() } else { String::new() },
+        error: if models.is_empty() {
+            tr("Ollama no tiene ningún modelo descargado. Descarga uno con «ollama pull qwen2.5-coder:7b».").into()
+        } else {
+            String::new()
+        },
         models,
     }
 }
@@ -187,7 +191,10 @@ mod tests {
                 req.extend_from_slice(&buf[..n]);
                 let text = String::from_utf8_lossy(&req).into_owned();
                 if let Some(pos) = text.find("\r\n\r\n") {
-                    let len = text[..pos].lines().find_map(|l| l.to_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0))).unwrap_or(0);
+                    let len = text[..pos]
+                        .lines()
+                        .find_map(|l| l.to_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0)))
+                        .unwrap_or(0);
                     if req.len() >= pos + 4 + len {
                         break;
                     }
@@ -210,7 +217,10 @@ mod tests {
     fn convierte_un_modelo_de_ollama_en_un_modelo_del_agente() {
         let (base, server) = fake_show(Some(r#"{"model_info":{"llama.context_length":131072},"capabilities":["completion","tools","vision"]}"#));
         let m = tauri::async_runtime::block_on(cloud_model(&base, "llama3.2-vision")).unwrap();
-        assert_eq!((m.protocol, m.base_url.as_str(), m.model.as_str(), m.key.as_str()), (crate::catalog::Protocol::Ollama, base.as_str(), "llama3.2-vision", ""));
+        assert_eq!(
+            (m.protocol, m.base_url.as_str(), m.model.as_str(), m.key.as_str()),
+            (crate::catalog::Protocol::Ollama, base.as_str(), "llama3.2-vision", "")
+        );
         assert_eq!((m.context, m.images, m.max_output, m.input_cost), (CONTEXT_CAP, true, 0, None));
         assert!(server.join().unwrap().starts_with("POST /api/show"));
     }

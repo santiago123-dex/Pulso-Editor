@@ -2,10 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createNav, type Loc } from "./nav";
 
 let opened: Loc[];
-const nav = (opts = {}) => createNav(async (l) => { opened.push({ ...l }); }, opts);
+const nav = (opts = {}) =>
+  createNav(async (l) => {
+    opened.push({ ...l });
+  }, opts);
 const settle = () => new Promise((r) => setTimeout(r, 100));
 
-beforeEach(() => { opened = []; });
+beforeEach(() => {
+  opened = [];
+});
 
 describe("historial de navegación", () => {
   it("empieza vacío: no se puede ir ni atrás ni adelante", async () => {
@@ -127,7 +132,10 @@ describe("historial de navegación", () => {
 
   it("si abrir una posición falla, el historial sigue siendo usable", async () => {
     let fail = true;
-    const n = createNav(async (l) => { if (fail) throw new Error("no existe"); opened.push(l); });
+    const n = createNav(async (l) => {
+      if (fail) throw new Error("no existe");
+      opened.push(l);
+    });
     n.record({ path: "a.ts", line: 1 });
     n.record({ path: "b.ts", line: 1 });
     await expect(n.back()).rejects.toThrow();

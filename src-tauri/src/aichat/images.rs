@@ -34,10 +34,16 @@ pub(super) fn validate_images(images: Option<Vec<String>>) -> Result<Vec<String>
     let mut out = Vec::new();
     for raw in images.unwrap_or_default().into_iter().take(5) {
         let p = raw.trim();
-        if p.is_empty() { continue; }
+        if p.is_empty() {
+            continue;
+        }
         let meta = std::fs::metadata(p).map_err(|_| tr("No se encontró la imagen adjunta.").to_string())?;
-        if !meta.is_file() { return Err(tr("No se encontró la imagen adjunta.").into()); }
-        if meta.len() as usize > MAX_IMAGE_BYTES { return Err(tr("La imagen supera el límite de 10 MB.").into()); }
+        if !meta.is_file() {
+            return Err(tr("No se encontró la imagen adjunta.").into());
+        }
+        if meta.len() as usize > MAX_IMAGE_BYTES {
+            return Err(tr("La imagen supera el límite de 10 MB.").into());
+        }
         out.push(p.to_string());
     }
     Ok(out)

@@ -1,16 +1,14 @@
 //! `pulso`: el comando de la terminal. Sin argumentos abre el asistente de IA en esta terminal;
 //! con una ruta (`pulso .`, `pulso archivo`, `pulso -g archivo:línea`) abre la ventana de Pulso Editor.
 use pulso_editor_lib::aichat::{
-    build_agy_args, build_claude_args, build_codex_args, claude_program, detect_antigravity,
-    detect_claude, detect_codex, list_cli_models, resolve_cli, spawn_stream, AiModelInfo, AiTool,
-    ChatOptions,
+    build_agy_args, build_claude_args, build_codex_args, claude_program, detect_antigravity, detect_claude, detect_codex, list_cli_models, resolve_cli,
+    spawn_stream, AiModelInfo, AiTool, ChatOptions,
 };
 use pulso_editor_lib::i18n::{tr, trf};
 use pulso_editor_lib::termchat::{normalize_provider, route, Action, Ev, Parser, Settings, HELP};
 use pulso_editor_lib::termui::{
-    add_trusted, broad_dir_reason, git_branch, header_banner, is_trusted, paint, provider_color,
-    provider_label, render_line, rule, slash_matches, tool_badge, trust_card, trusted_list,
-    AMBER, BG_SEL, BRIGHT, CYAN, DIM, INDIGO, MINT, ROSE, RULE, SLATE, VIOLET,
+    add_trusted, broad_dir_reason, git_branch, header_banner, is_trusted, paint, provider_color, provider_label, render_line, rule, slash_matches, tool_badge,
+    trust_card, trusted_list, AMBER, BG_SEL, BRIGHT, CYAN, DIM, INDIGO, MINT, ROSE, RULE, SLATE, VIOLET,
 };
 use std::collections::HashMap;
 use std::io::{BufRead, IsTerminal, Read, Write};
@@ -140,11 +138,7 @@ fn guard_folder(s: &Settings) -> Result<(), String> {
     if let Some(why) = broad_dir_reason(&dir, home_dir().as_deref()) {
         return Err(trf(
             "{icon} Esta carpeta {why}:\n  {dir}\n\nEntra en la carpeta de un proyecto (cd) y vuelve a ejecutar `pulso`.",
-            &[
-                ("icon", &paint(color, ROSE, tr("✗ No abro el asistente aquí."))),
-                ("why", &why),
-                ("dir", &paint(color, SLATE, &dir.display().to_string())),
-            ],
+            &[("icon", &paint(color, ROSE, tr("✗ No abro el asistente aquí."))), ("why", &why), ("dir", &paint(color, SLATE, &dir.display().to_string()))],
         ));
     }
     let file = trust_file();
@@ -157,11 +151,7 @@ fn guard_folder(s: &Settings) -> Result<(), String> {
             return Err(tr("Carpeta sin confianza. Ejecuta `pulso` una vez en ella desde una terminal, o añade --trust.").into());
         }
         println!("\n{}", trust_card(&dir, home_dir().as_deref(), color));
-        print!(
-            "\n{} {} ",
-            paint(color, BRIGHT, tr("¿Confiar y continuar?")),
-            paint(color, DIM, tr("[s/N · Ctrl+C cancelar]"))
-        );
+        print!("\n{} {} ", paint(color, BRIGHT, tr("¿Confiar y continuar?")), paint(color, DIM, tr("[s/N · Ctrl+C cancelar]")));
         let _ = std::io::stdout().flush();
         let accepted = if let Some(raw) = RawConsole::enter() {
             let ok = loop {
@@ -205,16 +195,7 @@ struct Chat {
     color: bool,
 }
 
-const PULSE_FRAMES: [&str; 8] = [
-    "▁▂▄▆█▆▄▂",
-    "▂▄▆█▆▄▂▁",
-    "▄▆█▆▄▂▁▂",
-    "▆█▆▄▂▁▂▄",
-    "█▆▄▂▁▂▄▆",
-    "▆▄▂▁▂▄▆█",
-    "▄▂▁▂▄▆█▆",
-    "▂▁▂▄▆█▆▄",
-];
+const PULSE_FRAMES: [&str; 8] = ["▁▂▄▆█▆▄▂", "▂▄▆█▆▄▂▁", "▄▆█▆▄▂▁▂", "▆█▆▄▂▁▂▄", "█▆▄▂▁▂▄▆", "▆▄▂▁▂▄▆█", "▄▂▁▂▄▆█▆", "▂▁▂▄▆█▆▄"];
 
 fn kill_process_tree(pid: u32) {
     #[cfg(windows)]
@@ -230,9 +211,7 @@ fn kill_process_tree(pid: u32) {
     }
     #[cfg(not(windows))]
     {
-        let _ = std::process::Command::new("kill")
-            .args(["-TERM", &pid.to_string()])
-            .status();
+        let _ = std::process::Command::new("kill").args(["-TERM", &pid.to_string()]).status();
     }
 }
 
@@ -293,16 +272,8 @@ impl Chat {
         let raw = RawConsole::enter();
         let started = Instant::now();
         let mut parser = Parser::new(&self.settings.provider);
-        let mut view = View {
-            color: self.color,
-            out: std::io::stdout(),
-            pending: String::new(),
-            in_code: false,
-            first: true,
-            spinner_on: false,
-            ticks: 0,
-            tools_used: 0,
-        };
+        let mut view =
+            View { color: self.color, out: std::io::stdout(), pending: String::new(), in_code: false, first: true, spinner_on: false, ticks: 0, tools_used: 0 };
         let mut result: Option<Result<(), String>> = None;
         let (mut stderr_tail, mut code, mut cancelled) = (String::new(), None, false);
 
@@ -367,12 +338,7 @@ impl Chat {
                 String::new()
             };
             let p_name = provider_label(&self.settings.provider);
-            println!(
-                "  {} {} {}",
-                paint(true, RULE, "╰─"),
-                paint(true, MINT, "✓"),
-                paint(true, DIM, &format!("{p_name} · {secs:.1} s{tools_note}"))
-            );
+            println!("  {} {} {}", paint(true, RULE, "╰─"), paint(true, MINT, "✓"), paint(true, DIM, &format!("{p_name} · {secs:.1} s{tools_note}")));
         }
         ok
     }
@@ -402,8 +368,12 @@ impl Chat {
             &args,
             &cwd,
             &stdin,
-            Arc::new(move |l| { let _ = tx1.lock().map(|t| t.send(Msg::Line(l))); }),
-            Arc::new(move |c, e| { let _ = tx2.lock().map(|t| t.send(Msg::Exit(c, e))); }),
+            Arc::new(move |l| {
+                let _ = tx1.lock().map(|t| t.send(Msg::Line(l)));
+            }),
+            Arc::new(move |c, e| {
+                let _ = tx2.lock().map(|t| t.send(Msg::Exit(c, e)));
+            }),
         ) {
             emit(serde_json::json!({ "type": "done", "ok": false, "error": e }));
             return false;
@@ -452,11 +422,7 @@ impl Chat {
                 true
             }
             None => {
-                let err = if stderr_tail.trim().is_empty() {
-                    format!("exit code {code:?}")
-                } else {
-                    stderr_tail.trim().to_string()
-                };
+                let err = if stderr_tail.trim().is_empty() { format!("exit code {code:?}") } else { stderr_tail.trim().to_string() };
                 emit(serde_json::json!({ "type": "done", "ok": false, "error": err }));
                 false
             }
@@ -583,14 +549,7 @@ fn char_to_byte(s: &str, char_idx: usize) -> usize {
     s.char_indices().nth(char_idx).map(|(b, _)| b).unwrap_or(s.len())
 }
 
-fn draw_composer(
-    chat: &Chat,
-    buf: &str,
-    cursor_chars: usize,
-    menu_sel: usize,
-    ctrl_c_armed: bool,
-    drawn: &mut bool,
-) {
+fn draw_composer(chat: &Chat, buf: &str, cursor_chars: usize, menu_sel: usize, ctrl_c_armed: bool, drawn: &mut bool) {
     let mut out = std::io::stdout();
     let width = term_width();
     let color = chat.color;
@@ -650,10 +609,7 @@ fn draw_composer(
             format!("  {} {}", paint(color, AMBER, tr("▸▸ edición activa")), paint(color, DIM, tr("(Shift+Tab solo lectura)"))),
         )
     } else {
-        (
-            "  ▸▸ solo lectura (Shift+Tab editar)",
-            format!("  {} {}", paint(color, CYAN, "▸▸ solo lectura"), paint(color, DIM, "(Shift+Tab editar)")),
-        )
+        ("  ▸▸ solo lectura (Shift+Tab editar)", format!("  {} {}", paint(color, CYAN, "▸▸ solo lectura"), paint(color, DIM, "(Shift+Tab editar)")))
     };
     let (right_plain, right_styled) = if ctrl_c_armed {
         (tr("Pulsa Ctrl+C de nuevo para salir"), paint(color, AMBER, tr("Pulsa Ctrl+C de nuevo para salir")))
@@ -673,18 +629,9 @@ fn draw_composer(
         let clipped: String = text.chars().take(width.saturating_sub(2)).collect();
         if selected {
             let pad = width.saturating_sub(clipped.chars().count() + 2);
-            let _ = write!(
-                out,
-                "{}",
-                paint(color, &format!("{BG_SEL};{CYAN}"), &format!("▸ {clipped}{}", " ".repeat(pad)))
-            );
+            let _ = write!(out, "{}", paint(color, &format!("{BG_SEL};{CYAN}"), &format!("▸ {clipped}{}", " ".repeat(pad))));
         } else {
-            let _ = write!(
-                out,
-                "  {} {}",
-                paint(color, SLATE, &format!("{:<11}", cmd.name)),
-                paint(color, DIM, tr(cmd.desc))
-            );
+            let _ = write!(out, "  {} {}", paint(color, SLATE, &format!("{:<11}", cmd.name)), paint(color, DIM, tr(cmd.desc)));
         }
     }
 
@@ -934,56 +881,25 @@ fn pick_option(title: &str, items: &[PickItem], initial: usize, color: bool) -> 
             let end = (start + max_vis).min(items.len());
             let mut lines = 0usize;
 
-            let _ = writeln!(
-                out,
-                "  {}  {}",
-                paint(color, BRIGHT, title),
-                paint(color, DIM, tr("↑/↓ mover · Enter elegir · Esc cancelar"))
-            );
+            let _ = writeln!(out, "  {}  {}", paint(color, BRIGHT, title), paint(color, DIM, tr("↑/↓ mover · Enter elegir · Esc cancelar")));
             lines += 1;
 
             for (idx, item) in items[start..end].iter().enumerate() {
                 let real = start + idx;
                 let active = real == sel;
-                let note_part = if item.note.is_empty() {
-                    String::new()
-                } else {
-                    format!("  {}", item.note)
-                };
-                let badge_part = if item.badge.is_empty() {
-                    String::new()
-                } else {
-                    format!("  [{}]", item.badge)
-                };
+                let note_part = if item.note.is_empty() { String::new() } else { format!("  {}", item.note) };
+                let badge_part = if item.badge.is_empty() { String::new() } else { format!("  [{}]", item.badge) };
                 let max_note = width.saturating_sub(item.label.chars().count() + badge_part.chars().count() + 10);
                 let clipped_note: String = note_part.chars().take(max_note).collect();
                 if active {
-                    let _ = writeln!(
-                        out,
-                        "  {}",
-                        paint(
-                            color,
-                            &format!("{BG_SEL};{BRIGHT}"),
-                            &format!(" ❯ {}{}{} ", item.label, badge_part, clipped_note)
-                        )
-                    );
+                    let _ = writeln!(out, "  {}", paint(color, &format!("{BG_SEL};{BRIGHT}"), &format!(" ❯ {}{}{} ", item.label, badge_part, clipped_note)));
                 } else {
-                    let _ = writeln!(
-                        out,
-                        "    {}{}{}",
-                        paint(color, SLATE, &item.label),
-                        paint(color, DIM, &badge_part),
-                        paint(color, DIM, &clipped_note)
-                    );
+                    let _ = writeln!(out, "    {}{}{}", paint(color, SLATE, &item.label), paint(color, DIM, &badge_part), paint(color, DIM, &clipped_note));
                 }
                 lines += 1;
             }
             if items.len() > max_vis {
-                let _ = writeln!(
-                    out,
-                    "    {}",
-                    paint(color, DIM, &format!("{}/{}", sel + 1, items.len()))
-                );
+                let _ = writeln!(out, "    {}", paint(color, DIM, &format!("{}/{}", sel + 1, items.len())));
                 lines += 1;
             }
             let _ = out.flush();
@@ -1023,19 +939,11 @@ fn detect_all_cli_providers() -> Vec<(&'static str, AiTool)> {
     let t_claude = std::thread::spawn(detect_claude);
     let t_codex = std::thread::spawn(detect_codex);
     let t_agy = std::thread::spawn(detect_antigravity);
-    vec![
-        ("claude", t_claude.join().unwrap_or_default()),
-        ("codex", t_codex.join().unwrap_or_default()),
-        ("antigravity", t_agy.join().unwrap_or_default()),
-    ]
+    vec![("claude", t_claude.join().unwrap_or_default()), ("codex", t_codex.join().unwrap_or_default()), ("antigravity", t_agy.join().unwrap_or_default())]
 }
 
 fn capture_cmd_version(cmd: &str, arg: &str) -> Option<String> {
-    let out = std::process::Command::new(cmd)
-        .arg(arg)
-        .stdin(std::process::Stdio::null())
-        .output()
-        .ok()?;
+    let out = std::process::Command::new(cmd).arg(arg).stdin(std::process::Stdio::null()).output().ok()?;
     if !out.status.success() {
         return None;
     }
@@ -1044,11 +952,7 @@ fn capture_cmd_version(cmd: &str, arg: &str) -> Option<String> {
 }
 
 fn run_doctor(color: bool) {
-    println!(
-        "\n  {}  {}",
-        paint(color, &format!("1;{CYAN}"), "◈ Pulso CLI Doctor"),
-        paint(color, DIM, &format!("v{}", env!("CARGO_PKG_VERSION")))
-    );
+    println!("\n  {}  {}", paint(color, &format!("1;{CYAN}"), "◈ Pulso CLI Doctor"), paint(color, DIM, &format!("v{}", env!("CARGO_PKG_VERSION"))));
     println!("  {}", rule(60, color));
 
     let t_providers = std::thread::spawn(detect_all_cli_providers);
@@ -1057,10 +961,7 @@ fn run_doctor(color: bool) {
     let node_ver = capture_cmd_version("node", "--version");
 
     let editor_name = if cfg!(windows) { "pulso-editor.exe" } else { "pulso-editor" };
-    let editor_ok = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.join(editor_name)))
-        .is_some_and(|p| p.exists());
+    let editor_ok = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join(editor_name))).is_some_and(|p| p.exists());
 
     let providers = t_providers.join().unwrap_or_default();
     let ollama = t_ollama.join().unwrap_or_default();
@@ -1222,14 +1123,16 @@ fn repl(settings: Settings) {
                             });
                         }
                         if models.is_empty() {
-                            note("⚠", AMBER, &format!("No se detectaron modelos para {}. Puedes escribir `/model <id>` manualmente o ejecutar `/doctor`.", provider_label(&prov)));
+                            note(
+                                "⚠",
+                                AMBER,
+                                &format!(
+                                    "No se detectaron modelos para {}. Puedes escribir `/model <id>` manualmente o ejecutar `/doctor`.",
+                                    provider_label(&prov)
+                                ),
+                            );
                         }
-                        let initial = chat
-                            .settings
-                            .model
-                            .as_deref()
-                            .and_then(|cur| items.iter().position(|it| it.value == cur))
-                            .unwrap_or(0);
+                        let initial = chat.settings.model.as_deref().and_then(|cur| items.iter().position(|it| it.value == cur)).unwrap_or(0);
                         let title = format!("◈ Modelos · {}", provider_label(&prov));
                         if let Some(idx) = pick_option(&title, &items, initial, color) {
                             let chosen = &items[idx];
@@ -1262,19 +1165,9 @@ fn repl(settings: Settings) {
                         ];
                         let items: Vec<PickItem> = levels
                             .iter()
-                            .map(|(val, lbl, desc)| PickItem {
-                                value: (*val).into(),
-                                label: (*lbl).into(),
-                                badge: String::new(),
-                                note: (*desc).into(),
-                            })
+                            .map(|(val, lbl, desc)| PickItem { value: (*val).into(), label: (*lbl).into(), badge: String::new(), note: (*desc).into() })
                             .collect();
-                        let initial = chat
-                            .settings
-                            .effort
-                            .as_deref()
-                            .and_then(|cur| items.iter().position(|it| it.value == cur))
-                            .unwrap_or(0);
+                        let initial = chat.settings.effort.as_deref().and_then(|cur| items.iter().position(|it| it.value == cur)).unwrap_or(0);
                         if let Some(idx) = pick_option("◐ Nivel de esfuerzo", &items, initial, color) {
                             let chosen = &items[idx];
                             chat.settings.effort = (!chosen.value.is_empty()).then(|| chosen.value.clone());
@@ -1307,7 +1200,11 @@ fn repl(settings: Settings) {
                                 let badge = if !tool.installed {
                                     "no instalado".into()
                                 } else if tool.logged_in {
-                                    if tool.plan.is_empty() { "✓ listo".into() } else { format!("✓ {}", tool.plan) }
+                                    if tool.plan.is_empty() {
+                                        "✓ listo".into()
+                                    } else {
+                                        format!("✓ {}", tool.plan)
+                                    }
                                 } else {
                                     "⚠ sin sesión".into()
                                 };
@@ -1318,18 +1215,10 @@ fn repl(settings: Settings) {
                                 } else {
                                     tool.version.clone()
                                 };
-                                PickItem {
-                                    value: (*id).into(),
-                                    label: provider_label(id).into(),
-                                    badge,
-                                    note: note_str,
-                                }
+                                PickItem { value: (*id).into(), label: provider_label(id).into(), badge, note: note_str }
                             })
                             .collect();
-                        let initial = items
-                            .iter()
-                            .position(|it| it.value == chat.settings.provider)
-                            .unwrap_or(0);
+                        let initial = items.iter().position(|it| it.value == chat.settings.provider).unwrap_or(0);
                         if let Some(idx) = pick_option("✦ Proveedor de IA", &items, initial, color) {
                             let p = items[idx].value.clone();
                             chat.settings.provider = p.clone();
@@ -1343,7 +1232,11 @@ fn repl(settings: Settings) {
                                 chat.settings.provider = p.into();
                                 chat.settings.model = None;
                                 chat.session = None;
-                                note("✦", provider_color(p), &trf("Proveedor cambiado a {provider} (conversación nueva).", &[("provider", &provider_label(p))]));
+                                note(
+                                    "✦",
+                                    provider_color(p),
+                                    &trf("Proveedor cambiado a {provider} (conversación nueva).", &[("provider", &provider_label(p))]),
+                                );
                             }
                             None => note("▸", AMBER, "Usa: /provider (selector) o /provider claude | codex | antigravity"),
                         }
@@ -1687,11 +1580,7 @@ mod console {
 
         fn read_byte_timeout(ms: i32) -> Option<u8> {
             unsafe {
-                let mut pfd = libc::pollfd {
-                    fd: libc::STDIN_FILENO,
-                    events: libc::POLLIN,
-                    revents: 0,
-                };
+                let mut pfd = libc::pollfd { fd: libc::STDIN_FILENO, events: libc::POLLIN, revents: 0 };
                 if libc::poll(&mut pfd, 1, ms) > 0 && (pfd.revents & libc::POLLIN) != 0 {
                     let mut b = [0u8; 1];
                     if std::io::stdin().read(&mut b).ok()? == 1 {

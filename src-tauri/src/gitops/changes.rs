@@ -37,23 +37,41 @@ pub fn parse_changes(out: &str) -> Changes {
             };
             if let Some(i) = head.find('[') {
                 for part in head[i + 1..].trim_end_matches(']').split(", ") {
-                    if let Some(n) = part.strip_prefix("ahead ") { c.ahead = n.parse().unwrap_or(0); }
-                    if let Some(n) = part.strip_prefix("behind ") { c.behind = n.parse().unwrap_or(0); }
+                    if let Some(n) = part.strip_prefix("ahead ") {
+                        c.ahead = n.parse().unwrap_or(0);
+                    }
+                    if let Some(n) = part.strip_prefix("behind ") {
+                        c.behind = n.parse().unwrap_or(0);
+                    }
                 }
             }
             continue;
         }
         let bytes = rec.as_bytes();
-        if bytes.len() < 4 || bytes[2] != b' ' { continue; }
+        if bytes.len() < 4 || bytes[2] != b' ' {
+            continue;
+        }
         let path = &rec[3..];
         let (x, y) = (bytes[0] as char, bytes[1] as char);
         let orig = if matches!(x, 'R' | 'C') || matches!(y, 'R' | 'C') { records.next().map(|s| s.to_string()) } else { None };
         let make = |status: &str| Change { path: path.to_string(), status: status.to_string(), orig: orig.clone() };
-        if (x, y) == ('?', '?') { c.unstaged.push(make("U")); continue; }
-        if (x, y) == ('!', '!') { continue; }
-        if x == 'U' || y == 'U' || (x, y) == ('A', 'A') || (x, y) == ('D', 'D') { c.conflicted.push(make("!")); continue; }
-        if x != ' ' { c.staged.push(make(letter(x))); }
-        if y != ' ' { c.unstaged.push(make(letter(y))); }
+        if (x, y) == ('?', '?') {
+            c.unstaged.push(make("U"));
+            continue;
+        }
+        if (x, y) == ('!', '!') {
+            continue;
+        }
+        if x == 'U' || y == 'U' || (x, y) == ('A', 'A') || (x, y) == ('D', 'D') {
+            c.conflicted.push(make("!"));
+            continue;
+        }
+        if x != ' ' {
+            c.staged.push(make(letter(x)));
+        }
+        if y != ' ' {
+            c.unstaged.push(make(letter(y)));
+        }
     }
     c
 }
@@ -109,14 +127,21 @@ pub struct CommitResult {
 
 pub(super) fn commit_sync(root: &str, message: &str) -> Result<CommitResult, String> {
     let message = message.trim();
-    if message.is_empty() { return Err(tr("Escribe un mensaje para el commit").into()); }
+    if message.is_empty() {
+        return Err(tr("Escribe un mensaje para el commit").into());
+    }
     let top = top_of(root)?;
     let staged = run(&top, &["diff", "--cached", "--name-only"])?;
-    if staged.trim().is_empty() { return Err(tr("No hay cambios preparados para confirmar").into()); }
+    if staged.trim().is_empty() {
+        return Err(tr("No hay cambios preparados para confirmar").into());
+    }
     let mut child = git_command(&top)
         .args(["commit", "-q", "-F", "-"])
-        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
-        .spawn().map_err(|e| trf("No se pudo ejecutar git: {e}", &[("e", &e)]))?;
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| trf("No se pudo ejecutar git: {e}", &[("e", &e)]))?;
     let mut stdin = child.stdin.take().ok_or(tr("No se pudo enviar el mensaje a git"))?;
     let msg_bytes = message.as_bytes().to_vec();
     let writer = std::thread::spawn(move || stdin.write_all(&msg_bytes));
@@ -126,7 +151,9 @@ pub(super) fn commit_sync(root: &str, message: &str) -> Result<CommitResult, Str
             return Err(e.to_string());
         }
     }
-    if !o.status.success() { return Err(text(&o)); }
+    if !o.status.success() {
+        return Err(text(&o));
+    }
     let hash = run(&top, &["rev-parse", "--short", "HEAD"])?.trim().to_string();
     Ok(CommitResult { hash, summary: message.lines().next().unwrap_or("").to_string() })
 }
@@ -148,16 +175,23 @@ pub(super) fn amend_sync(root: &str, message: Option<&str>) -> Result<CommitResu
     if let Some(msg) = clean {
         let mut child = git_command(&top)
             .args(["commit", "--amend", "-q", "-F", "-"])
-            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
-            .spawn().map_err(|e| trf("No se pudo ejecutar git: {e}", &[("e", &e)]))?;
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| trf("No se pudo ejecutar git: {e}", &[("e", &e)]))?;
         let mut stdin = child.stdin.take().ok_or(tr("No se pudo enviar el mensaje a git"))?;
         let msg_bytes = msg.as_bytes().to_vec();
         let writer = std::thread::spawn(move || stdin.write_all(&msg_bytes));
         let o = child.wait_with_output().map_err(|e| e.to_string())?;
         if let Ok(Err(e)) = writer.join() {
-            if o.status.success() { return Err(e.to_string()); }
+            if o.status.success() {
+                return Err(e.to_string());
+            }
         }
-        if !o.status.success() { return Err(text(&o)); }
+        if !o.status.success() {
+            return Err(text(&o));
+        }
     } else {
         run(&top, &["commit", "--amend", "--no-edit", "-q"])?;
     }
@@ -178,10 +212,7 @@ pub(super) const MAX_DIFF_BYTES: usize = 2_000_000;
 /// Contenido de `spec` (por ejemplo `HEAD:ruta` o `:ruta`). Comprueba primero el tamaño con `cat-file -s`
 /// para no cargar blobs enormes en RAM. Cadena vacía si no existe en esa versión.
 pub(super) fn blob(top: &str, spec: &str) -> Result<Vec<u8>, String> {
-    let size_out = git_command(top)
-        .args(["cat-file", "-s", spec])
-        .output()
-        .map_err(|e| trf("No se pudo ejecutar git: {e}", &[("e", &e)]))?;
+    let size_out = git_command(top).args(["cat-file", "-s", spec]).output().map_err(|e| trf("No se pudo ejecutar git: {e}", &[("e", &e)]))?;
     if !size_out.status.success() {
         return Ok(Vec::new());
     }
@@ -191,7 +222,9 @@ pub(super) fn blob(top: &str, spec: &str) -> Result<Vec<u8>, String> {
         }
     }
     let o = git_command(top).args(["show", spec]).output().map_err(|e| trf("No se pudo ejecutar git: {e}", &[("e", &e)]))?;
-    if !o.status.success() { return Err(text(&o)); }
+    if !o.status.success() {
+        return Err(text(&o));
+    }
     Ok(o.stdout)
 }
 
@@ -210,9 +243,13 @@ pub(super) fn read_disk_for_diff(path: &std::path::Path) -> Result<Vec<u8>, Stri
 
 /// Las dos versiones que se comparan: preparado = HEAD contra el índice; sin preparar = índice contra el disco.
 pub(super) fn diff_sources_sync(root: &str, path: &str, orig: Option<&str>, staged: bool) -> Result<DiffSources, String> {
-    if !safe_relative(path) { return Err(tr("Ruta no válida").into()); }
+    if !safe_relative(path) {
+        return Err(tr("Ruta no válida").into());
+    }
     if let Some(o) = orig {
-        if !safe_relative(o) { return Err(tr("Ruta de origen no válida").into()); }
+        if !safe_relative(o) {
+            return Err(tr("Ruta de origen no válida").into());
+        }
     }
     let top = top_of(root)?;
     let (a, b) = if staged {
@@ -224,12 +261,10 @@ pub(super) fn diff_sources_sync(root: &str, path: &str, orig: Option<&str>, stag
         return Err(tr("El archivo es demasiado grande para mostrar diferencias").into());
     }
     let binary = a.iter().take(8000).any(|&x| x == 0) || b.iter().take(8000).any(|&x| x == 0);
-    if binary { return Ok(DiffSources { original: String::new(), modified: String::new(), binary: true }); }
-    Ok(DiffSources {
-        original: String::from_utf8_lossy(&a).into_owned(),
-        modified: String::from_utf8_lossy(&b).into_owned(),
-        binary: false,
-    })
+    if binary {
+        return Ok(DiffSources { original: String::new(), modified: String::new(), binary: true });
+    }
+    Ok(DiffSources { original: String::from_utf8_lossy(&a).into_owned(), modified: String::from_utf8_lossy(&b).into_owned(), binary: false })
 }
 
 // ---------- Descartar cambios ----------
@@ -260,7 +295,9 @@ pub(super) fn discard_sync(root: &str, items: Vec<DiscardItem>, remove_untracked
     }
     let tracked: Vec<String> = items.iter().filter(|i| i.status != "U" && i.status != "!").map(|i| i.path.clone()).collect();
     let untracked: Vec<&DiscardItem> = items.iter().filter(|i| i.status == "U").collect();
-    if !tracked.is_empty() { with_paths(&top, &["restore"], &tracked)?; }
+    if !tracked.is_empty() {
+        with_paths(&top, &["restore"], &tracked)?;
+    }
     for u in &untracked {
         remove_untracked(&std::path::Path::new(&top).join(&u.path))?;
     }

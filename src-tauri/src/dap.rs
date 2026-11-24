@@ -1,9 +1,7 @@
 //! Cliente del protocolo DAP (Debug Adapter Protocol) en Rust:
 //! framing `Content-Length`, ciclo de vida de sesión, puntos de interrupción,
 //! pila de llamadas, variables y consola de evaluación.
-use crate::dap_config::{
-    default_launch_template, expand_vars, load_workspace_configs, resolve_adapter, LaunchConfig,
-};
+use crate::dap_config::{default_launch_template, expand_vars, load_workspace_configs, resolve_adapter, LaunchConfig};
 use crate::fsguard::WorkspaceGuard;
 use crate::i18n::{tr, trf};
 use crate::{background_command, procguard};
@@ -148,11 +146,7 @@ impl DapClient {
                                     if ok {
                                         let _ = tx.send(Ok(msg.get("body").cloned().unwrap_or(Value::Null)));
                                     } else {
-                                        let err = msg
-                                            .get("message")
-                                            .and_then(Value::as_str)
-                                            .unwrap_or("Error del adaptador DAP")
-                                            .to_string();
+                                        let err = msg.get("message").and_then(Value::as_str).unwrap_or("Error del adaptador DAP").to_string();
                                         let _ = tx.send(Err(err));
                                     }
                                 }
@@ -170,30 +164,22 @@ impl DapClient {
             }
             if let Ok(mut map) = pending_reader.lock() {
                 for (_, tx) in map.drain() {
-                    let _ = tx.send(Err(tr("La sesión de depuración terminó inesperadamente. Si depuras Python, comprueba que debugpy esté instalado (`pip install debugpy`).").into()));
+                    let _ = tx.send(Err(tr(
+                        "La sesión de depuración terminó inesperadamente. Si depuras Python, comprueba que debugpy esté instalado (`pip install debugpy`).",
+                    )
+                    .into()));
                 }
             }
-            on_event(DapEventPayload {
-                event: "terminated".into(),
-                body: json!({}),
-            });
+            on_event(DapEventPayload { event: "terminated".into(), body: json!({}) });
         });
 
-        Self {
-            seq: AtomicI64::new(1),
-            writer: Mutex::new(Box::new(writer)),
-            pending,
-            pid,
-        }
+        Self { seq: AtomicI64::new(1), writer: Mutex::new(Box::new(writer)), pending, pid }
     }
 
     pub fn request(&self, command: &str, arguments: Value, timeout: Duration) -> Result<Value, String> {
         let seq = self.seq.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = mpsc::channel();
-        self.pending
-            .lock()
-            .map_err(|e| e.to_string())?
-            .insert(seq, tx);
+        self.pending.lock().map_err(|e| e.to_string())?.insert(seq, tx);
 
         let payload = json!({
             "seq": seq,
@@ -212,20 +198,13 @@ impl DapClient {
             Ok(res) => res,
             Err(_) => {
                 let _ = self.pending.lock().map(|mut m| m.remove(&seq));
-                Err(trf(
-                    "El depurador no respondió a «{command}» a tiempo.",
-                    &[("command", &command)],
-                ))
+                Err(trf("El depurador no respondió a «{command}» a tiempo.", &[("command", &command)]))
             }
         }
     }
 
     pub fn shutdown(&self) {
-        let _ = self.request(
-            "disconnect",
-            json!({ "terminateDebuggee": true }),
-            Duration::from_millis(800),
-        );
+        let _ = self.request("disconnect", json!({ "terminateDebuggee": true }), Duration::from_millis(800));
         if let Some(pid) = self.pid {
             procguard::kill_tree(pid);
         }
@@ -247,11 +226,7 @@ impl DapState {
     }
 
     fn current(&self) -> Result<Arc<DapClient>, String> {
-        self.session
-            .lock()
-            .map_err(|e| e.to_string())?
-            .clone()
-            .ok_or_else(|| tr("No hay ninguna sesión de depuración activa.").into())
+        self.session.lock().map_err(|e| e.to_string())?.clone().ok_or_else(|| tr("No hay ninguna sesión de depuración activa.").into())
     }
 }
 
@@ -263,31 +238,16 @@ fn spawn_adapter(
     on_event: impl Fn(DapEventPayload) + Send + Sync + 'static,
 ) -> Result<DapClient, String> {
     let mut cmd = background_command(program);
-    cmd.args(args)
-        .current_dir(cwd)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    cmd.args(args).current_dir(cwd).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     for (k, v) in env {
         cmd.env(k, v);
     }
     procguard::configure_child(&mut cmd);
-    let mut child = cmd.spawn().map_err(|e| {
-        trf(
-            "No se pudo iniciar el adaptador de depuración ({program}): {e}",
-            &[("program", &program), ("e", &e)],
-        )
-    })?;
+    let mut child = cmd.spawn().map_err(|e| trf("No se pudo iniciar el adaptador de depuración ({program}): {e}", &[("program", &program), ("e", &e)]))?;
     procguard::attach_job(&child);
     let pid = child.id();
-    let stdin: ChildStdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| tr("El adaptador de depuración no abrió entrada estándar.").to_string())?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| tr("El adaptador de depuración no abrió salida estándar.").to_string())?;
+    let stdin: ChildStdin = child.stdin.take().ok_or_else(|| tr("El adaptador de depuración no abrió entrada estándar.").to_string())?;
+    let stdout = child.stdout.take().ok_or_else(|| tr("El adaptador de depuración no abrió salida estándar.").to_string())?;
     let stderr = child.stderr.take();
 
     let on_event = Arc::new(on_event);
@@ -297,10 +257,7 @@ fn spawn_adapter(
             let reader = BufReader::new(err_stream);
             for line in reader.lines().map_while(Result::ok) {
                 if !line.trim().is_empty() {
-                    emit_err(DapEventPayload {
-                        event: "output".into(),
-                        body: json!({ "category": "stderr", "output": format!("{line}\n") }),
-                    });
+                    emit_err(DapEventPayload { event: "output".into(), body: json!({ "category": "stderr", "output": format!("{line}\n") }) });
                 }
             }
         });
@@ -314,25 +271,14 @@ fn spawn_adapter(
 }
 
 #[tauri::command]
-pub fn dap_list_configs(
-    app: AppHandle,
-    guard: State<'_, WorkspaceGuard>,
-    active_file: Option<String>,
-) -> Result<DapConfigsResponse, String> {
-    let root = guard
-        .current_root()
-        .ok_or_else(|| tr("Abre una carpeta antes de usar el depurador.").to_string())?;
-    Ok(DapConfigsResponse {
-        trusted: crate::aichat::project_trusted(&app, &root),
-        configs: load_workspace_configs(&root, active_file.as_deref()),
-    })
+pub fn dap_list_configs(app: AppHandle, guard: State<'_, WorkspaceGuard>, active_file: Option<String>) -> Result<DapConfigsResponse, String> {
+    let root = guard.current_root().ok_or_else(|| tr("Abre una carpeta antes de usar el depurador.").to_string())?;
+    Ok(DapConfigsResponse { trusted: crate::aichat::project_trusted(&app, &root), configs: load_workspace_configs(&root, active_file.as_deref()) })
 }
 
 #[tauri::command]
 pub fn dap_create_launch_file(guard: State<'_, WorkspaceGuard>) -> Result<String, String> {
-    let root = guard
-        .current_root()
-        .ok_or_else(|| tr("Abre una carpeta antes de usar el depurador.").to_string())?;
+    let root = guard.current_root().ok_or_else(|| tr("Abre una carpeta antes de usar el depurador.").to_string())?;
     let target = root.join(".pulso").join("launch.json");
     let target_str = target.to_string_lossy().into_owned();
     let safe = guard.ensure_write(&target_str)?;
@@ -354,9 +300,7 @@ pub async fn dap_launch(
     active_file: Option<String>,
     breakpoints: Vec<DapBreakpointInput>,
 ) -> Result<(), String> {
-    let root = guard
-        .current_root()
-        .ok_or_else(|| tr("Abre una carpeta antes de usar el depurador.").to_string())?;
+    let root = guard.current_root().ok_or_else(|| tr("Abre una carpeta antes de usar el depurador.").to_string())?;
     if !crate::aichat::project_trusted(&app, &root) {
         return Err(tr("Esta carpeta no es de confianza. Confía en el proyecto antes de depurar código.").into());
     }
@@ -372,18 +316,10 @@ pub async fn dap_launch(
     if program_raw.trim().is_empty() {
         return Err(tr("Indica un archivo de programa para depurar o abre un archivo en el editor.").into());
     }
-    let program_path = if Path::new(&program_raw).is_absolute() {
-        program_raw
-    } else {
-        root.join(&program_raw).to_string_lossy().into_owned()
-    };
+    let program_path = if Path::new(&program_raw).is_absolute() { program_raw } else { root.join(&program_raw).to_string_lossy().into_owned() };
     let safe_program = guard.ensure_read(&program_path)?;
 
-    let cwd_raw = config
-        .cwd
-        .as_deref()
-        .map(|c| expand_vars(c, &root_str, active_file.as_deref()))
-        .unwrap_or_else(|| root_str.clone());
+    let cwd_raw = config.cwd.as_deref().map(|c| expand_vars(c, &root_str, active_file.as_deref())).unwrap_or_else(|| root_str.clone());
     let safe_cwd = guard.ensure_read(&cwd_raw)?;
     if !safe_cwd.is_dir() {
         return Err(tr("El directorio de trabajo de depuración no es una carpeta válida.").into());
@@ -400,11 +336,7 @@ pub async fn dap_launch(
     }
 
     let (adapter_bin, adapter_args) = resolve_adapter(&config, &root)?;
-    let args: Vec<String> = config
-        .args
-        .iter()
-        .map(|a| expand_vars(a, &root_str, active_file.as_deref()))
-        .collect();
+    let args: Vec<String> = config.args.iter().map(|a| expand_vars(a, &root_str, active_file.as_deref())).collect();
     let env = config.env.clone();
 
     // Detiene cualquier sesión previa antes de lanzar una nueva.
@@ -477,12 +409,7 @@ pub async fn dap_stop(state: State<'_, DapState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn dap_set_breakpoints(
-    state: State<'_, DapState>,
-    guard: State<'_, WorkspaceGuard>,
-    path: String,
-    lines: Vec<u32>,
-) -> Result<Value, String> {
+pub async fn dap_set_breakpoints(state: State<'_, DapState>, guard: State<'_, WorkspaceGuard>, path: String, lines: Vec<u32>) -> Result<Value, String> {
     let safe = guard.ensure_read(&path)?;
     let client = state.current()?;
     let bps: Vec<Value> = lines.into_iter().map(|line| json!({ "line": line })).collect();
@@ -503,55 +430,45 @@ pub async fn dap_set_breakpoints(
 #[tauri::command]
 pub async fn dap_continue(state: State<'_, DapState>, thread_id: i64) -> Result<(), String> {
     let client = state.current()?;
-    tauri::async_runtime::spawn_blocking(move || {
-        client.request("continue", json!({ "threadId": thread_id }), Duration::from_secs(5))
-    })
-    .await
-    .map_err(|e| e.to_string())??;
+    tauri::async_runtime::spawn_blocking(move || client.request("continue", json!({ "threadId": thread_id }), Duration::from_secs(5)))
+        .await
+        .map_err(|e| e.to_string())??;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn dap_next(state: State<'_, DapState>, thread_id: i64) -> Result<(), String> {
     let client = state.current()?;
-    tauri::async_runtime::spawn_blocking(move || {
-        client.request("next", json!({ "threadId": thread_id }), Duration::from_secs(5))
-    })
-    .await
-    .map_err(|e| e.to_string())??;
+    tauri::async_runtime::spawn_blocking(move || client.request("next", json!({ "threadId": thread_id }), Duration::from_secs(5)))
+        .await
+        .map_err(|e| e.to_string())??;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn dap_step_in(state: State<'_, DapState>, thread_id: i64) -> Result<(), String> {
     let client = state.current()?;
-    tauri::async_runtime::spawn_blocking(move || {
-        client.request("stepIn", json!({ "threadId": thread_id }), Duration::from_secs(5))
-    })
-    .await
-    .map_err(|e| e.to_string())??;
+    tauri::async_runtime::spawn_blocking(move || client.request("stepIn", json!({ "threadId": thread_id }), Duration::from_secs(5)))
+        .await
+        .map_err(|e| e.to_string())??;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn dap_step_out(state: State<'_, DapState>, thread_id: i64) -> Result<(), String> {
     let client = state.current()?;
-    tauri::async_runtime::spawn_blocking(move || {
-        client.request("stepOut", json!({ "threadId": thread_id }), Duration::from_secs(5))
-    })
-    .await
-    .map_err(|e| e.to_string())??;
+    tauri::async_runtime::spawn_blocking(move || client.request("stepOut", json!({ "threadId": thread_id }), Duration::from_secs(5)))
+        .await
+        .map_err(|e| e.to_string())??;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn dap_pause(state: State<'_, DapState>, thread_id: i64) -> Result<(), String> {
     let client = state.current()?;
-    tauri::async_runtime::spawn_blocking(move || {
-        client.request("pause", json!({ "threadId": thread_id }), Duration::from_secs(5))
-    })
-    .await
-    .map_err(|e| e.to_string())??;
+    tauri::async_runtime::spawn_blocking(move || client.request("pause", json!({ "threadId": thread_id }), Duration::from_secs(5)))
+        .await
+        .map_err(|e| e.to_string())??;
     Ok(())
 }
 
@@ -559,11 +476,7 @@ pub async fn dap_pause(state: State<'_, DapState>, thread_id: i64) -> Result<(),
 pub async fn dap_stack_trace(state: State<'_, DapState>, thread_id: i64) -> Result<Vec<DapStackFrame>, String> {
     let client = state.current()?;
     let body = tauri::async_runtime::spawn_blocking(move || {
-        client.request(
-            "stackTrace",
-            json!({ "threadId": thread_id, "startFrame": 0, "levels": 40 }),
-            Duration::from_secs(5),
-        )
+        client.request("stackTrace", json!({ "threadId": thread_id, "startFrame": 0, "levels": 40 }), Duration::from_secs(5))
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -575,11 +488,7 @@ pub async fn dap_stack_trace(state: State<'_, DapState>, thread_id: i64) -> Resu
                 .map(|f| DapStackFrame {
                     id: f.get("id").and_then(Value::as_i64).unwrap_or(0),
                     name: f.get("name").and_then(Value::as_str).unwrap_or("<frame>").to_string(),
-                    source: f
-                        .get("source")
-                        .and_then(|s| s.get("path"))
-                        .and_then(Value::as_str)
-                        .map(|p| p.replace('\\', "/")),
+                    source: f.get("source").and_then(|s| s.get("path")).and_then(Value::as_str).map(|p| p.replace('\\', "/")),
                     line: f.get("line").and_then(Value::as_i64).unwrap_or(1),
                     column: f.get("column").and_then(Value::as_i64).unwrap_or(1),
                 })
@@ -592,11 +501,9 @@ pub async fn dap_stack_trace(state: State<'_, DapState>, thread_id: i64) -> Resu
 #[tauri::command]
 pub async fn dap_scopes(state: State<'_, DapState>, frame_id: i64) -> Result<Vec<DapScope>, String> {
     let client = state.current()?;
-    let body = tauri::async_runtime::spawn_blocking(move || {
-        client.request("scopes", json!({ "frameId": frame_id }), Duration::from_secs(5))
-    })
-    .await
-    .map_err(|e| e.to_string())??;
+    let body = tauri::async_runtime::spawn_blocking(move || client.request("scopes", json!({ "frameId": frame_id }), Duration::from_secs(5)))
+        .await
+        .map_err(|e| e.to_string())??;
     let scopes = body
         .get("scopes")
         .and_then(Value::as_array)
@@ -616,15 +523,10 @@ pub async fn dap_scopes(state: State<'_, DapState>, frame_id: i64) -> Result<Vec
 #[tauri::command]
 pub async fn dap_variables(state: State<'_, DapState>, variables_reference: i64) -> Result<Vec<DapVariable>, String> {
     let client = state.current()?;
-    let body = tauri::async_runtime::spawn_blocking(move || {
-        client.request(
-            "variables",
-            json!({ "variablesReference": variables_reference }),
-            Duration::from_secs(5),
-        )
-    })
-    .await
-    .map_err(|e| e.to_string())??;
+    let body =
+        tauri::async_runtime::spawn_blocking(move || client.request("variables", json!({ "variablesReference": variables_reference }), Duration::from_secs(5)))
+            .await
+            .map_err(|e| e.to_string())??;
     let vars = body
         .get("variables")
         .and_then(Value::as_array)
@@ -643,11 +545,7 @@ pub async fn dap_variables(state: State<'_, DapState>, variables_reference: i64)
 }
 
 #[tauri::command]
-pub async fn dap_evaluate(
-    state: State<'_, DapState>,
-    expression: String,
-    frame_id: Option<i64>,
-) -> Result<DapEvalResult, String> {
+pub async fn dap_evaluate(state: State<'_, DapState>, expression: String, frame_id: Option<i64>) -> Result<DapEvalResult, String> {
     let client = state.current()?;
     let body = tauri::async_runtime::spawn_blocking(move || {
         let mut args = json!({ "expression": expression, "context": "repl" });
@@ -729,22 +627,34 @@ mod tests {
                 let cmd = req["command"].as_str().unwrap_or("");
                 match cmd {
                     "initialize" => {
-                        let _ = write_dap_message(&mut writer, &json!({
-                            "seq": 1, "type": "response", "request_seq": seq, "success": true, "command": cmd, "body": {"supportsConfigurationDoneRequest": true}
-                        }));
-                        let _ = write_dap_message(&mut writer, &json!({
-                            "seq": 2, "type": "event", "event": "initialized", "body": {}
-                        }));
+                        let _ = write_dap_message(
+                            &mut writer,
+                            &json!({
+                                "seq": 1, "type": "response", "request_seq": seq, "success": true, "command": cmd, "body": {"supportsConfigurationDoneRequest": true}
+                            }),
+                        );
+                        let _ = write_dap_message(
+                            &mut writer,
+                            &json!({
+                                "seq": 2, "type": "event", "event": "initialized", "body": {}
+                            }),
+                        );
                     }
                     "evaluate" => {
-                        let _ = write_dap_message(&mut writer, &json!({
-                            "seq": 3, "type": "response", "request_seq": seq, "success": true, "command": cmd, "body": {"result": "42", "type": "int", "variablesReference": 0}
-                        }));
+                        let _ = write_dap_message(
+                            &mut writer,
+                            &json!({
+                                "seq": 3, "type": "response", "request_seq": seq, "success": true, "command": cmd, "body": {"result": "42", "type": "int", "variablesReference": 0}
+                            }),
+                        );
                     }
                     "fail_cmd" => {
-                        let _ = write_dap_message(&mut writer, &json!({
-                            "seq": 4, "type": "response", "request_seq": seq, "success": false, "command": cmd, "message": "fallo simulado"
-                        }));
+                        let _ = write_dap_message(
+                            &mut writer,
+                            &json!({
+                                "seq": 4, "type": "response", "request_seq": seq, "success": false, "command": cmd, "message": "fallo simulado"
+                            }),
+                        );
                     }
                     _ => break,
                 }
@@ -753,16 +663,11 @@ mod tests {
 
         let events: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let ev_clone = Arc::clone(&events);
-        let client = DapClient::from_streams(
-            ChanReader { rx: s2c_rx, buf: Vec::new(), pos: 0 },
-            ChanWriter(c2s_tx),
-            None,
-            move |ev| {
-                if let Ok(mut list) = ev_clone.lock() {
-                    list.push(ev.event);
-                }
-            },
-        );
+        let client = DapClient::from_streams(ChanReader { rx: s2c_rx, buf: Vec::new(), pos: 0 }, ChanWriter(c2s_tx), None, move |ev| {
+            if let Ok(mut list) = ev_clone.lock() {
+                list.push(ev.event);
+            }
+        });
 
         let init = client.request("initialize", json!({}), Duration::from_secs(2)).unwrap();
         assert_eq!(init["supportsConfigurationDoneRequest"], json!(true));

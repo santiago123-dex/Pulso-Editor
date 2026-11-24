@@ -18,7 +18,7 @@ describe("testsModel", () => {
         { file: "a.test.ts", name: "ok", status: "passed" },
         { file: "b.test.ts", name: "bad", status: "failed" },
       ],
-      true
+      true,
     );
     expect(groups).toHaveLength(1);
     expect(groups[0].file).toBe("b.test.ts");

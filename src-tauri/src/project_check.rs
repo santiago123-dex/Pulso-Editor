@@ -40,9 +40,7 @@ fn resolve_path(base: &Path, raw: &str) -> String {
 /// `src/foo.ts(12,5): error TS2322: Type 'string' is not assignable to type 'number'.`
 pub fn parse_tsc_output(output: &str, base: &Path) -> Vec<ProjectDiagnostic> {
     static RE: OnceLock<Regex> = OnceLock::new();
-    let re = RE.get_or_init(|| {
-        Regex::new(r"^(.+?)\((\d+),(\d+)\):\s+(error|warning)\s+(TS\d+):\s*(.+)$").unwrap()
-    });
+    let re = RE.get_or_init(|| Regex::new(r"^(.+?)\((\d+),(\d+)\):\s+(error|warning)\s+(TS\d+):\s*(.+)$").unwrap());
     let mut out = Vec::new();
     for line in output.lines() {
         let trimmed = line.trim_end();
@@ -70,9 +68,7 @@ pub fn parse_tsc_output(output: &str, base: &Path) -> Vec<ProjectDiagnostic> {
 /// `src/main.rs:14:9: error[E0308]: mismatched types`
 pub fn parse_cargo_output(output: &str, base: &Path) -> Vec<ProjectDiagnostic> {
     static RE: OnceLock<Regex> = OnceLock::new();
-    let re = RE.get_or_init(|| {
-        Regex::new(r"^(.+?):(\d+):(\d+):\s+(error|warning)(?:\[([^\]]+)\])?:\s*(.+)$").unwrap()
-    });
+    let re = RE.get_or_init(|| Regex::new(r"^(.+?):(\d+):(\d+):\s+(error|warning)(?:\[([^\]]+)\])?:\s*(.+)$").unwrap());
     let mut out = Vec::new();
     for line in output.lines() {
         let trimmed = line.trim_end();
@@ -100,9 +96,7 @@ pub fn parse_cargo_output(output: &str, base: &Path) -> Vec<ProjectDiagnostic> {
 /// `app/main.py:8:1: F401 `os` imported but unused`
 pub fn parse_ruff_output(output: &str, base: &Path) -> Vec<ProjectDiagnostic> {
     static RE: OnceLock<Regex> = OnceLock::new();
-    let re = RE.get_or_init(|| {
-        Regex::new(r"^(.+?):(\d+):(\d+):\s+([A-Z]+\d+)\s+(.+)$").unwrap()
-    });
+    let re = RE.get_or_init(|| Regex::new(r"^(.+?):(\d+):(\d+):\s+([A-Z]+\d+)\s+(.+)$").unwrap());
     let mut out = Vec::new();
     for line in output.lines() {
         let trimmed = line.trim_end();
@@ -193,9 +187,7 @@ fn check_project_sync(root: &Path) -> ProjectCheckResult {
     }
 
     // 3. Python (ruff)
-    let is_python = root.join("pyproject.toml").is_file()
-        || root.join("requirements.txt").is_file()
-        || root.join("setup.py").is_file();
+    let is_python = root.join("pyproject.toml").is_file() || root.join("requirements.txt").is_file() || root.join("setup.py").is_file();
     if is_python {
         if let Some(text) = run_capture("ruff", &["check", "--output-format=concise", "."], root) {
             tools.push("ruff".into());
@@ -203,32 +195,18 @@ fn check_project_sync(root: &Path) -> ProjectCheckResult {
         }
     }
 
-    let note = if tools.is_empty() {
-        Some("No se detectó tsconfig.json, Cargo.toml ni ruff en esta carpeta.".into())
-    } else {
-        None
-    };
+    let note = if tools.is_empty() { Some("No se detectó tsconfig.json, Cargo.toml ni ruff en esta carpeta.".into()) } else { None };
 
     // Límite razonable para mantener fluida la interfaz
     items.truncate(2000);
 
-    ProjectCheckResult {
-        tools,
-        items,
-        duration_ms: started.elapsed().as_millis() as u64,
-        note,
-    }
+    ProjectCheckResult { tools, items, duration_ms: started.elapsed().as_millis() as u64, note }
 }
 
 #[tauri::command]
-pub async fn project_check(
-    root: String,
-    guard: tauri::State<'_, fsguard::WorkspaceGuard>,
-) -> Result<ProjectCheckResult, String> {
+pub async fn project_check(root: String, guard: tauri::State<'_, fsguard::WorkspaceGuard>) -> Result<ProjectCheckResult, String> {
     let safe = guard.ensure_read(&root)?;
-    tauri::async_runtime::spawn_blocking(move || check_project_sync(&safe))
-        .await
-        .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || check_project_sync(&safe)).await.map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

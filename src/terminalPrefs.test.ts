@@ -1,10 +1,24 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: async () => { throw new Error("sin Tauri en las pruebas"); } }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: async () => {
+    throw new Error("sin Tauri en las pruebas");
+  },
+}));
 
 import {
-  BUILTIN_SCHEMES, buildDetected, hasAnythingToAdapt, isNerdFont, parseVsCodeSettings, parseWtSettings,
-  planAdaptation, resolveScheme, schemeFromWt, schemeOptions, shellIdFor, type ShellInfo,
+  BUILTIN_SCHEMES,
+  buildDetected,
+  hasAnythingToAdapt,
+  isNerdFont,
+  parseVsCodeSettings,
+  parseWtSettings,
+  planAdaptation,
+  resolveScheme,
+  schemeFromWt,
+  schemeOptions,
+  shellIdFor,
+  type ShellInfo,
 } from "./terminalPrefs";
 import { THEMES } from "./themes";
 
@@ -33,8 +47,27 @@ const WT = `{
 describe("esquemas incluidos", () => {
   it("todos tienen los 16 colores ANSI, fondo, texto y cursor en formato válido", () => {
     for (const [id, s] of Object.entries(BUILTIN_SCHEMES)) {
-      for (const k of ["background", "foreground", "cursor", "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
-        "brightBlack", "brightRed", "brightGreen", "brightYellow", "brightBlue", "brightMagenta", "brightCyan", "brightWhite"]) {
+      for (const k of [
+        "background",
+        "foreground",
+        "cursor",
+        "black",
+        "red",
+        "green",
+        "yellow",
+        "blue",
+        "magenta",
+        "cyan",
+        "white",
+        "brightBlack",
+        "brightRed",
+        "brightGreen",
+        "brightYellow",
+        "brightBlue",
+        "brightMagenta",
+        "brightCyan",
+        "brightWhite",
+      ]) {
         expect(s.colors[k], `${id}.${k}`).toMatch(/^#[0-9a-f]{6}$/i);
       }
       expect(s.label.length).toBeGreaterThan(0);
@@ -49,7 +82,13 @@ describe("esquemas incluidos", () => {
 
 describe("schemeFromWt", () => {
   it("traduce purple, brightPurple y cursorColor a los nombres de xterm", () => {
-    const s = schemeFromWt({ background: "#101010", foreground: "#eeeeee", cursorColor: "#ff0000", purple: "#aa00aa", brightPurple: "#ff00ff" })!;
+    const s = schemeFromWt({
+      background: "#101010",
+      foreground: "#eeeeee",
+      cursorColor: "#ff0000",
+      purple: "#aa00aa",
+      brightPurple: "#ff00ff",
+    })!;
     expect(s.cursor).toBe("#ff0000");
     expect(s.magenta).toBe("#aa00aa");
     expect(s.brightMagenta).toBe("#ff00ff");
@@ -113,7 +152,9 @@ describe("parseWtSettings", () => {
     const text = `{ "defaultProfile": "{a}", "profiles": { "defaults": { "fontFace": "Consolas", "fontSize": 10 }, "list": [{ "guid": "{a}", "name": "x", "font": { "face": "Fira Code", "size": 13 } }] } }`;
     const r = parseWtSettings(text);
     expect([r.font, r.size]).toEqual(["Fira Code", 13]);
-    expect([parseWtSettings(`{ "profiles": { "defaults": { "fontFace": "Consolas", "fontSize": 10 }, "list": [] } }`).font]).toEqual(["Consolas"]);
+    expect([parseWtSettings(`{ "profiles": { "defaults": { "fontFace": "Consolas", "fontSize": 10 }, "list": [] } }`).font]).toEqual([
+      "Consolas",
+    ]);
   });
 
   it("un archivo roto o vacío no lanza error", () => {
@@ -140,7 +181,9 @@ describe("parseVsCodeSettings", () => {
   });
 
   it("ignora valores de tipo equivocado", () => {
-    const p = parseVsCodeSettings(`{ "terminal.integrated.fontSize": "grande", "terminal.integrated.fontFamily": 5, "terminal.integrated.cursorStyle": "raro" }`);
+    const p = parseVsCodeSettings(
+      `{ "terminal.integrated.fontSize": "grande", "terminal.integrated.fontFamily": 5, "terminal.integrated.cursorStyle": "raro" }`,
+    );
     expect(p.size).toBeUndefined();
     expect(p.font).toBeUndefined();
     expect(p.cursor).toBeUndefined();
@@ -180,13 +223,17 @@ describe("shellIdFor", () => {
 
 describe("detección y adaptación", () => {
   it("reconoce las Nerd Fonts por su nombre", () => {
-    for (const n of ["CaskaydiaCove Nerd Font", "JetBrainsMono NF", "FiraCode NFM", "Hack Nerd Font Mono", "MesloLGS NF"]) expect(isNerdFont(n), n).toBe(true);
+    for (const n of ["CaskaydiaCove Nerd Font", "JetBrainsMono NF", "FiraCode NFM", "Hack Nerd Font Mono", "MesloLGS NF"])
+      expect(isNerdFont(n), n).toBe(true);
     for (const n of ["Cascadia Code", "Consolas", "Segoe UI", "Infinity"]) expect(isNerdFont(n), n).toBe(false);
   });
 
   it("junta lo leído de VS Code, de Windows Terminal y de las fuentes instaladas", () => {
     const d = buildDetected(
-      [{ kind: "wt", text: WT }, { kind: "vscode", text: `{ "terminal.integrated.fontSize": 14 }` }],
+      [
+        { kind: "wt", text: WT },
+        { kind: "vscode", text: `{ "terminal.integrated.fontSize": 14 }` },
+      ],
       ["Consolas", "CaskaydiaCove Nerd Font Mono", "Segoe UI"],
     );
     expect(d.nerd).toEqual(["CaskaydiaCove Nerd Font Mono"]);
@@ -203,13 +250,31 @@ describe("detección y adaptación", () => {
   });
 
   it("el plan resume fuente, tamaño, colores y shell que se aplicarían", () => {
-    const plan = planAdaptation(buildDetected([{ kind: "wt", text: WT }, { kind: "vscode", text: `{ "terminal.integrated.cursorStyle": "underline" }` }], []), ALL);
+    const plan = planAdaptation(
+      buildDetected(
+        [
+          { kind: "wt", text: WT },
+          { kind: "vscode", text: `{ "terminal.integrated.cursorStyle": "underline" }` },
+        ],
+        [],
+      ),
+      ALL,
+    );
     expect(plan).toMatchObject({ font: "Cascadia Mono", size: 11, scheme: "wt", shell: "powershell", cursor: "underline" });
     expect(plan.summary).toEqual(["Fuente: Cascadia Mono", "Tamaño: 11", "Colores: Mi Esquema", "Shell: powershell"]);
   });
 
   it("la fuente de Windows Terminal tiene prioridad sobre la de VS Code", () => {
-    const plan = planAdaptation(buildDetected([{ kind: "wt", text: WT }, { kind: "vscode", text: `{ "terminal.integrated.fontFamily": "Fira Code" }` }], []), ALL);
+    const plan = planAdaptation(
+      buildDetected(
+        [
+          { kind: "wt", text: WT },
+          { kind: "vscode", text: `{ "terminal.integrated.fontFamily": "Fira Code" }` },
+        ],
+        [],
+      ),
+      ALL,
+    );
     expect(plan.font).toBe("Cascadia Mono");
   });
 });

@@ -24,7 +24,9 @@ export interface CatalogView {
 
 /** Los conectados primero y, dentro de cada grupo, por nombre. */
 export function sortProviders(list: readonly ProviderBrief[]): ProviderBrief[] {
-  return [...list].sort((a, b) => Number(b.configured) - Number(a.configured) || a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+  return [...list].sort(
+    (a, b) => Number(b.configured) - Number(a.configured) || a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+  );
 }
 
 /** Línea de detalle de un proveedor en la lista: cuántos modelos tiene y su estado. */

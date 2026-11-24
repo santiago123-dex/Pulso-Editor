@@ -79,7 +79,7 @@ export async function runAllTests(file?: string) {
       res.ok
         ? t("Pruebas completadas: {summary}", { summary: testSummaryLine(res) })
         : t("Pruebas con fallos: {summary}", { summary: testSummaryLine(res) }),
-      4000
+      4000,
     );
   } catch (e) {
     if (mine !== runToken) return;
@@ -149,11 +149,12 @@ function paint() {
 
   const groups = groupTestsByFile(lastResult.cases, onlyFailed);
   if (!groups.length) {
-    const emptyMsg = onlyFailed && lastResult.failed === 0
-      ? t("No hay pruebas fallidas.")
-      : lastResult.ok
-        ? t("Todas las pruebas pasaron.")
-        : t("Las pruebas terminaron con errores. Revisa la salida.");
+    const emptyMsg =
+      onlyFailed && lastResult.failed === 0
+        ? t("No hay pruebas fallidas.")
+        : lastResult.ok
+          ? t("Todas las pruebas pasaron.")
+          : t("Las pruebas terminaron con errores. Revisa la salida.");
     box.append(h("div", "problems-empty", emptyMsg));
   } else {
     for (const g of groups) {
@@ -166,9 +167,16 @@ function paint() {
       if (dir) head.append(h("span", "sdir", dir));
       const runFileBtn = h("button", "icon-btn test-run-file", "▶");
       runFileBtn.title = t("Ejecutar este archivo");
-      runFileBtn.onclick = (e) => { e.stopPropagation(); void runAllTests(g.file); };
+      runFileBtn.onclick = (e) => {
+        e.stopPropagation();
+        void runAllTests(g.file);
+      };
       head.append(h("span", "scount", `${g.passed}/${g.cases.length}`), runFileBtn);
-      head.onclick = () => { if (collapsed.has(g.file)) collapsed.delete(g.file); else collapsed.add(g.file); paint(); };
+      head.onclick = () => {
+        if (collapsed.has(g.file)) collapsed.delete(g.file);
+        else collapsed.add(g.file);
+        paint();
+      };
       head.ondblclick = () => void openFile(g.file);
       box.append(head);
       if (closed) continue;

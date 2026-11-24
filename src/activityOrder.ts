@@ -99,5 +99,7 @@ export function loadActivity(defaults: readonly string[], store: ActivityStore =
 export function saveActivity(cfg: ActivityConfig, store: ActivityStore = localStorage): void {
   try {
     store.setItem(KEY, JSON.stringify(cfg));
-  } catch { /* sin espacio */ }
+  } catch {
+    /* sin espacio */
+  }
 }

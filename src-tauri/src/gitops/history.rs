@@ -26,10 +26,21 @@ pub fn parse_log(out: &str) -> Vec<Commit> {
         .filter(|r| !r.trim().is_empty())
         .filter_map(|r| {
             let f: Vec<&str> = r.trim_end_matches('\n').split(FLD).collect();
-            if f.len() < 6 { return None; }
+            if f.len() < 6 {
+                return None;
+            }
             let refs = f.get(6).map(|d| d.split(", ").map(|x| x.trim()).filter(|x| !x.is_empty()).map(|x| x.to_string()).collect()).unwrap_or_default();
             let parents = f.get(7).map(|p| p.split_whitespace().map(|x| x.to_string()).collect()).unwrap_or_default();
-            Some(Commit { hash: f[0].trim().to_string(), short: f[1].to_string(), author: f[2].to_string(), email: f[3].to_string(), date: f[4].to_string(), subject: f[5].to_string(), refs, parents })
+            Some(Commit {
+                hash: f[0].trim().to_string(),
+                short: f[1].to_string(),
+                author: f[2].to_string(),
+                email: f[3].to_string(),
+                date: f[4].to_string(),
+                subject: f[5].to_string(),
+                refs,
+                parents,
+            })
         })
         .collect()
 }
@@ -43,8 +54,14 @@ pub(super) const MAX_LOG: u32 = 200;
 /// Historial de commits de HEAD (o de todas las ramas / de un archivo), con búsqueda opcional por texto.
 pub(super) fn log_sync(root: &str, path: Option<&str>, skip: u32, limit: u32, query: Option<&str>, all: bool) -> Result<Vec<Commit>, String> {
     let top = top_of(root)?;
-    if !has_head(&top) { return Ok(Vec::new()); }
-    if let Some(p) = path { if !safe_relative(p) { return Err(tr("Ruta no válida").into()); } }
+    if !has_head(&top) {
+        return Ok(Vec::new());
+    }
+    if let Some(p) = path {
+        if !safe_relative(p) {
+            return Err(tr("Ruta no válida").into());
+        }
+    }
     let limit = limit.clamp(1, MAX_LOG).to_string();
     let skip = skip.to_string();
     let grep_arg = query.map(|q| q.trim()).filter(|q| !q.is_empty()).map(|q| format!("--grep={q}"));
@@ -58,9 +75,13 @@ pub(super) fn log_sync(root: &str, path: Option<&str>, skip: u32, limit: u32, qu
         args.push("--fixed-strings");
         args.push(g.as_str());
     }
-    if path.is_some() { args.push("--follow"); }
+    if path.is_some() {
+        args.push("--follow");
+    }
     args.push("--");
-    if let Some(p) = path { args.push(p); }
+    if let Some(p) = path {
+        args.push(p);
+    }
     Ok(parse_log(&run(&top, &args)?))
 }
 
@@ -92,17 +113,25 @@ pub fn parse_name_status(out: &str) -> Vec<CommitFile> {
 }
 
 pub(super) fn commit_files_sync(root: &str, hash: &str) -> Result<Vec<CommitFile>, String> {
-    if !valid_hash(hash) { return Err(tr("Identificador de commit no válido").into()); }
+    if !valid_hash(hash) {
+        return Err(tr("Identificador de commit no válido").into());
+    }
     let top = top_of(root)?;
     Ok(parse_name_status(&run(&top, &["show", "--name-status", "-M", "-z", "--format=", hash])?))
 }
 
 /// Las dos versiones de un archivo en un commit: la del padre y la del propio commit.
 pub(super) fn commit_sources_sync(root: &str, hash: &str, path: &str, orig: Option<&str>) -> Result<DiffSources, String> {
-    if !valid_hash(hash) { return Err(tr("Identificador de commit no válido").into()); }
-    if !safe_relative(path) { return Err(tr("Ruta no válida").into()); }
+    if !valid_hash(hash) {
+        return Err(tr("Identificador de commit no válido").into());
+    }
+    if !safe_relative(path) {
+        return Err(tr("Ruta no válida").into());
+    }
     if let Some(o) = orig {
-        if !safe_relative(o) { return Err(tr("Ruta de origen no válida").into()); }
+        if !safe_relative(o) {
+            return Err(tr("Ruta de origen no válida").into());
+        }
     }
     let top = top_of(root)?;
     let a = blob(&top, &format!("{hash}^:{}", orig.unwrap_or(path)))?;
@@ -111,7 +140,9 @@ pub(super) fn commit_sources_sync(root: &str, hash: &str, path: &str, orig: Opti
         return Err(tr("El archivo es demasiado grande para mostrar diferencias").into());
     }
     let binary = a.iter().take(8000).any(|&x| x == 0) || b.iter().take(8000).any(|&x| x == 0);
-    if binary { return Ok(DiffSources { original: String::new(), modified: String::new(), binary: true }); }
+    if binary {
+        return Ok(DiffSources { original: String::new(), modified: String::new(), binary: true });
+    }
     Ok(DiffSources { original: String::from_utf8_lossy(&a).into_owned(), modified: String::from_utf8_lossy(&b).into_owned(), binary: false })
 }
 
@@ -134,13 +165,22 @@ pub fn parse_blame(out: &str) -> Vec<BlameLine> {
         if let Some(content) = l.strip_prefix('\t') {
             let _ = content;
             let uncommitted = hash.chars().all(|c| c == '0');
-            lines.push(BlameLine { line: final_line, hash: if uncommitted { String::new() } else { hash.clone() }, author: author.clone(), time, summary: summary.clone() });
+            lines.push(BlameLine {
+                line: final_line,
+                hash: if uncommitted { String::new() } else { hash.clone() },
+                author: author.clone(),
+                time,
+                summary: summary.clone(),
+            });
             continue;
         }
-        if let Some(v) = l.strip_prefix("author ") { author = v.to_string(); }
-        else if let Some(v) = l.strip_prefix("author-time ") { time = v.trim().parse().unwrap_or(0); }
-        else if let Some(v) = l.strip_prefix("summary ") { summary = v.to_string(); }
-        else {
+        if let Some(v) = l.strip_prefix("author ") {
+            author = v.to_string();
+        } else if let Some(v) = l.strip_prefix("author-time ") {
+            time = v.trim().parse().unwrap_or(0);
+        } else if let Some(v) = l.strip_prefix("summary ") {
+            summary = v.to_string();
+        } else {
             let f: Vec<&str> = l.split(' ').collect();
             if f.len() >= 3 && f[0].len() >= 40 && f[0].chars().all(|c| c.is_ascii_hexdigit()) {
                 hash = f[0].to_string();
@@ -152,8 +192,12 @@ pub fn parse_blame(out: &str) -> Vec<BlameLine> {
 }
 
 pub(super) fn blame_sync(root: &str, path: &str) -> Result<Vec<BlameLine>, String> {
-    if !safe_relative(path) { return Err(tr("Ruta no válida").into()); }
+    if !safe_relative(path) {
+        return Err(tr("Ruta no válida").into());
+    }
     let top = top_of(root)?;
-    if !has_head(&top) { return Ok(Vec::new()); }
+    if !has_head(&top) {
+        return Ok(Vec::new());
+    }
     Ok(parse_blame(&run(&top, &["blame", "--line-porcelain", "--", path])?))
 }

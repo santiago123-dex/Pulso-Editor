@@ -20,15 +20,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings {
-            provider: "claude".into(),
-            model: None,
-            effort: None,
-            edit: false,
-            trust: false,
-            json: false,
-            cwd: None,
-        }
+        Settings { provider: "claude".into(), model: None, effort: None, edit: false, trust: false, json: false, cwd: None }
     }
 }
 
@@ -75,7 +67,9 @@ pub fn route(args: &[String]) -> Action {
         match a {
             "-h" | "--help" | "help" => return Action::Help,
             "-v" | "--version" => return Action::Version,
-            "doctor" if i == 0 => { doctor = true; }
+            "doctor" if i == 0 => {
+                doctor = true;
+            }
             "ai" | "chat" if i == 0 => {}
             "--provider" | "--ia" => match take(args, &mut i, a) {
                 Ok(v) => match normalize_provider(&v) {
@@ -84,13 +78,25 @@ pub fn route(args: &[String]) -> Action {
                 },
                 Err(e) => return Action::Error(e),
             },
-            "--model" | "-m" => match take(args, &mut i, a) { Ok(v) => s.model = Some(v), Err(e) => return Action::Error(e) },
-            "--effort" => match take(args, &mut i, a) { Ok(v) => s.effort = Some(v), Err(e) => return Action::Error(e) },
-            "--cwd" | "-C" => match take(args, &mut i, a) { Ok(v) => s.cwd = Some(v), Err(e) => return Action::Error(e) },
+            "--model" | "-m" => match take(args, &mut i, a) {
+                Ok(v) => s.model = Some(v),
+                Err(e) => return Action::Error(e),
+            },
+            "--effort" => match take(args, &mut i, a) {
+                Ok(v) => s.effort = Some(v),
+                Err(e) => return Action::Error(e),
+            },
+            "--cwd" | "-C" => match take(args, &mut i, a) {
+                Ok(v) => s.cwd = Some(v),
+                Err(e) => return Action::Error(e),
+            },
             "--edit" => s.edit = true,
             "--trust" => s.trust = true,
             "--json" => s.json = true,
-            "-p" | "--print" => match take(args, &mut i, a) { Ok(v) => ask = Some(v), Err(e) => return Action::Error(e) },
+            "-p" | "--print" => match take(args, &mut i, a) {
+                Ok(v) => ask = Some(v),
+                Err(e) => return Action::Error(e),
+            },
             _ => return Action::Gui,
         }
         i += 1;
@@ -98,7 +104,10 @@ pub fn route(args: &[String]) -> Action {
     if doctor {
         return Action::Doctor(s.cwd);
     }
-    match ask { Some(q) => Action::Ask(s, q), None => Action::Repl(s) }
+    match ask {
+        Some(q) => Action::Ask(s, q),
+        None => Action::Repl(s),
+    }
 }
 
 pub const HELP: &str = "\
@@ -144,23 +153,33 @@ pub struct Parser {
     agy_text: bool,
 }
 
-fn s<'a>(v: &'a Value, k: &str) -> &'a str { v.get(k).and_then(Value::as_str).unwrap_or("") }
+fn s<'a>(v: &'a Value, k: &str) -> &'a str {
+    v.get(k).and_then(Value::as_str).unwrap_or("")
+}
 
 fn hint(input: &Value) -> String {
     for k in ["file_path", "path", "pattern", "command", "query", "url"] {
         let t = s(input, k);
-        if !t.is_empty() { return t.chars().take(80).collect(); }
+        if !t.is_empty() {
+            return t.chars().take(80).collect();
+        }
     }
     String::new()
 }
 
 fn tool_line(name: &str, input: &Value) -> String {
     let h = hint(input);
-    if h.is_empty() { name.to_string() } else { format!("{name} {h}") }
+    if h.is_empty() {
+        name.to_string()
+    } else {
+        format!("{name} {h}")
+    }
 }
 
 impl Parser {
-    pub fn new(provider: &str) -> Self { Parser { provider: provider.into(), ..Default::default() } }
+    pub fn new(provider: &str) -> Self {
+        Parser { provider: provider.into(), ..Default::default() }
+    }
 
     pub fn feed(&mut self, line: &str) -> Vec<Ev> {
         let Ok(v) = serde_json::from_str::<Value>(line) else { return vec![] };
@@ -196,7 +215,9 @@ impl Parser {
             }
             "result" => {
                 let mut out = Vec::new();
-                if !s(v, "session_id").is_empty() { out.push(Ev::Session(s(v, "session_id").into())); }
+                if !s(v, "session_id").is_empty() {
+                    out.push(Ev::Session(s(v, "session_id").into()));
+                }
                 let err = v.get("is_error").and_then(Value::as_bool).unwrap_or(false);
                 out.push(Ev::Done(if err { Err(s(v, "result").to_string()) } else { Ok(()) }));
                 out
@@ -208,13 +229,19 @@ impl Parser {
     fn codex(&mut self, v: &Value) -> Vec<Ev> {
         match s(v, "type") {
             "thread.started" => vec![Ev::Session(s(v, "thread_id").into())],
-            "item.started" if s(&v["item"], "type") == "command_execution" => vec![Ev::Tool(format!("Command {}", s(&v["item"], "command").chars().take(80).collect::<String>()))],
+            "item.started" if s(&v["item"], "type") == "command_execution" => {
+                vec![Ev::Tool(format!("Command {}", s(&v["item"], "command").chars().take(80).collect::<String>()))]
+            }
             "item.completed" => {
                 let item = &v["item"];
                 match s(item, "type") {
                     "agent_message" if !s(item, "text").is_empty() => vec![Ev::Text(format!("{}\n", s(item, "text")))],
-                    "file_change" => item["changes"].as_array().into_iter().flatten()
-                        .map(|c| Ev::Tool(format!("{} {}", if s(c, "kind") == "add" { "Write" } else { "Edit" }, s(c, "path")))).collect(),
+                    "file_change" => item["changes"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .map(|c| Ev::Tool(format!("{} {}", if s(c, "kind") == "add" { "Write" } else { "Edit" }, s(c, "path"))))
+                        .collect(),
                     "web_search" => vec![Ev::Tool(format!("WebSearch {}", s(item, "query")))],
                     _ => vec![],
                 }
@@ -231,7 +258,11 @@ impl Parser {
         match kind {
             "init" => {
                 let id = if !s(v, "conversation_id").is_empty() { s(v, "conversation_id") } else { s(v, "session_id") };
-                if id.is_empty() { vec![] } else { vec![Ev::Session(id.into())] }
+                if id.is_empty() {
+                    vec![]
+                } else {
+                    vec![Ev::Session(id.into())]
+                }
             }
             "step_update" => {
                 let su = &v["step_update"];
@@ -241,20 +272,33 @@ impl Parser {
                     "user_input" | "thinking" | "thought" => vec![],
                     "error_message" => {
                         let m = [s(su, "text"), s(su, "text_delta"), s(su, "error")].into_iter().find(|t| !t.is_empty()).unwrap_or("");
-                        if m.is_empty() { vec![] } else { vec![Ev::Done(Err(m.into()))] }
+                        if m.is_empty() {
+                            vec![]
+                        } else {
+                            vec![Ev::Done(Err(m.into()))]
+                        }
                     }
                     "agent_response" => {
                         let (delta, full) = (s(su, "text_delta"), s(su, "text"));
                         let printed = self.agy_printed.entry(idx).or_insert(0);
                         let new = if !delta.is_empty() { delta.to_string() } else { full.chars().skip(*printed).collect() };
                         *printed += new.chars().count();
-                        if new.is_empty() { vec![] } else { self.agy_text = true; vec![Ev::Text(new)] }
+                        if new.is_empty() {
+                            vec![]
+                        } else {
+                            self.agy_text = true;
+                            vec![Ev::Text(new)]
+                        }
                     }
                     _ => {
                         let ti = &su["tool_info"];
-                        let name = [s(ti, "name"), s(su, "tool_name"), s(su, "name")].into_iter().find(|t| !t.is_empty())
+                        let name = [s(ti, "name"), s(su, "tool_name"), s(su, "name")]
+                            .into_iter()
+                            .find(|t| !t.is_empty())
                             .unwrap_or(if ty != "planner_response" && ty != "tool" { ty } else { "" });
-                        if name.is_empty() || !self.agy_tools.insert(idx) { return vec![]; }
+                        if name.is_empty() || !self.agy_tools.insert(idx) {
+                            return vec![];
+                        }
                         vec![Ev::Tool(tool_line(name, &ti["parameters"]))]
                     }
                 }
@@ -263,12 +307,18 @@ impl Parser {
                 let res = if v.get("result").is_some_and(Value::is_object) { &v["result"] } else { v };
                 let mut out = Vec::new();
                 let final_text = s(res, "response");
-                if !self.agy_text && !final_text.is_empty() { out.push(Ev::Text(format!("{final_text}\n"))); }
+                if !self.agy_text && !final_text.is_empty() {
+                    out.push(Ev::Text(format!("{final_text}\n")));
+                }
                 let denied = res["denied_actions"].as_array().is_some_and(|a| !a.is_empty());
                 let ok = s(res, "status").eq_ignore_ascii_case("success") && !(denied && !self.agy_text && final_text.is_empty());
-                out.push(Ev::Done(if ok { Ok(()) } else if denied {
+                out.push(Ev::Done(if ok {
+                    Ok(())
+                } else if denied {
                     Err(tr("Antigravity necesitó permiso para ejecutar un comando y no puede pedir confirmación en este modo.").into())
-                } else { Err(non_empty(s(res, "error"), tr("Antigravity terminó con error."))) }));
+                } else {
+                    Err(non_empty(s(res, "error"), tr("Antigravity terminó con error.")))
+                }));
                 out
             }
             _ => vec![],
@@ -276,13 +326,21 @@ impl Parser {
     }
 }
 
-fn non_empty(t: &str, fallback: &str) -> String { if t.is_empty() { fallback.into() } else { t.into() } }
+fn non_empty(t: &str, fallback: &str) -> String {
+    if t.is_empty() {
+        fallback.into()
+    } else {
+        t.into()
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn a(v: &[&str]) -> Vec<String> { v.iter().map(|x| x.to_string()).collect() }
+    fn a(v: &[&str]) -> Vec<String> {
+        v.iter().map(|x| x.to_string()).collect()
+    }
 
     #[test]
     fn enruta_terminal_o_ventana() {
@@ -311,13 +369,21 @@ mod tests {
     fn claude_imprime_el_streaming_una_sola_vez() {
         let mut p = Parser::new("claude");
         assert_eq!(p.feed(r#"{"type":"system","subtype":"init","session_id":"s1"}"#), vec![Ev::Session("s1".into())]);
-        assert_eq!(p.feed(r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Ho"}}}"#), vec![Ev::Text("Ho".into())]);
+        assert_eq!(
+            p.feed(r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Ho"}}}"#),
+            vec![Ev::Text("Ho".into())]
+        );
         // El mensaje completo no repite el texto ya emitido, pero sí avisa de la herramienta.
-        let evs = p.feed(r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Hola"},{"type":"tool_use","name":"Read","input":{"file_path":"a.ts"}}]}}"#);
+        let evs = p.feed(
+            r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Hola"},{"type":"tool_use","name":"Read","input":{"file_path":"a.ts"}}]}}"#,
+        );
         assert_eq!(evs, vec![Ev::Tool("Read a.ts".into())]);
         // Un mensaje sin deltas previos sí se imprime.
         assert_eq!(p.feed(r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Fin"}]}}"#), vec![Ev::Text("Fin".into())]);
-        assert_eq!(p.feed(r#"{"type":"result","is_error":true,"result":"no hay sesión","session_id":"s1"}"#), vec![Ev::Session("s1".into()), Ev::Done(Err("no hay sesión".into()))]);
+        assert_eq!(
+            p.feed(r#"{"type":"result","is_error":true,"result":"no hay sesión","session_id":"s1"}"#),
+            vec![Ev::Session("s1".into()), Ev::Done(Err("no hay sesión".into()))]
+        );
     }
 
     #[test]
@@ -326,7 +392,10 @@ mod tests {
         assert_eq!(p.feed(r#"{"type":"thread.started","thread_id":"t9"}"#), vec![Ev::Session("t9".into())]);
         assert_eq!(p.feed(r#"{"type":"item.started","item":{"type":"command_execution","command":"ls"}}"#), vec![Ev::Tool("Command ls".into())]);
         assert_eq!(p.feed(r#"{"type":"item.completed","item":{"type":"agent_message","text":"listo"}}"#), vec![Ev::Text("listo\n".into())]);
-        assert_eq!(p.feed(r#"{"type":"item.completed","item":{"type":"file_change","changes":[{"path":"x.rs","kind":"add"}]}}"#), vec![Ev::Tool("Write x.rs".into())]);
+        assert_eq!(
+            p.feed(r#"{"type":"item.completed","item":{"type":"file_change","changes":[{"path":"x.rs","kind":"add"}]}}"#),
+            vec![Ev::Tool("Write x.rs".into())]
+        );
         assert_eq!(p.feed(r#"{"type":"turn.completed"}"#), vec![Ev::Done(Ok(()))]);
         assert_eq!(p.feed("no es json"), vec![]);
     }
@@ -335,9 +404,18 @@ mod tests {
     fn antigravity_acumula_texto_sin_repetirlo() {
         let mut p = Parser::new("antigravity");
         assert_eq!(p.feed(r#"{"event":"init","conversation_id":"c1"}"#), vec![Ev::Session("c1".into())]);
-        assert_eq!(p.feed(r#"{"event":"step_update","step_update":{"step_index":2,"step_type":"agent_response","text_delta":"Ho"}}"#), vec![Ev::Text("Ho".into())]);
-        assert_eq!(p.feed(r#"{"event":"step_update","step_update":{"step_index":2,"step_type":"agent_response","text":"Hola mundo"}}"#), vec![Ev::Text("la mundo".into())]);
-        assert_eq!(p.feed(r#"{"event":"step_update","step_update":{"step_index":3,"step_type":"x","tool_info":{"name":"view_file","parameters":{"path":"a.rs"}}}}"#), vec![Ev::Tool("view_file a.rs".into())]);
+        assert_eq!(
+            p.feed(r#"{"event":"step_update","step_update":{"step_index":2,"step_type":"agent_response","text_delta":"Ho"}}"#),
+            vec![Ev::Text("Ho".into())]
+        );
+        assert_eq!(
+            p.feed(r#"{"event":"step_update","step_update":{"step_index":2,"step_type":"agent_response","text":"Hola mundo"}}"#),
+            vec![Ev::Text("la mundo".into())]
+        );
+        assert_eq!(
+            p.feed(r#"{"event":"step_update","step_update":{"step_index":3,"step_type":"x","tool_info":{"name":"view_file","parameters":{"path":"a.rs"}}}}"#),
+            vec![Ev::Tool("view_file a.rs".into())]
+        );
         assert_eq!(p.feed(r#"{"event":"step_update","step_update":{"step_index":3,"step_type":"x","state":"DONE","tool_info":{"name":"view_file"}}}"#), vec![]);
         assert_eq!(p.feed(r#"{"event":"result","result":{"status":"SUCCESS","response":"Hola mundo"}}"#), vec![Ev::Done(Ok(()))]);
     }

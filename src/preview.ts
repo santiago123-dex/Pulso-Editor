@@ -90,9 +90,18 @@ export async function openImagePreview(path: string) {
       img.style.transform = `scale(${zoom})`;
       zoomReset.textContent = `${Math.round(zoom * 100)}%`;
     };
-    zoomOut.onclick = () => { zoom = Math.max(0.25, +(zoom - 0.25).toFixed(2)); applyZoom(); };
-    zoomIn.onclick = () => { zoom = Math.min(4, +(zoom + 0.25).toFixed(2)); applyZoom(); };
-    zoomReset.onclick = () => { zoom = 1; applyZoom(); };
+    zoomOut.onclick = () => {
+      zoom = Math.max(0.25, +(zoom - 0.25).toFixed(2));
+      applyZoom();
+    };
+    zoomIn.onclick = () => {
+      zoom = Math.min(4, +(zoom + 0.25).toFixed(2));
+      applyZoom();
+    };
+    zoomReset.onclick = () => {
+      zoom = 1;
+      applyZoom();
+    };
     img.onload = () => {
       info.textContent = `${img.naturalWidth}×${img.naturalHeight} · ${formatBytes(res.bytes)}`;
     };
@@ -115,7 +124,10 @@ function renderInline(parent: HTMLElement, text: string) {
         const a = h("a", "prev-link", p.text);
         a.href = target.url;
         a.rel = "noreferrer";
-        a.onclick = (e) => { e.preventDefault(); void openExternal(target.url); };
+        a.onclick = (e) => {
+          e.preventDefault();
+          void openExternal(target.url);
+        };
         parent.append(a);
       } else {
         parent.append(document.createTextNode(p.text));
@@ -185,7 +197,13 @@ export async function openPreviewFor(path: string | null) {
     setStatus(tr("Abre un archivo Markdown o una imagen para previsualizar"));
     return;
   }
-  if (isImageFile(path)) { await openImagePreview(path); return; }
-  if (isMarkdownFile(path)) { await openMarkdownPreview(path); return; }
+  if (isImageFile(path)) {
+    await openImagePreview(path);
+    return;
+  }
+  if (isMarkdownFile(path)) {
+    await openMarkdownPreview(path);
+    return;
+  }
   setStatus(tr("La vista previa solo está disponible para Markdown e imágenes"));
 }

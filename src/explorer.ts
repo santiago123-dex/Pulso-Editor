@@ -10,7 +10,11 @@ import { promptText, setStatus, showDialog, showMenu, type MenuItem } from "./ui
 import { $, baseName, dirName, fileKey, h } from "./util";
 import { rel, ws } from "./workspace";
 
-interface Entry { name: string; path: string; is_dir: boolean }
+interface Entry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+}
 
 const expanded = new Set<string>();
 let selected: string | null = null;
@@ -18,14 +22,24 @@ let treeGeneration = 0;
 let nextNodeId = 0;
 const dirGeneration = new WeakMap<HTMLElement, number>();
 
-const gitLabels: Record<string, string> = { "git-M": t("modificado en Git"), "git-R": t("renombrado en Git"), "git-U": t("sin seguimiento en Git"), "git-A": t("añadido en Git"), "git-D": t("eliminado en Git"), "git-C": t("conflicto de Git"), "git-I": t("ignorado por Git") };
+const gitLabels: Record<string, string> = {
+  "git-M": t("modificado en Git"),
+  "git-R": t("renombrado en Git"),
+  "git-U": t("sin seguimiento en Git"),
+  "git-A": t("añadido en Git"),
+  "git-D": t("eliminado en Git"),
+  "git-C": t("conflicto de Git"),
+  "git-I": t("ignorado por Git"),
+};
 
 function updateNodeLabel(node: HTMLElement, dirtyKeys?: Set<string>) {
   const path = node.dataset.path!;
   const doc = dirtyKeys ? undefined : findOpenDoc(path);
   const label = [node.classList.contains("dir") ? t("Carpeta") : t("Archivo"), baseName(path)].join(" ");
   const dirty = dirtyKeys ? dirtyKeys.has(fileKey(path)) : !!doc && isDirty(doc);
-  const suffix = [dirty ? t("cambios sin guardar") : "", gitLabels[decorate(path, node.classList.contains("dir"))?.cls ?? ""] ?? ""].filter(Boolean);
+  const suffix = [dirty ? t("cambios sin guardar") : "", gitLabels[decorate(path, node.classList.contains("dir"))?.cls ?? ""] ?? ""].filter(
+    Boolean,
+  );
   const text = suffix.length ? `${label}, ${suffix.join(", ")}` : label;
   if (node.getAttribute("aria-label") !== text) node.setAttribute("aria-label", text);
 }
@@ -36,8 +50,14 @@ function findNode(tree: HTMLElement, path: string | null): HTMLElement | null {
 
 /** Mantiene el foco en el árbol y señala el elemento activo para tecnologías de asistencia. */
 function selectNode(tree: HTMLElement, node: HTMLElement | null, scroll = false) {
-  tree.querySelectorAll<HTMLElement>(".node.sel").forEach((old) => { old.classList.remove("sel"); old.setAttribute("aria-selected", "false"); });
-  if (!node) { tree.removeAttribute("aria-activedescendant"); return; }
+  tree.querySelectorAll<HTMLElement>(".node.sel").forEach((old) => {
+    old.classList.remove("sel");
+    old.setAttribute("aria-selected", "false");
+  });
+  if (!node) {
+    tree.removeAttribute("aria-activedescendant");
+    return;
+  }
   selected = node.dataset.path ?? null;
   node.classList.add("sel");
   node.setAttribute("aria-selected", "true");
@@ -105,7 +125,10 @@ function repaintGit(tree: HTMLElement) {
     for (const cls of Array.from(node.classList)) if (cls.startsWith("git-")) node.classList.remove(cls);
     node.querySelector(".gitdec")?.remove();
     const dec = decorate(node.dataset.path!, node.classList.contains("dir"));
-    if (dec) { node.classList.add(dec.cls); if (dec.badge) node.append(h("span", "gitdec", dec.badge)); }
+    if (dec) {
+      node.classList.add(dec.cls);
+      if (dec.badge) node.append(h("span", "gitdec", dec.badge));
+    }
     updateNodeLabel(node, dirtyKeys);
   });
 }
@@ -132,7 +155,9 @@ export async function refreshTree() {
   }
   const next = h("div");
   // Git no debe retrasar la apertura de la carpeta ni reemplazar el árbol más tarde.
-  void refreshGit(root).then(() => { if (ws.root === root) repaintGit(tree); });
+  void refreshGit(root).then(() => {
+    if (ws.root === root) repaintGit(tree);
+  });
   try {
     await renderDir(root, next);
   } catch (e) {
@@ -163,7 +188,10 @@ export function highlight(path: string | null) {
 function expandTo(path: string) {
   if (!ws.root) return;
   let dir = dirName(path);
-  while (dir.length > ws.root.length) { expanded.add(dir); dir = dirName(dir); }
+  while (dir.length > ws.root.length) {
+    expanded.add(dir);
+    dir = dirName(dir);
+  }
 }
 
 export async function revealInTree(path: string) {
@@ -175,7 +203,10 @@ export async function revealInTree(path: string) {
 
 function remapExpanded(from: string, to: string) {
   for (const p of Array.from(expanded)) {
-    if (p === from || p.startsWith(from + "/")) { expanded.delete(p); expanded.add(to + p.slice(from.length)); }
+    if (p === from || p.startsWith(from + "/")) {
+      expanded.delete(p);
+      expanded.add(to + p.slice(from.length));
+    }
   }
 }
 
@@ -199,7 +230,10 @@ function currentDir(): string {
 }
 
 export async function newEntry(kind: "file" | "folder", dir?: string) {
-  if (!ws.root) { setStatus(t("Abre una carpeta primero")); return; }
+  if (!ws.root) {
+    setStatus(t("Abre una carpeta primero"));
+    return;
+  }
   const base = dir ?? currentDir();
   const name = await promptText({
     title: kind === "file" ? t("Nuevo archivo") : t("Nueva carpeta"),
@@ -242,8 +276,11 @@ export async function deleteEntry(path: string) {
   const unsaved = dirtyDocs().filter((d) => d.path === path || d.path.startsWith(path + "/"));
   const r = await showDialog({
     title: t("Eliminar"),
-    message: t("¿Mover «{name}» a la papelera de reciclaje?", { name: baseName(path) }) +
-      (unsaved.length ? "\n\n" + t("Se perderán los cambios sin guardar de {count} archivo(s) abierto(s).", { count: unsaved.length }) : ""),
+    message:
+      t("¿Mover «{name}» a la papelera de reciclaje?", { name: baseName(path) }) +
+      (unsaved.length
+        ? "\n\n" + t("Se perderán los cambios sin guardar de {count} archivo(s) abierto(s).", { count: unsaved.length })
+        : ""),
     buttons: [
       { label: t("Cancelar"), value: "cancel" },
       { label: t("Mover a la papelera"), value: "ok", danger: true },
@@ -264,7 +301,10 @@ export async function deleteEntry(path: string) {
 
 async function moveEntry(src: string, destDir: string) {
   if (dirName(src) === destDir) return;
-  if (destDir === src || destDir.startsWith(src + "/")) { setStatus(t("No se puede mover una carpeta dentro de sí misma")); return; }
+  if (destDir === src || destDir.startsWith(src + "/")) {
+    setStatus(t("No se puede mover una carpeta dentro de sí misma"));
+    return;
+  }
   const to = `${destDir}/${baseName(src)}`;
   try {
     await invoke("rename_path", { from: src, to });
@@ -283,11 +323,19 @@ async function moveEntry(src: string, destDir: string) {
 function entryMenu(path: string, isDir: boolean): MenuItem[] {
   const dir = isDir ? path : dirName(path);
   return [
-    ...(isDir ? [] : [
-      { label: t("Abrir"), run: () => void openFile(path) },
-      { label: t("Abrir en un grupo nuevo"), run: () => { const g = splitGroup(null); if (g) void openFile(path, { group: g }); } },
-      "sep" as const,
-    ]),
+    ...(isDir
+      ? []
+      : [
+          { label: t("Abrir"), run: () => void openFile(path) },
+          {
+            label: t("Abrir en un grupo nuevo"),
+            run: () => {
+              const g = splitGroup(null);
+              if (g) void openFile(path, { group: g });
+            },
+          },
+          "sep" as const,
+        ]),
     { label: t("Nuevo archivo…"), run: () => void newEntry("file", dir) },
     { label: t("Nueva carpeta…"), run: () => void newEntry("folder", dir) },
     ...(isDir ? [{ label: t("Buscar en la carpeta…"), run: () => onSearchIn(path) }] : []),
@@ -309,7 +357,8 @@ async function toggleDir(node: HTMLElement) {
   const path = node.dataset.path!;
   const kids = node.nextElementSibling as HTMLElement;
   const open = !expanded.has(path);
-  if (open) expanded.add(path); else expanded.delete(path);
+  if (open) expanded.add(path);
+  else expanded.delete(path);
   node.classList.toggle("open", open);
   node.setAttribute("aria-expanded", String(open));
   node.querySelector(".ficon")?.replaceWith(folderIcon(baseName(path), open));
@@ -320,8 +369,11 @@ async function toggleDir(node: HTMLElement) {
       const next = h("div");
       await renderDir(path, next);
       if (dirGeneration.get(node) === id && expanded.has(path)) kids.replaceChildren(...Array.from(next.childNodes));
-    } catch (e) { if (dirGeneration.get(node) === id) setStatus(t("No se pudo leer la carpeta: {error}", { error: String(e) })); }
-    finally { if (dirGeneration.get(node) === id) node.removeAttribute("aria-busy"); }
+    } catch (e) {
+      if (dirGeneration.get(node) === id) setStatus(t("No se pudo leer la carpeta: {error}", { error: String(e) }));
+    } finally {
+      if (dirGeneration.get(node) === id) node.removeAttribute("aria-busy");
+    }
   } else {
     node.removeAttribute("aria-busy");
   }
@@ -330,7 +382,11 @@ async function toggleDir(node: HTMLElement) {
 let onSearchIn: (path: string) => void = () => {};
 let onOpenTerminal: (dir: string) => void = () => {};
 
-export function initExplorer(hooks: { onOpenFolder: () => void; onSearchIn: (path: string) => void; onOpenTerminal: (dir: string) => void }) {
+export function initExplorer(hooks: {
+  onOpenFolder: () => void;
+  onSearchIn: (path: string) => void;
+  onOpenTerminal: (dir: string) => void;
+}) {
   onSearchIn = hooks.onSearchIn;
   onOpenTerminal = hooks.onOpenTerminal;
   const tree = $("tree");
@@ -338,12 +394,18 @@ export function initExplorer(hooks: { onOpenFolder: () => void; onSearchIn: (pat
   tree.setAttribute("role", "tree");
   tree.setAttribute("aria-label", t("Explorador de archivos"));
   for (const [id, label] of [
-    ["ex-new-file", t("Nuevo archivo")], ["ex-new-folder", t("Nueva carpeta")],
-    ["ex-refresh", t("Actualizar explorador")], ["ex-collapse", t("Contraer todas las carpetas")],
+    ["ex-new-file", t("Nuevo archivo")],
+    ["ex-new-folder", t("Nueva carpeta")],
+    ["ex-refresh", t("Actualizar explorador")],
+    ["ex-collapse", t("Contraer todas las carpetas")],
     ["open-folder", t("Abrir carpeta")],
-  ]) $(id).setAttribute("aria-label", label);
+  ])
+    $(id).setAttribute("aria-label", label);
   tree.addEventListener("focus", () => syncSelection(tree, true));
-  onDocsChange(() => { const node = findNode(tree, selected); if (node) updateNodeLabel(node); });
+  onDocsChange(() => {
+    const node = findNode(tree, selected);
+    if (node) updateNodeLabel(node);
+  });
   const nodeOf = (t: EventTarget | null) => (t as HTMLElement).closest<HTMLElement>(".node");
 
   tree.addEventListener("click", (e) => {
@@ -351,7 +413,8 @@ export function initExplorer(hooks: { onOpenFolder: () => void; onSearchIn: (pat
     if (!node) return;
     tree.focus();
     highlight(node.dataset.path!);
-    if (node.classList.contains("dir")) void toggleDir(node); else void openFile(node.dataset.path!);
+    if (node.classList.contains("dir")) void toggleDir(node);
+    else void openFile(node.dataset.path!);
   });
 
   const menuFor = (e: MouseEvent) => {
@@ -373,10 +436,22 @@ export function initExplorer(hooks: { onOpenFolder: () => void; onSearchIn: (pat
 
   tree.addEventListener("keydown", (e) => {
     if (e.target !== tree || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
-    if (selected && e.key === "F2") { e.preventDefault(); void renameEntry(selected); return; }
-    if (selected && e.key === "Delete") { e.preventDefault(); void deleteEntry(selected); return; }
+    if (selected && e.key === "F2") {
+      e.preventDefault();
+      void renameEntry(selected);
+      return;
+    }
+    if (selected && e.key === "Delete") {
+      e.preventDefault();
+      void deleteEntry(selected);
+      return;
+    }
     const nodes = Array.from(tree.querySelectorAll<HTMLElement>(".node"));
-    const action = explorerKey(nodes.map((node) => ({ path: node.dataset.path!, isDir: node.classList.contains("dir"), expanded: node.classList.contains("open") })), selected, e.key);
+    const action = explorerKey(
+      nodes.map((node) => ({ path: node.dataset.path!, isDir: node.classList.contains("dir"), expanded: node.classList.contains("open") })),
+      selected,
+      e.key,
+    );
     if (!action) {
       if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", " "].includes(e.key)) e.preventDefault();
       return;
@@ -397,15 +472,24 @@ export function initExplorer(hooks: { onOpenFolder: () => void; onSearchIn: (pat
     e.dataTransfer.effectAllowed = "copyMove";
   });
   let over: HTMLElement | null = null;
-  const clearOver = () => { over?.classList.remove("drop"); over = null; };
+  const clearOver = () => {
+    over?.classList.remove("drop");
+    over = null;
+  };
   tree.addEventListener("dragover", (e) => {
     if (!e.dataTransfer?.types.includes(FILE_MIME)) return;
     e.preventDefault();
     const node = nodeOf(e.target);
     const target = node?.classList.contains("dir") ? node : null;
-    if (target !== over) { clearOver(); over = target; over?.classList.add("drop"); }
+    if (target !== over) {
+      clearOver();
+      over = target;
+      over?.classList.add("drop");
+    }
   });
-  tree.addEventListener("dragleave", (e) => { if (e.target === tree) clearOver(); });
+  tree.addEventListener("dragleave", (e) => {
+    if (e.target === tree) clearOver();
+  });
   tree.addEventListener("drop", (e) => {
     const src = e.dataTransfer?.getData(FILE_MIME);
     if (!src || !ws.root) return;
@@ -430,7 +514,12 @@ export function initExplorer(hooks: { onOpenFolder: () => void; onSearchIn: (pat
     if (collapsed && document.activeElement === tree) folderName.focus();
   };
   folderName.onclick = toggleRoot;
-  folderName.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleRoot(); } };
+  folderName.onkeydown = (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggleRoot();
+    }
+  };
   $("ex-new-file").onclick = () => void newEntry("file");
   $("ex-new-folder").onclick = () => void newEntry("folder");
   $("ex-refresh").onclick = () => void refreshTree();

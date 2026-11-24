@@ -7,7 +7,16 @@ import { listen } from "@tauri-apps/api/event";
 import { readStorage, writeStorage } from "./core/storage";
 import { terminalKeyAction } from "./terminalKeys";
 import { commit, currentTheme, state } from "./settings";
-import { detectPrefs, hasAnythingToAdapt, planAdaptation, resolveScheme, shellIdFor, type Adaptation, type Detected, type ShellInfo } from "./terminalPrefs";
+import {
+  detectPrefs,
+  hasAnythingToAdapt,
+  planAdaptation,
+  resolveScheme,
+  shellIdFor,
+  type Adaptation,
+  type Detected,
+  type ShellInfo,
+} from "./terminalPrefs";
 import { hooks, setStatus, showDialog, showMenu } from "./ui";
 import { $, h, terminalFontStack } from "./util";
 import { ws } from "./workspace";
@@ -39,7 +48,11 @@ const decode = (b64: string) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0
 
 export async function listShells(): Promise<ShellInfo[]> {
   if (!shells) {
-    try { shells = await invoke<ShellInfo[]>("term_shells"); } catch { shells = []; }
+    try {
+      shells = await invoke<ShellInfo[]>("term_shells");
+    } catch {
+      shells = [];
+    }
   }
   return shells;
 }
@@ -71,7 +84,10 @@ export const terminalCount = () => order.length;
 
 function showPanel(show: boolean) {
   $("panel").hidden = !show;
-  if (show) requestAnimationFrame(() => { active?.fit.fit(); });
+  if (show)
+    requestAnimationFrame(() => {
+      active?.fit.fit();
+    });
 }
 
 export function hidePanel() {
@@ -93,8 +109,11 @@ function syncMeta() {
   const panel = $("panel");
   if (!meta) return;
   panel.classList.toggle("term-err", !!active?.exited);
-  if (!active) { meta.hidden = true; return; }
-  const dir = active.cwd ? active.cwd.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? "" : "";
+  if (!active) {
+    meta.hidden = true;
+    return;
+  }
+  const dir = active.cwd ? (active.cwd.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? "") : "";
   meta.textContent = `${dir ? `${dir} · ` : ""}${active.xterm.cols}×${active.xterm.rows}`;
   meta.hidden = false;
 }
@@ -108,10 +127,15 @@ function renderTabs() {
     tab.append(h("span", "term-glyph", shellBadge(t.label)), h("span", "term-label", t.label));
     const close = h("span", "term-close", "×");
     close.title = tr("Terminar esta terminal");
-    close.onclick = (e) => { e.stopPropagation(); closeTerm(t); };
+    close.onclick = (e) => {
+      e.stopPropagation();
+      closeTerm(t);
+    };
     tab.append(close);
     tab.onclick = () => activateTerm(t);
-    tab.onauxclick = (e) => { if (e.button === 1) closeTerm(t); };
+    tab.onauxclick = (e) => {
+      if (e.button === 1) closeTerm(t);
+    };
     bar.append(tab);
   }
   syncMeta();
@@ -147,7 +171,10 @@ function closeTerm(t: Term) {
 function onExit(t: Term, code: number) {
   t.exited = true;
   // Un `exit` normal cierra la terminal; si falló se deja el mensaje a la vista.
-  if (code === 0) { closeTerm(t); return; }
+  if (code === 0) {
+    closeTerm(t);
+    return;
+  }
   t.xterm.write(`\r\n\x1b[2m[${tr("El proceso terminó con el código {code}", { code })}]\x1b[0m\r\n`);
   renderTabs();
 }
@@ -186,7 +213,10 @@ export async function adaptToMyTerminal(): Promise<boolean> {
   }
   const r = await showDialog({
     title: tr("Adaptar la terminal a la tuya"),
-    message: tr("Encontré esta configuración en tus otras terminales:\n\n") + plan.summary.map((l) => "\u2022 " + l).join("\n") + tr("\n\n¿Quieres que Pulso la use?"),
+    message:
+      tr("Encontré esta configuración en tus otras terminales:\n\n") +
+      plan.summary.map((l) => "\u2022 " + l).join("\n") +
+      tr("\n\n¿Quieres que Pulso la use?"),
     buttons: [
       { label: tr("No, gracias"), value: "no" },
       { label: tr("Usar la mía"), value: "yes", primary: true },
@@ -213,19 +243,31 @@ async function adaptOnce() {
   try {
     detected = await detectPrefs();
     const plan = planAdaptation(detected, await listShells());
-    if (plan.summary.length) { applyAdaptation(plan); setStatus(tr("Terminal adaptada a la tuya: ") + plan.summary.join(" · "), 6000); return; }
-  } catch { /* sin configuración que leer: se usa la shell predeterminada */ }
+    if (plan.summary.length) {
+      applyAdaptation(plan);
+      setStatus(tr("Terminal adaptada a la tuya: ") + plan.summary.join(" · "), 6000);
+      return;
+    }
+  } catch {
+    /* sin configuración que leer: se usa la shell predeterminada */
+  }
   state.settings.terminalAdapted = true;
   commit();
 }
 
 export async function newTerminal(opts: { shell?: ShellInfo; cwd?: string } = {}): Promise<boolean> {
-  if (!inTauri) { setStatus(tr("La terminal solo funciona en la ventana de Pulso Editor.")); return false; }
+  if (!inTauri) {
+    setStatus(tr("La terminal solo funciona en la ventana de Pulso Editor."));
+    return false;
+  }
   await adaptOnce();
   // xterm mide las celdas al abrirse: la fuente de símbolos debe estar cargada antes, o los iconos salen como cuadros.
   await document.fonts.load('14px "Symbols Nerd Font Mono"', "").catch(() => {});
   const shell = opts.shell ?? (await preferredShell());
-  if (!shell) { setStatus(tr("No se encontró ninguna shell instalada.")); return false; }
+  if (!shell) {
+    setStatus(tr("No se encontró ninguna shell instalada."));
+    return false;
+  }
   await ensureListening();
   showPanel(true);
 
@@ -266,7 +308,9 @@ export async function newTerminal(opts: { shell?: ShellInfo; cwd?: string } = {}
   byId.set(id, t);
   order.push(t);
 
-  xterm.onData((d) => { void invoke("term_write", { id, data: d }).catch(() => {}); });
+  xterm.onData((d) => {
+    void invoke("term_write", { id, data: d }).catch(() => {});
+  });
   xterm.onResize(({ cols, rows }) => {
     void invoke("term_resize", { id, cols, rows }).catch(() => {});
     if (t === active) syncMeta();
@@ -298,7 +342,10 @@ export async function newTerminal(opts: { shell?: ShellInfo; cwd?: string } = {}
   early.delete(id);
   activateTerm(t);
   const code = earlyExit.get(id);
-  if (code !== undefined) { earlyExit.delete(id); onExit(t, code); }
+  if (code !== undefined) {
+    earlyExit.delete(id);
+    onExit(t, code);
+  }
   return true;
 }
 
@@ -313,22 +360,38 @@ function copySelection(t: Term, clear = false) {
 }
 
 async function pasteInto(t: Term) {
-  try { t.xterm.paste(await navigator.clipboard.readText()); } catch { setStatus(tr("No se pudo leer el portapapeles")); }
+  try {
+    t.xterm.paste(await navigator.clipboard.readText());
+  } catch {
+    setStatus(tr("No se pudo leer el portapapeles"));
+  }
 }
 
 // ---------- Acciones públicas ----------
 export async function toggleTerminal() {
-  if (isPanelOpen()) { hidePanel(); return; }
-  if (!order.length) { await newTerminal(); return; }
+  if (isPanelOpen()) {
+    hidePanel();
+    return;
+  }
+  if (!order.length) {
+    await newTerminal();
+    return;
+  }
   showPanel(true);
   if (active) activateTerm(active);
 }
 
-export function clearTerminal() { active?.xterm.clear(); }
+export function clearTerminal() {
+  active?.xterm.clear();
+}
 
-export function killActiveTerminal() { if (active) closeTerm(active); }
+export function killActiveTerminal() {
+  if (active) closeTerm(active);
+}
 
-export function focusTerminal() { active?.xterm.focus(); }
+export function focusTerminal() {
+  active?.xterm.focus();
+}
 
 /** Escribe texto en la terminal activa (creándola si hace falta) y lo ejecuta. */
 export async function runInTerminal(text: string) {
@@ -351,21 +414,32 @@ export function applyTerminalSettings() {
 
 // ---------- Inicio ----------
 export function initTerminal() {
-  void detectPrefs().then((d) => { detected = d; applyTerminalSettings(); });
+  void detectPrefs().then((d) => {
+    detected = d;
+    applyTerminalSettings();
+  });
   // Si la ventana se recargó, las shells de antes ya no tienen pestaña: se cierran.
   if (inTauri) void invoke("term_kill_all").catch(() => {});
   const clearBtn = document.getElementById("term-clear");
-  if (clearBtn) clearBtn.onclick = () => { clearTerminal(); focusTerminal(); };
+  if (clearBtn)
+    clearBtn.onclick = () => {
+      clearTerminal();
+      focusTerminal();
+    };
   $("term-new").onclick = () => void newTerminal();
   $("term-hide").onclick = hidePanel;
   $("term-shells").onclick = async (e) => {
     const r = ($("term-shells") as HTMLElement).getBoundingClientRect();
     const list = await listShells();
     e.stopPropagation();
-    showMenu(r.left, r.top - 8 - list.length * 28, list.map((s) => ({
-      label: s.label + (s.id === (state.settings.terminalShell || list[0]?.id) ? "  ✓" : ""),
-      run: () => void newTerminal({ shell: s }),
-    })));
+    showMenu(
+      r.left,
+      r.top - 8 - list.length * 28,
+      list.map((s) => ({
+        label: s.label + (s.id === (state.settings.terminalShell || list[0]?.id) ? "  ✓" : ""),
+        run: () => void newTerminal({ shell: s }),
+      })),
+    );
   };
 
   let maximized = false;
@@ -375,7 +449,11 @@ export function initTerminal() {
     const parent = panel.parentElement!;
     panel.classList.toggle("term-max", maximized);
     document.documentElement.style.setProperty("--panel-h", maximized ? `${Math.round(parent.clientHeight * 0.75)}px` : "280px");
-    requestAnimationFrame(() => { active?.fit.fit(); syncMeta(); focusTerminal(); });
+    requestAnimationFrame(() => {
+      active?.fit.fit();
+      syncMeta();
+      focusTerminal();
+    });
   };
 
   $("term-body").addEventListener("mousedown", (e) => {
@@ -422,6 +500,8 @@ export function initTerminal() {
   let frame = 0;
   new ResizeObserver(() => {
     cancelAnimationFrame(frame);
-    frame = requestAnimationFrame(() => { if (isPanelOpen()) active?.fit.fit(); });
+    frame = requestAnimationFrame(() => {
+      if (isPanelOpen()) active?.fit.fit();
+    });
   }).observe($("term-body"));
 }

@@ -20,14 +20,7 @@ pub(crate) struct GitInfo {
 
 pub(crate) fn git_out(path: &str, args: &[&str]) -> Option<String> {
     // Solo lectura: sin candados opcionales y en locale C para parseo determinista.
-    let out = background_command("git")
-        .env("GIT_OPTIONAL_LOCKS", "0")
-        .env("LC_ALL", "C")
-        .arg("-C")
-        .arg(path)
-        .args(args)
-        .output()
-        .ok()?;
+    let out = background_command("git").env("GIT_OPTIONAL_LOCKS", "0").env("LC_ALL", "C").arg("-C").arg(path).args(args).output().ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
@@ -44,17 +37,25 @@ pub(crate) fn parse_git_status(text: &str, top: &str) -> GitInfo {
             };
             if let Some(i) = head.find('[') {
                 for part in head[i + 1..].trim_end_matches(']').split(", ") {
-                    if let Some(n) = part.strip_prefix("ahead ") { info.ahead = n.parse().unwrap_or(0); }
-                    if let Some(n) = part.strip_prefix("behind ") { info.behind = n.parse().unwrap_or(0); }
+                    if let Some(n) = part.strip_prefix("ahead ") {
+                        info.ahead = n.parse().unwrap_or(0);
+                    }
+                    if let Some(n) = part.strip_prefix("behind ") {
+                        info.behind = n.parse().unwrap_or(0);
+                    }
                 }
             }
             continue;
         }
         let bytes = rec.as_bytes();
-        if bytes.len() < 4 || bytes[2] != b' ' { continue; }
+        if bytes.len() < 4 || bytes[2] != b' ' {
+            continue;
+        }
         let file = &rec[3..];
         let (x, y) = (bytes[0] as char, bytes[1] as char);
-        if x == 'R' || x == 'C' || y == 'R' || y == 'C' { records.next(); }
+        if x == 'R' || x == 'C' || y == 'R' || y == 'C' {
+            records.next();
+        }
         let status = match (x, y) {
             ('?', '?') => "U",
             ('!', '!') => "I",
@@ -65,12 +66,10 @@ pub(crate) fn parse_git_status(text: &str, top: &str) -> GitInfo {
             ('A', _) | (_, 'A') => "A",
             _ => "M",
         };
-        if status != "I" { info.dirty = true; }
-        info.files.push(GitFile {
-            path: format!("{}/{}", top, file.trim_end_matches('/')),
-            status: status.to_string(),
-            dir: file.ends_with('/'),
-        });
+        if status != "I" {
+            info.dirty = true;
+        }
+        info.files.push(GitFile { path: format!("{}/{}", top, file.trim_end_matches('/')), status: status.to_string(), dir: file.ends_with('/') });
     }
     info
 }
@@ -100,11 +99,7 @@ pub(crate) async fn git_remote(guard: tauri::State<'_, fsguard::WorkspaceGuard>,
 }
 
 pub(crate) fn git_remote_sync(path: String) -> Result<String, String> {
-    let out = background_command("git")
-        .env("LC_ALL", "C")
-        .args(["-C", &path, "remote", "get-url", "origin"])
-        .output()
-        .map_err(|e| e.to_string())?;
+    let out = background_command("git").env("LC_ALL", "C").args(["-C", &path, "remote", "get-url", "origin"]).output().map_err(|e| e.to_string())?;
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
     }

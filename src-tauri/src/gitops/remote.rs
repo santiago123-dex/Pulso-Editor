@@ -6,7 +6,11 @@ pub(super) const NET_TIMEOUT_SECS: u64 = 120;
 
 /// Ejecuta un comando con límite de tiempo: si queda esperando (por ejemplo, un inicio de sesión), se detiene.
 pub(super) fn run_timeout(mut cmd: Command, secs: u64) -> Result<Output, String> {
-    use std::{io::Read, thread, time::{Duration, Instant}};
+    use std::{
+        io::Read,
+        thread,
+        time::{Duration, Instant},
+    };
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     crate::procguard::configure_child(&mut cmd);
     let mut child = cmd.spawn().map_err(|e| trf("No se pudo ejecutar git: {e}", &[("e", &e)]))?;
@@ -14,8 +18,16 @@ pub(super) fn run_timeout(mut cmd: Command, secs: u64) -> Result<Output, String>
     let pid = child.id();
     let mut out = child.stdout.take().ok_or(tr("sin salida"))?;
     let mut err = child.stderr.take().ok_or(tr("sin salida de error"))?;
-    let t_out = thread::spawn(move || { let mut b = Vec::new(); let _ = out.read_to_end(&mut b); b });
-    let t_err = thread::spawn(move || { let mut b = Vec::new(); let _ = err.read_to_end(&mut b); b });
+    let t_out = thread::spawn(move || {
+        let mut b = Vec::new();
+        let _ = out.read_to_end(&mut b);
+        b
+    });
+    let t_err = thread::spawn(move || {
+        let mut b = Vec::new();
+        let _ = err.read_to_end(&mut b);
+        b
+    });
     let deadline = Instant::now() + Duration::from_secs(secs);
     let status = loop {
         match child.try_wait().map_err(|e| e.to_string())? {
@@ -26,7 +38,10 @@ pub(super) fn run_timeout(mut cmd: Command, secs: u64) -> Result<Output, String>
                 let _ = child.wait();
                 let _ = t_out.join();
                 let _ = t_err.join();
-                return Err(trf("La operación tardó más de {secs} s y se canceló. Si Git esperaba un inicio de sesión, inicia sesión desde una terminal y reinténtalo", &[("secs", &secs)]));
+                return Err(trf(
+                    "La operación tardó más de {secs} s y se canceló. Si Git esperaba un inicio de sesión, inicia sesión desde una terminal y reinténtalo",
+                    &[("secs", &secs)],
+                ));
             }
             None => thread::sleep(Duration::from_millis(50)),
         }
@@ -38,12 +53,18 @@ pub(super) fn run_net(top: &str, args: &[&str], secs: u64) -> Result<String, Str
     let mut c = git_command(top);
     c.args(args);
     let o = run_timeout(c, secs)?;
-    if o.status.success() { Ok(text(&o)) } else { Err(text(&o)) }
+    if o.status.success() {
+        Ok(text(&o))
+    } else {
+        Err(text(&o))
+    }
 }
 
 pub(super) fn current_branch(top: &str) -> Result<String, String> {
     let b = run(top, &["rev-parse", "--abbrev-ref", "HEAD"])?.trim().to_string();
-    if b == "HEAD" { return Err(tr("Estás en HEAD desacoplado: cambia a una rama antes de sincronizar").into()); }
+    if b == "HEAD" {
+        return Err(tr("Estás en HEAD desacoplado: cambia a una rama antes de sincronizar").into());
+    }
     Ok(b)
 }
 

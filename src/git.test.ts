@@ -2,23 +2,38 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({ result: null as unknown, fail: false, delayed: null as null | ((path: string) => Promise<unknown>) }));
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: async (_: string, args: { path: string }) => { if (h.fail) throw new Error("git no disponible"); return h.delayed ? h.delayed(args.path) : h.result; },
+  invoke: async (_: string, args: { path: string }) => {
+    if (h.fail) throw new Error("git no disponible");
+    return h.delayed ? h.delayed(args.path) : h.result;
+  },
 }));
 
 import { decorate, gitInfo, onGitChange, refreshGit } from "./git";
 
 const info = (files: { path: string; status: string; dir?: boolean }[], extra = {}) => ({
-  branch: "main", ahead: 0, behind: 0, dirty: true,
+  branch: "main",
+  ahead: 0,
+  behind: 0,
+  dirty: true,
   files: files.map((f) => ({ dir: false, ...f })),
   ...extra,
 });
 
-beforeEach(() => { h.result = null; h.fail = false; h.delayed = null; });
+beforeEach(() => {
+  h.result = null;
+  h.fail = false;
+  h.delayed = null;
+});
 
 describe("refreshGit y decorate", () => {
   it("agrupa consultas simultáneas del mismo repositorio", async () => {
     let resolve!: (value: unknown) => void;
-    const fetch = vi.fn(() => new Promise<unknown>((r) => { resolve = r; }));
+    const fetch = vi.fn(
+      () =>
+        new Promise<unknown>((r) => {
+          resolve = r;
+        }),
+    );
     h.delayed = fetch;
     const first = refreshGit("C:/r");
     const second = refreshGit("C:/r");
@@ -29,7 +44,12 @@ describe("refreshGit y decorate", () => {
 
   it("ignora resultados de un repositorio anterior después de cambiar de carpeta", async () => {
     let resolve!: (value: unknown) => void;
-    h.delayed = (path) => path === "C:/old" ? new Promise((r) => { resolve = r; }) : Promise.resolve(info([], { branch: "nueva" }));
+    h.delayed = (path) =>
+      path === "C:/old"
+        ? new Promise((r) => {
+            resolve = r;
+          })
+        : Promise.resolve(info([], { branch: "nueva" }));
     const old = refreshGit("C:/old");
     await refreshGit("C:/new");
     resolve(info([], { branch: "antigua" }));
@@ -100,7 +120,10 @@ describe("refreshGit y decorate", () => {
   });
 
   it("lo ignorado se atenúa sin letra y no cuenta como cambio de la carpeta padre", async () => {
-    h.result = info([{ path: "C:/r/dist", status: "I", dir: true }, { path: "C:/r/.env", status: "I" }]);
+    h.result = info([
+      { path: "C:/r/dist", status: "I", dir: true },
+      { path: "C:/r/.env", status: "I" },
+    ]);
     await refreshGit("C:/r");
     expect(decorate("C:/r/dist", true)).toEqual({ cls: "git-I", badge: "" });
     expect(decorate("C:/r/dist/bundle.js", false)).toEqual({ cls: "git-I", badge: "" });

@@ -50,7 +50,9 @@ export function buildPrompt(text: string, ctx: EditorContext): string {
     const cut = ctx.selection.text.length > MAX_SELECTION;
     const body = cut ? ctx.selection.text.slice(0, MAX_SELECTION) : ctx.selection.text;
     const fence = fenceFor(body);
-    parts.push(`- Selección (líneas ${startLine}-${endLine}${cut ? `, recortada a ${MAX_SELECTION} caracteres` : ""}):\n${fence}\n${body}\n${fence}`);
+    parts.push(
+      `- Selección (líneas ${startLine}-${endLine}${cut ? `, recortada a ${MAX_SELECTION} caracteres` : ""}):\n${fence}\n${body}\n${fence}`,
+    );
   }
   if (!parts.length) return text;
   return `Contexto del editor de Pulso (lo ve la persona):\n${parts.join("\n")}\n\nMensaje:\n${text}`;
@@ -59,7 +61,11 @@ export function buildPrompt(text: string, ctx: EditorContext): string {
 /** Texto corto de cada chip. */
 export const chipLabels = (ctx: EditorContext): { file?: string; selection?: string } => ({
   file: ctx.file ? ctx.file.split("/").pop() : undefined,
-  selection: ctx.selection?.text.trim() ? (ctx.selection.endLine === ctx.selection.startLine ? t("Selección · 1 línea") : t("Selección · {count} líneas", { count: ctx.selection.endLine - ctx.selection.startLine + 1 })) : undefined,
+  selection: ctx.selection?.text.trim()
+    ? ctx.selection.endLine === ctx.selection.startLine
+      ? t("Selección · 1 línea")
+      : t("Selección · {count} líneas", { count: ctx.selection.endLine - ctx.selection.startLine + 1 })
+    : undefined,
 });
 
 /** Detecta una mención `@archivo` justo antes del cursor en el cuadro del asistente de IA. */

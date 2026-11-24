@@ -8,7 +8,9 @@ describe("buildPrompt", () => {
   });
   it("con archivo y selección los pone antes del mensaje, identificados", () => {
     const p = buildPrompt("¿qué hace?", { file: "src/a.ts", selection: { text: "const a = 1;", startLine: 3, endLine: 5 } });
-    expect(p).toBe("Contexto del editor de Pulso (lo ve la persona):\n- Archivo abierto: src/a.ts\n- Selección (líneas 3-5):\n```\nconst a = 1;\n```\n\nMensaje:\n¿qué hace?");
+    expect(p).toBe(
+      "Contexto del editor de Pulso (lo ve la persona):\n- Archivo abierto: src/a.ts\n- Selección (líneas 3-5):\n```\nconst a = 1;\n```\n\nMensaje:\n¿qué hace?",
+    );
   });
   it("una selección con cercas de código usa una cerca más larga", () => {
     expect(fenceFor("a ``` b")).toBe("````");
@@ -22,27 +24,38 @@ describe("buildPrompt", () => {
     expect(p.length).toBeLessThan(MAX_SELECTION + 400);
   });
   it("solo el archivo, sin selección", () => {
-    expect(buildPrompt("m", { file: "a.ts" })).toBe("Contexto del editor de Pulso (lo ve la persona):\n- Archivo abierto: a.ts\n\nMensaje:\nm");
+    expect(buildPrompt("m", { file: "a.ts" })).toBe(
+      "Contexto del editor de Pulso (lo ve la persona):\n- Archivo abierto: a.ts\n\nMensaje:\nm",
+    );
   });
   it("incluye archivos adjuntos extra sin duplicar el archivo abierto", () => {
     const p = buildPrompt("revisa", { file: "src/a.ts", extraFiles: ["src/a.ts", "src/b.ts"] });
-    expect(p).toBe("Contexto del editor de Pulso (lo ve la persona):\n- Archivo abierto: src/a.ts\n- Archivo adjunto: src/b.ts\n\nMensaje:\nrevisa");
+    expect(p).toBe(
+      "Contexto del editor de Pulso (lo ve la persona):\n- Archivo abierto: src/a.ts\n- Archivo adjunto: src/b.ts\n\nMensaje:\nrevisa",
+    );
   });
   it("incluye imágenes adjuntas con su nombre y ruta", () => {
     const p = buildPrompt("¿qué ves?", { images: [{ path: "C:/data/ai-images/img_1.png", name: "captura.png" }] });
-    expect(p).toBe("Contexto del editor de Pulso (lo ve la persona):\n- Imagen adjunta (captura.png): C:/data/ai-images/img_1.png\n\nMensaje:\n¿qué ves?");
+    expect(p).toBe(
+      "Contexto del editor de Pulso (lo ve la persona):\n- Imagen adjunta (captura.png): C:/data/ai-images/img_1.png\n\nMensaje:\n¿qué ves?",
+    );
   });
   it("incluye notas de contexto adjuntas (issue, PR o cambios de Git)", () => {
     const p = buildPrompt("revísalo", {
       notes: [{ id: "issue:12", label: "Issue #12", title: "Issue #12: Error de login", body: "Falla al entrar." }],
     });
-    expect(p).toBe("Contexto del editor de Pulso (lo ve la persona):\n- Issue #12: Error de login:\n```\nFalla al entrar.\n```\n\nMensaje:\nrevísalo");
+    expect(p).toBe(
+      "Contexto del editor de Pulso (lo ve la persona):\n- Issue #12: Error de login:\n```\nFalla al entrar.\n```\n\nMensaje:\nrevísalo",
+    );
   });
 });
 
 describe("chipLabels", () => {
   it("etiquetas cortas con el plural correcto", () => {
-    expect(chipLabels({ file: "src/dir/a.ts", selection: { text: "x", startLine: 2, endLine: 2 } })).toEqual({ file: "a.ts", selection: "Selección · 1 línea" });
+    expect(chipLabels({ file: "src/dir/a.ts", selection: { text: "x", startLine: 2, endLine: 2 } })).toEqual({
+      file: "a.ts",
+      selection: "Selección · 1 línea",
+    });
     expect(chipLabels({ selection: { text: "x", startLine: 2, endLine: 5 } }).selection).toBe("Selección · 4 líneas");
     expect(chipLabels({})).toEqual({ file: undefined, selection: undefined });
   });

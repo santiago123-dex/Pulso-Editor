@@ -24,7 +24,7 @@ describe("configuración del agente", () => {
 
   it("resume cuántas hay de cada tipo", () => {
     const s = configSummary([e({ kind: "skill" }), e({ kind: "skill" }), e({ kind: "agent" })]);
-    expect(s).toContain("2") ;
+    expect(s).toContain("2");
     expect(s).toContain("1");
   });
 });

@@ -19,8 +19,15 @@ export function usageText(): string {
   const curTool = tools[prov] ?? S.tool;
   const curUsage = providerUsage(prov);
   const parts: string[] = [];
-  if (curTool?.plan) parts.push(prov === "claude" ? tr("Plan {plan}", { plan: planLabel(curTool.plan) }) : `${PROVIDERS[prov].short} · ${planLabel(curTool.plan)}`);
-  if (curUsage.fiveHour) parts.push(tr("5 h: {pct} disp.", { pct: remainingPercent(curUsage.fiveHour) }) + (resetIn(curUsage.fiveHour) ? ` (${resetIn(curUsage.fiveHour)})` : ""));
+  if (curTool?.plan)
+    parts.push(
+      prov === "claude" ? tr("Plan {plan}", { plan: planLabel(curTool.plan) }) : `${PROVIDERS[prov].short} · ${planLabel(curTool.plan)}`,
+    );
+  if (curUsage.fiveHour)
+    parts.push(
+      tr("5 h: {pct} disp.", { pct: remainingPercent(curUsage.fiveHour) }) +
+        (resetIn(curUsage.fiveHour) ? ` (${resetIn(curUsage.fiveHour)})` : ""),
+    );
   if (curUsage.sevenDay) parts.push(tr("sem.: {pct} disp.", { pct: remainingPercent(curUsage.sevenDay) }));
   return parts.join(" · ");
 }
@@ -37,12 +44,19 @@ export function renderFoot() {
   const trigger = h("button", "ai-usage-btn");
   trigger.type = "button";
   trigger.title = tr("Ver límites disponibles del plan");
-  const pctText = curUsage.fiveHour ? tr("{pct} disp.", { pct: remainingPercent(curUsage.fiveHour) }) : curUsage.sevenDay ? tr("{pct} sem.", { pct: remainingPercent(curUsage.sevenDay) }) : tr("Ver uso");
+  const pctText = curUsage.fiveHour
+    ? tr("{pct} disp.", { pct: remainingPercent(curUsage.fiveHour) })
+    : curUsage.sevenDay
+      ? tr("{pct} sem.", { pct: remainingPercent(curUsage.sevenDay) })
+      : tr("Ver uso");
   trigger.append(usageRing(hasWindows ? ratioLeft : 0, 14), h("span", "", pctText));
   trigger.onclick = () => openUsagePopover(trigger);
 
   if (!text || !hasWindows) {
-    foot.append(h("span", "ai-foot-text", `${text ? `${text} · ` : ""}${tr("Usa tu sesión de {provider}", { provider: PROVIDERS[prov].title })}`), trigger);
+    foot.append(
+      h("span", "ai-foot-text", `${text ? `${text} · ` : ""}${tr("Usa tu sesión de {provider}", { provider: PROVIDERS[prov].title })}`),
+      trigger,
+    );
     return;
   }
   const bars = h("span", "ai-meters");
@@ -79,7 +93,10 @@ export function setupMessage(title: string, text: string, ...extra: HTMLElement[
 export async function detectProviderNow(prov: AiProvider) {
   try {
     const next = await invoke<AiTool>("ai_detect_provider", { provider: prov }).catch(() => null);
-    if (!next) { await ctl.detect(true); return; }
+    if (!next) {
+      await ctl.detect(true);
+      return;
+    }
     const wasInstalled = !!tools[prov]?.installed;
     const wasLogged = !!tools[prov]?.logged_in;
     tools[prov] = next;
@@ -92,7 +109,9 @@ export async function detectProviderNow(prov: AiProvider) {
       void ctl.detect(true);
     }
     if (S.shown && (next.logged_in || next.installed !== wasInstalled)) ctl.renderBody();
-  } catch { /* reintento en el siguiente tick */ }
+  } catch {
+    /* reintento en el siguiente tick */
+  }
 }
 
 export function watchLogin(prov: AiProvider, intervalMs = 1000) {
@@ -112,7 +131,13 @@ export function watchLogin(prov: AiProvider, intervalMs = 1000) {
 
 export function startLoginFlow(prov: AiProvider = S.activeProvider) {
   // Los modelos en la nube no tienen inicio de sesión: se conecta un proveedor pegando su clave.
-  if (prov === "cloud") { connectProvider(() => { S.toolAt = 0; void ctl.detect(true); }); return; }
+  if (prov === "cloud") {
+    connectProvider(() => {
+      S.toolAt = 0;
+      void ctl.detect(true);
+    });
+    return;
+  }
   watchLogin(prov, 1000);
   void runInTerminal(PROVIDERS[prov].loginCmd);
 }

@@ -11,7 +11,12 @@ export const proposalStatus = new Map<string, "applied" | "discarded">();
 /** Tarjetas de permiso bloqueado descartadas manualmente por turno. */
 export const dismissedDenials = new Set<string>();
 
-export function buildDenialCard(live: Live, denials: number, actions: readonly DeniedAction[] | undefined, dismissKey: string): HTMLElement {
+export function buildDenialCard(
+  live: Live,
+  denials: number,
+  actions: readonly DeniedAction[] | undefined,
+  dismissKey: string,
+): HTMLElement {
   const card = h("div", "ai-denial-card");
   card.setAttribute("role", "region");
   card.setAttribute("aria-label", tr("Permiso requerido por el agente"));
@@ -23,7 +28,13 @@ export function buildDenialCard(live: Live, denials: number, actions: readonly D
   const head = h("div", "ai-denial-head");
   head.append(
     h("span", "ai-denial-badge", "PERMISO REQUERIDO"),
-    h("span", "ai-denial-title", denials === 1 ? tr("El agente necesitó ejecutar una acción bloqueada") : tr("El agente necesitó ejecutar {count} acciones bloqueadas", { count: denials })),
+    h(
+      "span",
+      "ai-denial-title",
+      denials === 1
+        ? tr("El agente necesitó ejecutar una acción bloqueada")
+        : tr("El agente necesitó ejecutar {count} acciones bloqueadas", { count: denials }),
+    ),
   );
   card.append(head);
 
@@ -38,9 +49,12 @@ export function buildDenialCard(live: Live, denials: number, actions: readonly D
     }
     card.append(list);
   } else {
-    const explain = targetMode === "full"
-      ? tr("El modo actual no permite ejecutar comandos de terminal (como run_command o Bash). Aprueba esta acción para que el agente pueda completar la tarea.")
-      : tr("El modo «Solo leer» impide modificar archivos. Aprueba la edición para que el agente pueda continuar.");
+    const explain =
+      targetMode === "full"
+        ? tr(
+            "El modo actual no permite ejecutar comandos de terminal (como run_command o Bash). Aprueba esta acción para que el agente pueda completar la tarea.",
+          )
+        : tr("El modo «Solo leer» impide modificar archivos. Aprueba la edición para que el agente pueda continuar.");
     card.append(h("p", "ai-denial-msg", explain));
   }
 
@@ -49,9 +63,10 @@ export function buildDenialCard(live: Live, denials: number, actions: readonly D
   onceBtn.type = "button";
   onceBtn.onclick = () => {
     dismissedDenials.add(dismissKey);
-    const contPrompt = targetMode === "full"
-      ? "El usuario aprobó ejecutar el comando o herramienta que quedó bloqueada en el paso anterior. Ejecútalo ahora y completa la tarea pendiente."
-      : "El usuario aprobó modificar archivos para el paso anterior. Aplica los cambios y completa la tarea pendiente.";
+    const contPrompt =
+      targetMode === "full"
+        ? "El usuario aprobó ejecutar el comando o herramienta que quedó bloqueada en el paso anterior. Ejecútalo ahora y completa la tarea pendiente."
+        : "El usuario aprobó modificar archivos para el paso anterior. Aplica los cambios y completa la tarea pendiente.";
     void ctl.dispatchPrompt(live, tr("Permiso concedido (una vez) · continuar"), contPrompt, targetMode);
   };
 
@@ -63,9 +78,10 @@ export function buildDenialCard(live: Live, denials: number, actions: readonly D
     writeStorage("pulso.ai.mode", S.mode);
     writeStorage(targetMode === "full" ? "pulso.ai.fullOk" : "pulso.ai.editOk", "1");
     ctl.build();
-    const contPrompt = targetMode === "full"
-      ? "El usuario activó el modo Agente completo (edición y comandos de terminal aprobados). Ejecuta lo que quedó pendiente y completa la tarea."
-      : "El usuario activó el modo Puede editar. Aplica los cambios y completa la tarea pendiente.";
+    const contPrompt =
+      targetMode === "full"
+        ? "El usuario activó el modo Agente completo (edición y comandos de terminal aprobados). Ejecuta lo que quedó pendiente y completa la tarea."
+        : "El usuario activó el modo Puede editar. Aplica los cambios y completa la tarea pendiente.";
     void ctl.dispatchPrompt(live, tr("Modo «{mode}» activado · continuar", { mode: targetLabel }), contPrompt, targetMode);
   };
 
@@ -108,7 +124,10 @@ export function renderIssueBanner() {
   const endBtn = h("button", "ai-issue-btn", tr("Finalizar"));
   endBtn.type = "button";
   endBtn.title = tr("Dejar de asociar esta issue al asistente");
-  endBtn.onclick = () => { clearActiveIssueWork(); renderIssueBanner(); };
+  endBtn.onclick = () => {
+    clearActiveIssueWork();
+    renderIssueBanner();
+  };
   acts.append(prBtn, endBtn);
   banner.replaceChildren(info, acts);
 }

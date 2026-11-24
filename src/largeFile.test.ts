@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { backupDelayFor, isLargeFile, LARGE_BACKUP_DELAY_MS, LARGE_FILE_CHARS, largeFileOptions, NORMAL_BACKUP_DELAY_MS } from "./largeFile";
+import {
+  backupDelayFor,
+  isLargeFile,
+  LARGE_BACKUP_DELAY_MS,
+  LARGE_FILE_CHARS,
+  largeFileOptions,
+  NORMAL_BACKUP_DELAY_MS,
+} from "./largeFile";
 
 describe("modo de archivo grande", () => {
   it("se activa justo en el umbral", () => {

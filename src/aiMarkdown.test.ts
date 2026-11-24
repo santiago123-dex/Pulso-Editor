@@ -27,7 +27,11 @@ describe("parseMarkdown", () => {
 describe("parseInline", () => {
   it("reconoce código y negrita y conserva el resto", () => {
     expect(parseInline("Usa `npm test` y **no** olvides")).toEqual([
-      { text: "Usa ", kind: "text" }, { text: "npm test", kind: "code" }, { text: " y ", kind: "text" }, { text: "no", kind: "bold" }, { text: " olvides", kind: "text" },
+      { text: "Usa ", kind: "text" },
+      { text: "npm test", kind: "code" },
+      { text: " y ", kind: "text" },
+      { text: "no", kind: "bold" },
+      { text: " olvides", kind: "text" },
     ]);
   });
   it("un marcador sin cerrar queda como texto", () => {

@@ -206,11 +206,7 @@ pub fn load_cached(app: &AppHandle) -> Option<Arc<Vec<ProviderEntry>>> {
 }
 
 async fn download() -> Result<Vec<u8>, String> {
-    let client = reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(15))
-        .timeout(Duration::from_secs(60))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = reqwest::Client::builder().connect_timeout(Duration::from_secs(15)).timeout(Duration::from_secs(60)).build().map_err(|e| e.to_string())?;
     let res = client.get(CATALOG_URL).send().await.map_err(|e| crate::i18n::trf("No se pudo descargar el catálogo de modelos: {e}", &[("e", &e)]))?;
     if !res.status().is_success() {
         return Err(crate::i18n::trf("models.dev respondió {status}", &[("status", &res.status().as_u16())]));
@@ -324,7 +320,15 @@ pub struct CatalogView {
 fn brief(app: &AppHandle, p: &ProviderEntry) -> ProviderBrief {
     let stored = read_index(app).contains(&p.id) && key_entry(&p.id).ok().and_then(|e| e.get_password().ok()).is_some_and(|k| !k.trim().is_empty());
     let from_env = !stored && env_key(&p.env).is_some();
-    ProviderBrief { id: p.id.clone(), name: p.name.clone(), doc: p.doc.clone(), env: p.env.clone(), models: p.models.len(), configured: stored || from_env, from_env }
+    ProviderBrief {
+        id: p.id.clone(),
+        name: p.name.clone(),
+        doc: p.doc.clone(),
+        env: p.env.clone(),
+        models: p.models.len(),
+        configured: stored || from_env,
+        from_env,
+    }
 }
 
 /// Proveedores utilizables, con si ya tienen clave. `refresh` fuerza la descarga.

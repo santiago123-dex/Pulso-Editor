@@ -31,8 +31,15 @@ export function collectProblems(): Problem[] {
       if (!severity) continue;
       const code = typeof m.code === "object" && m.code ? m.code.value : m.code;
       out.push({
-        path: d.path, line: m.startLineNumber, col: m.startColumn, endLine: m.endLineNumber, endCol: m.endColumn,
-        severity, message: m.message, source: m.source, code: code === undefined ? undefined : String(code),
+        path: d.path,
+        line: m.startLineNumber,
+        col: m.startColumn,
+        endLine: m.endLineNumber,
+        endCol: m.endColumn,
+        severity,
+        message: m.message,
+        source: m.source,
+        code: code === undefined ? undefined : String(code),
       });
     }
   }
@@ -144,7 +151,11 @@ function paint(all: Problem[]) {
     if (all.length && onlyErrors) {
       msg = t("No hay errores. Quita el filtro para ver avisos.");
     } else if (scope === "project") {
-      msg = projectNote || (projectTools.length ? t("Sin problemas detectados en el proyecto.") : t("Pulsa el botón de analizar para revisar todo el proyecto."));
+      msg =
+        projectNote ||
+        (projectTools.length
+          ? t("Sin problemas detectados en el proyecto.")
+          : t("Pulsa el botón de analizar para revisar todo el proyecto."));
     } else {
       msg = t("Los problemas aparecen aquí cuando el servidor de lenguaje analiza los archivos abiertos.");
     }
@@ -158,7 +169,11 @@ function paint(all: Problem[]) {
     const dir = rel(dirName(g.path));
     if (dir) head.append(h("span", "sdir", dir));
     head.append(h("span", "scount", String(g.items.length)));
-    head.onclick = () => { if (collapsed.has(g.path)) collapsed.delete(g.path); else collapsed.add(g.path); paint(all); };
+    head.onclick = () => {
+      if (collapsed.has(g.path)) collapsed.delete(g.path);
+      else collapsed.add(g.path);
+      paint(all);
+    };
     box.append(head);
     if (closed) continue;
     for (const p of g.items) {
@@ -186,7 +201,11 @@ export function initProblems(openView: () => void) {
   onDocsChange(schedule);
   $("status-problems").onclick = openView;
   const only = $("problems-only-errors");
-  only.onclick = () => { onlyErrors = !onlyErrors; only.classList.toggle("on", onlyErrors); refresh(); };
+  only.onclick = () => {
+    onlyErrors = !onlyErrors;
+    only.classList.toggle("on", onlyErrors);
+    refresh();
+  };
   const scan = document.getElementById("problems-scan");
   if (scan) scan.onclick = () => void runProjectProblemsCheck();
   const seg = document.getElementById("problems-scope");

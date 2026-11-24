@@ -13,7 +13,11 @@ pub(crate) fn safe_rel_edit_path(raw: &str) -> Result<String, String> {
     let p = Path::new(&clean);
     // Una letra de unidad (`C:/x`) se rechaza en todos los sistemas: en Windows saldría del proyecto y en Linux sería una carpeta rara.
     let drive_like = clean.len() >= 2 && clean.as_bytes()[0].is_ascii_alphabetic() && clean.as_bytes()[1] == b':';
-    if clean.is_empty() || drive_like || p.is_absolute() || p.components().any(|c| matches!(c, Component::Prefix(_) | Component::RootDir | Component::ParentDir)) {
+    if clean.is_empty()
+        || drive_like
+        || p.is_absolute()
+        || p.components().any(|c| matches!(c, Component::Prefix(_) | Component::RootDir | Component::ParentDir))
+    {
         return Err(tr("Solo se pueden proponer cambios en rutas relativas dentro del proyecto.").into());
     }
     Ok(clean)
@@ -39,7 +43,12 @@ pub(crate) fn fence_for_content(content: &str) -> String {
     let mut longest = 0usize;
     let mut cur = 0usize;
     for ch in content.chars() {
-        if ch == '`' { cur += 1; longest = longest.max(cur); } else { cur = 0; }
+        if ch == '`' {
+            cur += 1;
+            longest = longest.max(cur);
+        } else {
+            cur = 0;
+        }
     }
     "`".repeat((longest + 1).max(3))
 }
@@ -186,9 +195,8 @@ pub fn run_tool(root: &Path, name: &str, args: &Value) -> (&'static str, Value, 
         "propose_edit" => {
             let path = s("path").unwrap_or_default();
             let content = s("content").unwrap_or_default();
-            let res = safe_rel_edit_path(&path).map(|clean| {
-                trf("Propuesta preparada para {path}. La persona podrá revisarla y aplicarla en el visor de diferencias.", &[("path", &clean)])
-            });
+            let res = safe_rel_edit_path(&path)
+                .map(|clean| trf("Propuesta preparada para {path}. La persona podrá revisarla y aplicarla en el visor de diferencias.", &[("path", &clean)]));
             ("Edit", json!({ "file_path": path, "bytes": content.len() }), res)
         }
         other => ("Tool", json!({ "name": other }), Err(trf("Herramienta desconocida: {name}", &[("name", &other)]))),

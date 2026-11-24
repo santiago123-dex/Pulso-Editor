@@ -9,7 +9,10 @@ import { quickPick, setStatus, type PickItem } from "../ui";
 import { ws } from "../workspace";
 import { trustProject } from "./agentConfig";
 
-export interface McpToolInfo { name: string; description: string }
+export interface McpToolInfo {
+  name: string;
+  description: string;
+}
 export interface McpServer {
   name: string;
   /** El programa y sus argumentos, sin variables de entorno. */
@@ -20,7 +23,11 @@ export interface McpServer {
   error: string;
   tools: McpToolInfo[];
 }
-export interface McpStatus { servers: McpServer[]; personal_file: string; project_file: string }
+export interface McpStatus {
+  servers: McpServer[];
+  personal_file: string;
+  project_file: string;
+}
 
 /** Una línea con el estado: «Conectado · 3 herramientas», «No arrancó», «Bloqueado…». */
 export function stateText(s: McpServer): string {
@@ -48,7 +55,8 @@ function showTools(s: McpServer): void {
   quickPick({
     placeholder: tr("Herramientas de {name}", { name: s.name }),
     empty: tr("Este servidor no ofrece herramientas."),
-    load: () => s.tools.map<PickItem>((t) => ({ label: t.name, detail: t.description, keywords: `${t.name} ${t.description}`, run: () => {} })),
+    load: () =>
+      s.tools.map<PickItem>((t) => ({ label: t.name, detail: t.description, keywords: `${t.name} ${t.description}`, run: () => {} })),
   });
 }
 
@@ -66,7 +74,9 @@ export async function showMcpServers(): Promise<void> {
   const root = ws.root;
   quickPick({
     placeholder: tr("Servidores MCP del agente (los configurados en mcp.json)"),
-    empty: tr("No hay servidores MCP configurados. Escríbelos en ~/.pulso/mcp.json (los tuyos) o en .pulso/mcp.json (del proyecto): ver docs/AGENTE.md."),
+    empty: tr(
+      "No hay servidores MCP configurados. Escríbelos en ~/.pulso/mcp.json (los tuyos) o en .pulso/mcp.json (del proyecto): ver docs/AGENTE.md.",
+    ),
     load: async () => {
       let status: McpStatus;
       try {
@@ -82,8 +92,14 @@ export async function showMcpServers(): Promise<void> {
           detail: d.detail,
           keywords: `${s.name} ${s.command} ${s.state}`,
           run: () => {
-            if (s.state === "blocked") { void trustProject(); return; }
-            if (s.state === "ok") { showTools(s); return; }
+            if (s.state === "blocked") {
+              void trustProject();
+              return;
+            }
+            if (s.state === "ok") {
+              showTools(s);
+              return;
+            }
             // Con un error: se muestra completo y, si el servidor es del proyecto, se abre su archivo para corregirlo.
             setStatus(s.error || tr("No arrancó"), 12000);
             if (s.project) void openFile(status.project_file).catch(() => {});
@@ -92,7 +108,12 @@ export async function showMcpServers(): Promise<void> {
         };
       });
       if (status.servers.some((s) => s.state === "blocked")) {
-        items.unshift({ label: tr("Confiar en este proyecto…"), detail: tr("Sin confianza no se arrancan los servidores MCP del proyecto"), keywords: "confiar confianza trust", run: () => void trustProject() });
+        items.unshift({
+          label: tr("Confiar en este proyecto…"),
+          detail: tr("Sin confianza no se arrancan los servidores MCP del proyecto"),
+          keywords: "confiar confianza trust",
+          run: () => void trustProject(),
+        });
       }
       return items;
     },

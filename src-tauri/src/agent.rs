@@ -25,7 +25,10 @@ use std::{
     future::Future,
     path::PathBuf,
     pin::Pin,
-    sync::{atomic::{AtomicBool, Ordering}, Arc},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::Instant,
 };
 
@@ -157,8 +160,12 @@ fn function(name: &str, description: &str, properties: Value, required: &[&str])
 }
 
 fn use_skill_spec() -> Value {
-    function("use_skill", "Load a skill (specialised instructions) by name, or one of its supporting files with `file`. Do this before starting a task that matches a skill.",
-        json!({ "name": { "type": "string" }, "file": { "type": "string", "description": "Optional supporting file inside the skill folder" } }), &["name"])
+    function(
+        "use_skill",
+        "Load a skill (specialised instructions) by name, or one of its supporting files with `file`. Do this before starting a task that matches a skill.",
+        json!({ "name": { "type": "string" }, "file": { "type": "string", "description": "Optional supporting file inside the skill folder" } }),
+        &["name"],
+    )
 }
 
 fn task_spec(agents: &[AgentDef]) -> Value {
@@ -189,7 +196,12 @@ async fn call_mcp(env: &AgentEnv, tool: &McpTool, args: &Value, agent: &str) -> 
     let (client, name, args, cancel) = (tool.client(), tool.tool.clone(), args.clone(), env.cancel.clone());
     let run = tauri::async_runtime::spawn_blocking(move || client.call_tool(&name, &args, &cancel)).await;
     match run {
-        Ok(Ok((text, is_error))) => Outcome { ui_name: "Mcp", ui_input: ui, result: if text.trim().is_empty() { tr("(La herramienta no devolvió texto.)").to_string() } else { text }, is_error },
+        Ok(Ok((text, is_error))) => Outcome {
+            ui_name: "Mcp",
+            ui_input: ui,
+            result: if text.trim().is_empty() { tr("(La herramienta no devolvió texto.)").to_string() } else { text },
+            is_error,
+        },
         Ok(Err(e)) => Outcome { ui_name: "Mcp", ui_input: ui, result: e, is_error: true },
         Err(e) => Outcome { ui_name: "Mcp", ui_input: ui, result: e.to_string(), is_error: true },
     }
@@ -236,7 +248,12 @@ fn use_skill(config: &Config, args: &Value) -> Outcome {
     let ui = json!({ "name": name });
     let Some(skill) = config.skill(&name) else {
         let known: Vec<&str> = config.skills.iter().map(|s| s.name.as_str()).collect();
-        return Outcome { ui_name: "Skill", ui_input: ui, result: trf("No existe la skill «{name}». Disponibles: {list}", &[("name", &name), ("list", &known.join(", "))]), is_error: true };
+        return Outcome {
+            ui_name: "Skill",
+            ui_input: ui,
+            result: trf("No existe la skill «{name}». Disponibles: {list}", &[("name", &name), ("list", &known.join(", "))]),
+            is_error: true,
+        };
     };
     if let Some(file) = args["file"].as_str().filter(|f| !f.trim().is_empty()) {
         return match agentconfig::read_skill_file(skill, file) {
@@ -267,7 +284,13 @@ fn run_task(env: AgentEnv, mode: Mode, parent: CloudModel, args: Value, parent_i
         let agent_name = args["agent"].as_str().unwrap_or("").to_string();
         let description = args["description"].as_str().unwrap_or("").to_string();
         let ui = json!({ "agent": agent_name, "description": description });
-        let fail = |msg: String| TaskResult { outcome: Outcome { ui_name: "Task", ui_input: ui.clone(), result: msg, is_error: true }, proposed: vec![], input: 0, output: 0, cost: 0.0 };
+        let fail = |msg: String| TaskResult {
+            outcome: Outcome { ui_name: "Task", ui_input: ui.clone(), result: msg, is_error: true },
+            proposed: vec![],
+            input: 0,
+            output: 0,
+            cost: 0.0,
+        };
         let prompt = args["prompt"].as_str().unwrap_or("").trim().to_string();
         if prompt.is_empty() {
             return fail(tr("Falta el encargo (prompt) para el subagente.").to_string());
@@ -295,7 +318,9 @@ fn run_task(env: AgentEnv, mode: Mode, parent: CloudModel, args: Value, parent_i
         let step = move |o: &Outcome| {
             if let Some(l) = &live {
                 if sent.fetch_add(1, Ordering::Relaxed) < MAX_LIVE_STEPS {
-                    l(json!({ "type": "pulso_subagent_step", "parent": parent_id, "agent": agent_label, "name": o.ui_name, "input": slim_input(&o.ui_input), "error": o.is_error }));
+                    l(
+                        json!({ "type": "pulso_subagent_step", "parent": parent_id, "agent": agent_label, "name": o.ui_name, "input": slim_input(&o.ui_input), "error": o.is_error }),
+                    );
                 }
             }
         };
@@ -303,7 +328,13 @@ fn run_task(env: AgentEnv, mode: Mode, parent: CloudModel, args: Value, parent_i
             Ok(c) => {
                 let report = if c.final_text.trim().is_empty() { tr("(El subagente terminó sin informe.)").to_string() } else { c.final_text };
                 let header = trf("[Subagente {name}: {n} llamadas a herramientas]", &[("name", &def.name), ("n", &c.tool_calls)]);
-                TaskResult { outcome: Outcome { ui_name: "Task", ui_input: ui, result: clip(format!("{header}\n{report}"), MAX_REPORT_CHARS), is_error: false }, proposed: c.proposed, input: c.input, output: c.output, cost: c.cost }
+                TaskResult {
+                    outcome: Outcome { ui_name: "Task", ui_input: ui, result: clip(format!("{header}\n{report}"), MAX_REPORT_CHARS), is_error: false },
+                    proposed: c.proposed,
+                    input: c.input,
+                    output: c.output,
+                    cost: c.cost,
+                }
             }
             Err(e) => fail(e),
         }
@@ -335,7 +366,11 @@ async fn summarize(ep: &Endpoint<'_>, model_id: &str, old: &[Msg], cancel: &Atom
     out.output += r.usage.output;
     out.cost += cost_usd(model, r.usage.input, r.usage.output);
     let text = r.text.trim().to_string();
-    if text.is_empty() { Err(tr("El resumen salió vacío.").into()) } else { Ok(text) }
+    if text.is_empty() {
+        Err(tr("El resumen salió vacío.").into())
+    } else {
+        Ok(text)
+    }
 }
 
 /// Una conversación con herramientas: la usan el agente principal (con `events`, que va al panel) y los subagentes (sin ellos).
@@ -362,7 +397,16 @@ async fn converse(
     let max_tokens = (model.max_output > 0).then(|| model.max_output.min(16_384));
     let stamp = Instant::now().elapsed().as_nanos() ^ (std::process::id() as u128) << 64 ^ (rand_part() as u128);
     let mut out = Converse { final_text: String::new(), input: 0, output: 0, cost: 0.0, proposed: Vec::new(), tool_calls: 0 };
-    let mut session = Session { root: &env.root, mode, cancel: env.cancel.clone(), perms: env.perms.clone(), agent: agent.to_string(), proposed: Vec::new(), todos: Vec::new(), memory: if agent.is_empty() { env.config.memory_store.clone() } else { None } };
+    let mut session = Session {
+        root: &env.root,
+        mode,
+        cancel: env.cancel.clone(),
+        perms: env.perms.clone(),
+        agent: agent.to_string(),
+        proposed: Vec::new(),
+        todos: Vec::new(),
+        memory: if agent.is_empty() { env.config.memory_store.clone() } else { None },
+    };
     let mut guard = RepeatGuard::default();
 
     for round in 0..max_rounds {
@@ -373,7 +417,10 @@ async fn converse(
         if let Some(cut) = agenttools::compaction_cut(&msgs, model.context) {
             if let Ok(summary) = summarize(&ep, &model.model, &msgs[..cut], &env.cancel, &mut out, model).await {
                 let tail = msgs.split_off(cut);
-                msgs = vec![Msg::User { text: format!("[Summary of the earlier part of this conversation, written by you to save space]\n{summary}"), images: vec![] }];
+                msgs = vec![Msg::User {
+                    text: format!("[Summary of the earlier part of this conversation, written by you to save space]\n{summary}"),
+                    images: vec![],
+                }];
                 msgs.extend(tail);
                 compacted = true;
             }
@@ -405,7 +452,9 @@ async fn converse(
                 }
             }
             if !appendix.is_empty() {
-                emit(json!({ "type": "stream_event", "event": { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": appendix } } }));
+                emit(
+                    json!({ "type": "stream_event", "event": { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": appendix } } }),
+                );
                 text.push_str(&appendix);
             }
         }
@@ -423,7 +472,12 @@ async fn converse(
         for call in r.calls.iter() {
             out.tool_calls += 1;
             let slot = if guard.blocked(&call.name, &call.args) {
-                Slot::Done(Outcome { ui_name: "Tool", ui_input: json!({ "name": call.name }), result: tr("Ya hiciste exactamente esta llamada varias veces seguidas. Prueba otra cosa o responde con lo que tienes.").to_string(), is_error: true })
+                Slot::Done(Outcome {
+                    ui_name: "Tool",
+                    ui_input: json!({ "name": call.name }),
+                    result: tr("Ya hiciste exactamente esta llamada varias veces seguidas. Prueba otra cosa o responde con lo que tienes.").to_string(),
+                    is_error: true,
+                })
             } else if call.name == "task" && can_task {
                 Slot::Queued(call.args.clone())
             } else if call.name == "use_skill" && !env.config.skills.is_empty() {
@@ -458,7 +512,9 @@ async fn converse(
             for (k, (call, slot)) in r.calls.iter().zip(&slots).enumerate() {
                 let (name, input) = match slot {
                     Slot::Done(o) => (o.ui_name, o.ui_input.clone()),
-                    _ => ("Task", json!({ "agent": call.args["agent"].as_str().unwrap_or(""), "description": call.args["description"].as_str().unwrap_or("") })),
+                    _ => {
+                        ("Task", json!({ "agent": call.args["agent"].as_str().unwrap_or(""), "description": call.args["description"].as_str().unwrap_or("") }))
+                    }
                 };
                 early.push(json!({ "type": "tool_use", "id": format!("{turn}_t{k}"), "name": name, "input": input }));
             }
@@ -504,7 +560,9 @@ async fn converse(
             break;
         }
         for (ui_id, model_id, name, result, is_error) in results {
-            emit(json!({ "type": "user", "message": { "content": [{ "type": "tool_result", "tool_use_id": ui_id, "content": result, "is_error": is_error }] } }));
+            emit(
+                json!({ "type": "user", "message": { "content": [{ "type": "tool_result", "tool_use_id": ui_id, "content": result, "is_error": is_error }] } }),
+            );
             msgs.push(Msg::Tool { id: model_id, name, content: result });
         }
         if env.cancel.load(Ordering::Relaxed) {
@@ -592,15 +650,26 @@ async fn run_with_mcp(
     }
     specs.extend(llm::specs_from_openai(&Value::Array(extra)));
 
-    let mut msgs: Vec<Msg> = history
-        .iter()
-        .filter(|m| (m.role == "user" || m.role == "assistant") && !m.content.trim().is_empty())
-        .map(|m| if m.role == "user" { Msg::User { text: m.content.clone(), images: vec![] } } else { Msg::Assistant { text: m.content.clone(), calls: vec![] } })
-        .collect();
+    let mut msgs: Vec<Msg> =
+        history
+            .iter()
+            .filter(|m| (m.role == "user" || m.role == "assistant") && !m.content.trim().is_empty())
+            .map(|m| {
+                if m.role == "user" {
+                    Msg::User { text: m.content.clone(), images: vec![] }
+                } else {
+                    Msg::Assistant { text: m.content.clone(), calls: vec![] }
+                }
+            })
+            .collect();
     // `/comando argumentos` se sustituye por la plantilla del comando; la persona sigue viendo lo que escribió.
     let prompt = agentconfig::expand_command(&config.commands, &prompt).unwrap_or(prompt);
     let urls = if model.images { image_data_urls(&images) } else { Vec::new() };
-    let note = if !images.is_empty() && !model.images { format!("\n\n{}", tr("(La persona adjuntó imágenes, pero este modelo no las admite.)")) } else { String::new() };
+    let note = if !images.is_empty() && !model.images {
+        format!("\n\n{}", tr("(La persona adjuntó imágenes, pero este modelo no las admite.)"))
+    } else {
+        String::new()
+    };
     msgs.push(Msg::User { text: format!("{prompt}{note}"), images: urls });
 
     let sink = |v: Value| emit(v.to_string());
@@ -628,7 +697,18 @@ mod tests {
     use super::*;
 
     fn model() -> CloudModel {
-        CloudModel { provider_name: "X".into(), protocol: Protocol::OpenAi, base_url: "http://127.0.0.1:9/v1".into(), key: "k".into(), model: "m".into(), images: false, context: 0, max_output: 0, input_cost: Some(3.0), output_cost: Some(15.0) }
+        CloudModel {
+            provider_name: "X".into(),
+            protocol: Protocol::OpenAi,
+            base_url: "http://127.0.0.1:9/v1".into(),
+            key: "k".into(),
+            model: "m".into(),
+            images: false,
+            context: 0,
+            max_output: 0,
+            input_cost: Some(3.0),
+            output_cost: Some(15.0),
+        }
     }
 
     #[test]
@@ -674,7 +754,10 @@ mod tests {
                     req.extend_from_slice(&buf[..n]);
                     let text = String::from_utf8_lossy(&req).into_owned();
                     if let Some(pos) = text.find("\r\n\r\n") {
-                        let len = text[..pos].lines().find_map(|l| l.to_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0))).unwrap_or(0);
+                        let len = text[..pos]
+                            .lines()
+                            .find_map(|l| l.to_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0)))
+                            .unwrap_or(0);
                         if req.len() >= pos + 4 + len {
                             bodies.push(text[pos + 4..].to_string());
                             break;
@@ -700,7 +783,11 @@ mod tests {
 
     /// Una respuesta del modelo que pide estas herramientas (`(id, nombre, argumentos)`).
     fn tool_reply(calls: &[(&str, &str, Value)]) -> String {
-        let list: Vec<Value> = calls.iter().enumerate().map(|(i, (id, name, args))| json!({ "index": i, "id": id, "function": { "name": name, "arguments": args.to_string() } })).collect();
+        let list: Vec<Value> = calls
+            .iter()
+            .enumerate()
+            .map(|(i, (id, name, args))| json!({ "index": i, "id": id, "function": { "name": name, "arguments": args.to_string() } }))
+            .collect();
         sse(json!({ "choices": [{ "delta": { "tool_calls": list } }] })) + "data: [DONE]\n\n"
     }
 
@@ -733,15 +820,46 @@ mod tests {
     }
 
     /// Ejecuta una conversación contra un servidor simulado y devuelve los eventos del panel y las solicitudes recibidas.
-    fn go_with(m: CloudModel, dir: &PathBuf, mode: &str, prompt: &str, config: Config, resolver: ModelResolver, replies: Vec<String>) -> (Vec<Value>, Vec<Value>) {
+    fn go_with(
+        m: CloudModel,
+        dir: &PathBuf,
+        mode: &str,
+        prompt: &str,
+        config: Config,
+        resolver: ModelResolver,
+        replies: Vec<String>,
+    ) -> (Vec<Value>, Vec<Value>) {
         go_perms(m, dir, mode, prompt, config, resolver, Arc::new(Permissions::fixed(crate::agentperms::Decision::Once)), replies)
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn go_perms(m: CloudModel, dir: &PathBuf, mode: &str, prompt: &str, config: Config, resolver: ModelResolver, perms: Arc<Permissions>, replies: Vec<String>) -> (Vec<Value>, Vec<Value>) {
+    fn go_perms(
+        m: CloudModel,
+        dir: &PathBuf,
+        mode: &str,
+        prompt: &str,
+        config: Config,
+        resolver: ModelResolver,
+        perms: Arc<Permissions>,
+        replies: Vec<String>,
+    ) -> (Vec<Value>, Vec<Value>) {
         let (base, server) = mock_server(replies);
         let (events, emit) = collect_events();
-        tauri::async_runtime::block_on(run(CloudModel { base_url: base, ..m }, dir.clone(), "c".into(), vec![], prompt.into(), vec![], mode.into(), Arc::new(AtomicBool::new(false)), emit, Arc::new(config), resolver, perms)).unwrap();
+        tauri::async_runtime::block_on(run(
+            CloudModel { base_url: base, ..m },
+            dir.clone(),
+            "c".into(),
+            vec![],
+            prompt.into(),
+            vec![],
+            mode.into(),
+            Arc::new(AtomicBool::new(false)),
+            emit,
+            Arc::new(config),
+            resolver,
+            perms,
+        ))
+        .unwrap();
         let bodies: Vec<Value> = server.join().unwrap().iter().map(|b| serde_json::from_str(b).unwrap()).collect();
         let ev = events.lock().unwrap().clone();
         (ev, bodies)
@@ -763,14 +881,17 @@ mod tests {
     fn el_agente_lee_un_archivo_y_responde_con_su_coste() {
         let dir = project("lee");
         let first = sse(json!({ "choices": [{ "delta": { "content": "Voy a mirar." } }] }))
-            + &sse(json!({ "choices": [{ "delta": { "tool_calls": [{ "index": 0, "id": "t1", "function": { "name": "read_file", "arguments": "{\"path\":\"src/main.ts\"}" } }] } }] }))
+            + &sse(
+                json!({ "choices": [{ "delta": { "tool_calls": [{ "index": 0, "id": "t1", "function": { "name": "read_file", "arguments": "{\"path\":\"src/main.ts\"}" } }] } }] }),
+            )
             + &sse(json!({ "choices": [], "usage": { "prompt_tokens": 1_000_000, "completion_tokens": 0 } }))
             + "data: [DONE]\n\n";
         let second = sse(json!({ "choices": [{ "delta": { "content": "La respuesta es 42." } }] }))
             + &sse(json!({ "choices": [], "usage": { "prompt_tokens": 0, "completion_tokens": 100_000 } }))
             + "data: [DONE]\n\n";
         let (ev, bodies) = go(model(), &dir, "read", vec![first, second]);
-        assert!(ev.iter().any(|e| e["type"] == "assistant" && e["message"]["content"].as_array().is_some_and(|c| c.iter().any(|b| b["type"] == "tool_use" && b["name"] == "Read"))));
+        assert!(ev.iter().any(|e| e["type"] == "assistant"
+            && e["message"]["content"].as_array().is_some_and(|c| c.iter().any(|b| b["type"] == "tool_use" && b["name"] == "Read"))));
         let result = ev.iter().find(|e| e["type"] == "user").unwrap();
         assert!(result["message"]["content"][0]["content"].as_str().unwrap().contains("respuesta = 42"));
         let last = ev.last().unwrap();
@@ -792,7 +913,13 @@ mod tests {
         let results: Vec<&Value> = ev.iter().filter(|e| e["type"] == "user").collect();
         assert_eq!(results.len(), 2);
         assert!(results[1]["message"]["content"][0]["content"].as_str().unwrap().contains("respuesta = 43"), "{}", results[1]);
-        let names: Vec<&str> = ev.iter().filter(|e| e["type"] == "assistant").flat_map(|e| e["message"]["content"].as_array().unwrap().iter()).filter(|b| b["type"] == "tool_use").map(|b| b["name"].as_str().unwrap()).collect();
+        let names: Vec<&str> = ev
+            .iter()
+            .filter(|e| e["type"] == "assistant")
+            .flat_map(|e| e["message"]["content"].as_array().unwrap().iter())
+            .filter(|b| b["type"] == "tool_use")
+            .map(|b| b["name"].as_str().unwrap())
+            .collect();
         assert_eq!(names, ["Edit", "Command"]);
         let offered = tool_names(&bodies[0]);
         assert!(offered.contains(&"edit_file".into()) && offered.contains(&"run_command".into()) && offered.contains(&"web_fetch".into()));
@@ -859,10 +986,17 @@ mod tests {
         put(&dir, ".pulso/skills/deploy/SKILL.md", "---\ndescription: Publica la app\n---\nPaso 1: compila. Paso 2: sube.");
         put(&dir, ".pulso/skills/deploy/checklist.md", "- revisar versión");
         let config = Config::load_with_home(&dir, None);
-        let first = tool_reply(&[("s1", "use_skill", json!({ "name": "deploy" })), ("s2", "use_skill", json!({ "name": "deploy", "file": "checklist.md" })), ("s3", "use_skill", json!({ "name": "no-existe" }))]);
+        let first = tool_reply(&[
+            ("s1", "use_skill", json!({ "name": "deploy" })),
+            ("s2", "use_skill", json!({ "name": "deploy", "file": "checklist.md" })),
+            ("s3", "use_skill", json!({ "name": "no-existe" })),
+        ]);
         let (ev, bodies) = go_with(model(), &dir, "read", "publica", config, no_resolver(), vec![first, text_reply("Publicado.")]);
         let results: Vec<&Value> = ev.iter().filter(|e| e["type"] == "user").collect();
-        assert!(results[0]["message"]["content"][0]["content"].as_str().unwrap().contains("Paso 1: compila") && results[0]["message"]["content"][0]["content"].as_str().unwrap().contains("checklist.md"));
+        assert!(
+            results[0]["message"]["content"][0]["content"].as_str().unwrap().contains("Paso 1: compila")
+                && results[0]["message"]["content"][0]["content"].as_str().unwrap().contains("checklist.md")
+        );
         assert!(results[1]["message"]["content"][0]["content"].as_str().unwrap().contains("revisar versión"));
         assert_eq!(results[2]["message"]["content"][0]["is_error"], true);
         assert_eq!(bodies.len(), 2);
@@ -883,14 +1017,23 @@ mod tests {
     #[test]
     fn un_subagente_hace_el_trabajo_y_devuelve_solo_su_informe() {
         let dir = project("sub");
-        let principal1 = tool_reply(&[("t1", "task", json!({ "agent": "explore", "description": "Buscar respuesta", "prompt": "Dime cuánto vale respuesta en src/main.ts" }))]);
+        let principal1 = tool_reply(&[(
+            "t1",
+            "task",
+            json!({ "agent": "explore", "description": "Buscar respuesta", "prompt": "Dime cuánto vale respuesta en src/main.ts" }),
+        )]);
         let sub1 = tool_reply(&[("s1", "read_file", json!({ "path": "src/main.ts" }))]);
         let sub2 = text_reply("Informe: respuesta vale 42 (src/main.ts:1).");
         let principal2 = text_reply("El subagente dice que vale 42.");
         let (ev, bodies) = go(model(), &dir, "full", vec![principal1, sub1, sub2, principal2]);
         assert_eq!(bodies.len(), 4);
         // El panel ve una herramienta «Task» con su informe; no ve las llamadas internas del subagente.
-        let task_use = ev.iter().filter(|e| e["type"] == "assistant").flat_map(|e| e["message"]["content"].as_array().unwrap().iter()).find(|b| b["type"] == "tool_use").unwrap();
+        let task_use = ev
+            .iter()
+            .filter(|e| e["type"] == "assistant")
+            .flat_map(|e| e["message"]["content"].as_array().unwrap().iter())
+            .find(|b| b["type"] == "tool_use")
+            .unwrap();
         assert_eq!((task_use["name"].as_str(), task_use["input"]["agent"].as_str()), (Some("Task"), Some("explore")));
         assert_eq!(ev.iter().filter(|e| e["type"] == "user").count(), 1);
         let report = ev.iter().find(|e| e["type"] == "user").unwrap()["message"]["content"][0]["content"].as_str().unwrap().to_string();
@@ -898,7 +1041,14 @@ mod tests {
         // El subagente trabajó con su propio contexto y solo con herramientas de lectura, aunque el principal está en modo Agente y no puede delegar.
         let sub_tools = tool_names(&bodies[1]);
         assert!(sub_tools.contains(&"grep".into()) && sub_tools.contains(&"read_file".into()));
-        assert!(!sub_tools.contains(&"run_command".into()) && !sub_tools.contains(&"edit_file".into()) && !sub_tools.contains(&"write_file".into()) && !sub_tools.contains(&"web_fetch".into()) && !sub_tools.contains(&"task".into()), "{sub_tools:?}");
+        assert!(
+            !sub_tools.contains(&"run_command".into())
+                && !sub_tools.contains(&"edit_file".into())
+                && !sub_tools.contains(&"write_file".into())
+                && !sub_tools.contains(&"web_fetch".into())
+                && !sub_tools.contains(&"task".into()),
+            "{sub_tools:?}"
+        );
         assert!(system_of(&bodies[1]).contains("exploration specialist"));
         assert_eq!(bodies[1]["messages"].as_array().unwrap().len(), 2);
         // Al principal le llegó el informe, con el id de su llamada.
@@ -916,7 +1066,9 @@ mod tests {
         let (a, b) = (call("t1", "uno"), call("t2", "dos"));
         let principal1 = tool_reply(&[(&a.0, &a.1, a.2), (&b.0, &b.1, b.2)]);
         // Cada subagente responde con un informe y 1 M de tokens de entrada ($3).
-        let sub = sse(json!({ "choices": [{ "delta": { "content": "Hecho." } }] })) + &sse(json!({ "choices": [], "usage": { "prompt_tokens": 1_000_000, "completion_tokens": 0 } })) + "data: [DONE]\n\n";
+        let sub = sse(json!({ "choices": [{ "delta": { "content": "Hecho." } }] }))
+            + &sse(json!({ "choices": [], "usage": { "prompt_tokens": 1_000_000, "completion_tokens": 0 } }))
+            + "data: [DONE]\n\n";
         let (ev, bodies) = go(model(), &dir, "read", vec![principal1, sub.clone(), sub, text_reply("Ambos terminaron.")]);
         assert_eq!(bodies.len(), 4);
         let results: Vec<&Value> = ev.iter().filter(|e| e["type"] == "user").collect();
@@ -948,7 +1100,10 @@ mod tests {
         let b_req: Vec<Value> = server_b.join().unwrap().iter().map(|r| serde_json::from_str(r).unwrap()).collect();
         assert_eq!(b_req.len(), 1);
         assert_eq!(b_req[0]["model"], "modelo-b");
-        assert!(ev.iter().find(|e| e["type"] == "user").unwrap()["message"]["content"][0]["content"].as_str().unwrap().contains("Revisado por el otro modelo."));
+        assert!(ev.iter().find(|e| e["type"] == "user").unwrap()["message"]["content"][0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("Revisado por el otro modelo."));
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -959,13 +1114,18 @@ mod tests {
         put(&dir, ".pulso/agents/editor.md", "---\ndescription: Edita\ntools: Read, Edit, Bash\n---\nEdita lo que te pidan.");
         let config = Config::load_with_home(&dir, None);
         let principal1 = tool_reply(&[("t1", "task", json!({ "agent": "editor", "description": "Editar", "prompt": "cambia 42 por 7 en src/main.ts" }))]);
-        let sub1 = tool_reply(&[("e1", "edit_file", json!({ "path": "src/main.ts", "old_string": "42", "new_string": "7" })), ("c1", "run_command", json!({ "command": "git push --force" }))]);
-        let (ev, bodies) = go_with(model(), &dir, "edit", "delega", config, no_resolver(), vec![principal1, sub1, text_reply("Propuse el cambio."), text_reply("Listo.")]);
+        let sub1 = tool_reply(&[
+            ("e1", "edit_file", json!({ "path": "src/main.ts", "old_string": "42", "new_string": "7" })),
+            ("c1", "run_command", json!({ "command": "git push --force" })),
+        ]);
+        let (ev, bodies) =
+            go_with(model(), &dir, "edit", "delega", config, no_resolver(), vec![principal1, sub1, text_reply("Propuse el cambio."), text_reply("Listo.")]);
         assert!(std::fs::read_to_string(dir.join("src/main.ts")).unwrap().contains("42"), "no debe escribir en disco");
         assert!(tool_names(&bodies[1]).contains(&"edit_file".into()));
         // El comando destructivo se rechazó por el modo, y la edición del subagente llegó al principal como propuesta revisable.
         let sub2_msgs = bodies[2]["messages"].as_array().unwrap();
-        assert!(sub2_msgs.iter().any(|m| m["role"] == "tool" && m["content"].as_str().unwrap().contains("solo lectura") || m["content"].as_str().is_some_and(|c| c.to_lowercase().contains("read-only"))));
+        assert!(sub2_msgs.iter().any(|m| m["role"] == "tool" && m["content"].as_str().unwrap().contains("solo lectura")
+            || m["content"].as_str().is_some_and(|c| c.to_lowercase().contains("read-only"))));
         let last = ev.last().unwrap()["result"].as_str().unwrap().to_string();
         assert!(last.contains("path=src/main.ts") && last.contains("respuesta = 7"), "{last}");
         let _ = std::fs::remove_dir_all(dir);
@@ -974,7 +1134,10 @@ mod tests {
     #[test]
     fn un_subagente_desconocido_o_sin_encargo_es_un_error_claro() {
         let dir = project("mal");
-        let principal1 = tool_reply(&[("t1", "task", json!({ "agent": "fantasma", "description": "x", "prompt": "haz" })), ("t2", "task", json!({ "agent": "explore", "description": "y", "prompt": "  " }))]);
+        let principal1 = tool_reply(&[
+            ("t1", "task", json!({ "agent": "fantasma", "description": "x", "prompt": "haz" })),
+            ("t2", "task", json!({ "agent": "explore", "description": "y", "prompt": "  " })),
+        ]);
         let (ev, _) = go(model(), &dir, "read", vec![principal1, text_reply("Entendido.")]);
         let results: Vec<&Value> = ev.iter().filter(|e| e["type"] == "user").collect();
         assert!(results.iter().all(|r| r["message"]["content"][0]["is_error"] == true));
@@ -1027,7 +1190,16 @@ mod tests {
         let dir = project("aprob-no");
         let approver = Recorder::new(crate::agentperms::Decision::Deny);
         let first = tool_reply(&[("c1", "run_command", write_marker_command())]);
-        let (ev, _) = go_perms(model(), &dir, "full", "crea la marca", Config::default(), no_resolver(), perms_with(approver.clone()), vec![first, text_reply("No pude ejecutarlo.")]);
+        let (ev, _) = go_perms(
+            model(),
+            &dir,
+            "full",
+            "crea la marca",
+            Config::default(),
+            no_resolver(),
+            perms_with(approver.clone()),
+            vec![first, text_reply("No pude ejecutarlo.")],
+        );
         assert!(!dir.join("marca.txt").exists(), "se ejecutó aunque se denegó");
         let asked = approver.asked();
         assert_eq!(asked.len(), 1);
@@ -1046,7 +1218,8 @@ mod tests {
         let dir = project("aprob-si");
         let approver = Recorder::new(crate::agentperms::Decision::Once);
         let first = tool_reply(&[("c1", "run_command", write_marker_command())]);
-        let (ev, _) = go_perms(model(), &dir, "full", "crea la marca", Config::default(), no_resolver(), perms_with(approver.clone()), vec![first, text_reply("Hecho.")]);
+        let (ev, _) =
+            go_perms(model(), &dir, "full", "crea la marca", Config::default(), no_resolver(), perms_with(approver.clone()), vec![first, text_reply("Hecho.")]);
         assert!(dir.join("marca.txt").exists());
         assert_eq!(approver.asked().len(), 1);
         assert_eq!(ev.iter().find(|e| e["type"] == "user").unwrap()["message"]["content"][0]["is_error"], false);
@@ -1063,7 +1236,8 @@ mod tests {
         assert!(approver.asked().is_empty());
         // En «Puede editar» un comando libre se rechaza por el modo, sin preguntar.
         let second = tool_reply(&[("c1", "run_command", write_marker_command())]);
-        let (ev, _) = go_perms(model(), &dir, "edit", "crea la marca", Config::default(), no_resolver(), perms_with(approver.clone()), vec![second, text_reply("No.")]);
+        let (ev, _) =
+            go_perms(model(), &dir, "edit", "crea la marca", Config::default(), no_resolver(), perms_with(approver.clone()), vec![second, text_reply("No.")]);
         assert!(approver.asked().is_empty() && !dir.join("marca.txt").exists());
         assert_eq!(ev.iter().find(|e| e["type"] == "user").unwrap()["message"]["content"][0]["is_error"], true);
         let _ = std::fs::remove_dir_all(dir);
@@ -1075,11 +1249,24 @@ mod tests {
         let approver = Recorder::new(crate::agentperms::Decision::Once);
         // PreToolUse bloquea run_command con el código 2 (el comando no llega a ejecutarse); PostToolUse comenta glob.
         let mut config = Config::default();
-        config.hooks = crate::agenthooks::Hooks { list: crate::agenthooks::parse_hooks(
-            r#"{"hooks":{"PreToolUse":[{"matcher":"run_command","command":"echo 'prohibido por el gancho'; exit 2"}],
-                         "PostToolUse":[{"matcher":"glob","command":"echo 'gancho: glob revisado'"}]}}"#, false) };
+        config.hooks = crate::agenthooks::Hooks {
+            list: crate::agenthooks::parse_hooks(
+                r#"{"hooks":{"PreToolUse":[{"matcher":"run_command","command":"echo 'prohibido por el gancho'; exit 2"}],
+                         "PostToolUse":[{"matcher":"glob","command":"echo 'gancho: glob revisado'"}]}}"#,
+                false,
+            ),
+        };
         let bloqueada = tool_reply(&[("c1", "run_command", write_marker_command())]);
-        let (ev, _) = go_perms(model(), &dir, "full", "crea la marca", config.clone(), no_resolver(), perms_with(approver.clone()), vec![bloqueada, text_reply("No pude.")]);
+        let (ev, _) = go_perms(
+            model(),
+            &dir,
+            "full",
+            "crea la marca",
+            config.clone(),
+            no_resolver(),
+            perms_with(approver.clone()),
+            vec![bloqueada, text_reply("No pude.")],
+        );
         assert!(!dir.join("marca.txt").exists(), "el gancho no bloqueó el comando");
         assert!(approver.asked().is_empty(), "ni siquiera se llegó a preguntar");
         let r = ev.iter().find(|e| e["type"] == "user").unwrap();
@@ -1099,7 +1286,16 @@ mod tests {
         let approver = Recorder::new(crate::agentperms::Decision::Once);
         let principal1 = tool_reply(&[("t1", "task", json!({ "agent": "general", "description": "Crear marca", "prompt": "crea la marca" }))]);
         let sub1 = tool_reply(&[("c1", "run_command", write_marker_command())]);
-        go_perms(model(), &dir, "full", "delega", Config::default(), no_resolver(), perms_with(approver.clone()), vec![principal1, sub1, text_reply("Listo."), text_reply("Hecho.")]);
+        go_perms(
+            model(),
+            &dir,
+            "full",
+            "delega",
+            Config::default(),
+            no_resolver(),
+            perms_with(approver.clone()),
+            vec![principal1, sub1, text_reply("Listo."), text_reply("Hecho.")],
+        );
         let asked = approver.asked();
         assert_eq!(asked.len(), 1);
         assert_eq!(asked[0].agent, "general");
@@ -1115,18 +1311,26 @@ mod tests {
         let (ev, _) = go(model(), &dir, "full", vec![principal1, sub1, text_reply("Encontré todo."), text_reply("Hecho.")]);
         let pos = |f: &dyn Fn(&Value) -> bool| ev.iter().position(|e| f(e));
         // La tarjeta de la tarea sale antes que cualquier paso, con el id al que los pasos se cuelgan.
-        let card = pos(&|e| e["type"] == "assistant" && e["message"]["content"].as_array().is_some_and(|c| c.iter().any(|b| b["name"] == "Task"))).expect("tarjeta de la tarea");
+        let card = pos(&|e| e["type"] == "assistant" && e["message"]["content"].as_array().is_some_and(|c| c.iter().any(|b| b["name"] == "Task")))
+            .expect("tarjeta de la tarea");
         let parent = ev[card]["message"]["content"].as_array().unwrap().iter().find(|b| b["name"] == "Task").unwrap()["id"].as_str().unwrap().to_string();
         let steps: Vec<(usize, &Value)> = ev.iter().enumerate().filter(|(_, e)| e["type"] == "pulso_subagent_step").collect();
         assert_eq!(steps.len(), 2, "{steps:?}");
         assert!(steps.iter().all(|(i, e)| *i > card && e["parent"] == parent.as_str() && e["agent"] == "general"));
-        assert_eq!((steps[0].1["name"].as_str(), steps[0].1["input"]["pattern"].as_str(), steps[0].1["error"].as_bool()), (Some("Glob"), Some("**/*.ts"), Some(false)));
+        assert_eq!(
+            (steps[0].1["name"].as_str(), steps[0].1["input"]["pattern"].as_str(), steps[0].1["error"].as_bool()),
+            (Some("Glob"), Some("**/*.ts"), Some(false))
+        );
         assert_eq!((steps[1].1["name"].as_str(), steps[1].1["error"].as_bool()), (Some("Read"), Some(true)));
         // Los pasos llegan antes que el resultado de la tarea.
         let result = pos(&|e| e["type"] == "user").unwrap();
         assert!(steps.iter().all(|(i, _)| *i < result));
         // El mensaje final conserva el mismo id de tarjeta (así los pasos ya colgados no se pierden).
-        let last = ev.iter().rev().find(|e| e["type"] == "assistant" && e["message"]["content"].as_array().is_some_and(|c| c.iter().any(|b| b["name"] == "Task"))).unwrap();
+        let last = ev
+            .iter()
+            .rev()
+            .find(|e| e["type"] == "assistant" && e["message"]["content"].as_array().is_some_and(|c| c.iter().any(|b| b["name"] == "Task")))
+            .unwrap();
         assert!(last["message"]["content"].as_array().unwrap().iter().any(|b| b["id"] == parent.as_str()));
         // El contenido de archivos o comandos no viaja en los pasos: solo lo corto que los describe.
         assert!(steps.iter().all(|(_, e)| e["input"].as_object().unwrap().values().all(|v| v.as_str().is_some_and(|s| s.chars().count() <= 200))));
@@ -1151,7 +1355,10 @@ mod tests {
             out.push('\n');
         }
         let list: Vec<Value> = calls.iter().map(|(n, a)| json!({ "function": { "name": n, "arguments": a } })).collect();
-        out.push_str(&json!({ "message": { "role": "assistant", "content": "", "tool_calls": list }, "done": true, "prompt_eval_count": input, "eval_count": output }).to_string());
+        out.push_str(
+            &json!({ "message": { "role": "assistant", "content": "", "tool_calls": list }, "done": true, "prompt_eval_count": input, "eval_count": output })
+                .to_string(),
+        );
         out.push('\n');
         out
     }
@@ -1164,13 +1371,41 @@ mod tests {
         let second = ollama_reply(&["Listo, ", "la marca está creada."], &[], 150, 8);
         let (base, server) = mock_server(vec![first, second]);
         let (events, emit) = collect_events();
-        let local = CloudModel { provider_name: "Ollama".into(), protocol: Protocol::Ollama, base_url: base.trim_end_matches("/v1").to_string(), key: String::new(), model: "qwen2.5-coder:7b".into(), images: true, context: 16_384, max_output: 0, input_cost: None, output_cost: None };
-        tauri::async_runtime::block_on(run(local, dir.clone(), "c".into(), vec![HistoryMsg { role: "user".into(), content: "hola".into() }, HistoryMsg { role: "assistant".into(), content: "¿En qué ayudo?".into() }], "crea la marca".into(), vec![], "full".into(), Arc::new(AtomicBool::new(false)), emit, Arc::new(Config::default()), no_resolver(), perms_with(approver.clone()))).unwrap();
+        let local = CloudModel {
+            provider_name: "Ollama".into(),
+            protocol: Protocol::Ollama,
+            base_url: base.trim_end_matches("/v1").to_string(),
+            key: String::new(),
+            model: "qwen2.5-coder:7b".into(),
+            images: true,
+            context: 16_384,
+            max_output: 0,
+            input_cost: None,
+            output_cost: None,
+        };
+        tauri::async_runtime::block_on(run(
+            local,
+            dir.clone(),
+            "c".into(),
+            vec![HistoryMsg { role: "user".into(), content: "hola".into() }, HistoryMsg { role: "assistant".into(), content: "¿En qué ayudo?".into() }],
+            "crea la marca".into(),
+            vec![],
+            "full".into(),
+            Arc::new(AtomicBool::new(false)),
+            emit,
+            Arc::new(Config::default()),
+            no_resolver(),
+            perms_with(approver.clone()),
+        ))
+        .unwrap();
         let bodies: Vec<Value> = server.join().unwrap().iter().map(|b| serde_json::from_str(b).unwrap()).collect();
         // Habla el protocolo nativo: ventana de contexto pedida, y el agente completo de herramientas (no solo las tres de lectura).
         assert_eq!(bodies[0]["options"]["num_ctx"], 16_384);
         let offered = tool_names(&bodies[0]);
-        assert!(["run_command", "edit_file", "write_file", "task", "glob", "grep", "read_file"].iter().all(|n| offered.contains(&n.to_string())), "{offered:?}");
+        assert!(
+            ["run_command", "edit_file", "write_file", "task", "glob", "grep", "read_file"].iter().all(|n| offered.contains(&n.to_string())),
+            "{offered:?}"
+        );
         // El historial, la petición y luego el resultado de la herramienta (con su nombre) vuelven a Ollama.
         let roles = |b: &Value| b["messages"].as_array().unwrap().iter().map(|m| m["role"].as_str().unwrap().to_string()).collect::<Vec<_>>();
         assert_eq!(roles(&bodies[0]), ["system", "user", "assistant", "user"]);
@@ -1184,7 +1419,10 @@ mod tests {
         let result = ev.last().unwrap();
         assert_eq!((result["type"].as_str(), result["result"].as_str()), (Some("result"), Some("Listo, la marca está creada.")));
         // Los tokens salen de lo que cuenta Ollama, y no cuesta dinero.
-        assert_eq!((result["usage"]["input_tokens"].as_u64(), result["usage"]["output_tokens"].as_u64(), result["total_cost_usd"].as_f64()), (Some(250), Some(28), Some(0.0)));
+        assert_eq!(
+            (result["usage"]["input_tokens"].as_u64(), result["usage"]["output_tokens"].as_u64(), result["total_cost_usd"].as_f64()),
+            (Some(250), Some(28), Some(0.0))
+        );
         drop(ev);
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -1200,7 +1438,21 @@ mod tests {
         println!("modelo: {} · contexto pedido: {} · imágenes: {}", local.model, local.context, local.images);
         let (events, emit) = collect_events();
         let started = Instant::now();
-        tauri::async_runtime::block_on(run(local, dir.clone(), "c".into(), vec![], "Lee el archivo src/main.ts con la herramienta read_file y dime qué valor tiene la constante respuesta.".into(), vec![], "read".into(), Arc::new(AtomicBool::new(false)), emit, Arc::new(Config::default()), no_resolver(), Arc::new(Permissions::fixed(crate::agentperms::Decision::Deny)))).unwrap();
+        tauri::async_runtime::block_on(run(
+            local,
+            dir.clone(),
+            "c".into(),
+            vec![],
+            "Lee el archivo src/main.ts con la herramienta read_file y dime qué valor tiene la constante respuesta.".into(),
+            vec![],
+            "read".into(),
+            Arc::new(AtomicBool::new(false)),
+            emit,
+            Arc::new(Config::default()),
+            no_resolver(),
+            Arc::new(Permissions::fixed(crate::agentperms::Decision::Deny)),
+        ))
+        .unwrap();
         let ev = events.lock().unwrap();
         for e in ev.iter().filter(|e| e["type"] == "assistant") {
             for b in e["message"]["content"].as_array().into_iter().flatten().filter(|b| b["type"] == "tool_use") {
@@ -1208,7 +1460,13 @@ mod tests {
             }
         }
         let result = ev.last().unwrap();
-        println!("respuesta ({:?}): {}\ntokens: {} + {}", started.elapsed(), result["result"], result["usage"]["input_tokens"], result["usage"]["output_tokens"]);
+        println!(
+            "respuesta ({:?}): {}\ntokens: {} + {}",
+            started.elapsed(),
+            result["result"],
+            result["usage"]["input_tokens"],
+            result["usage"]["output_tokens"]
+        );
         assert_eq!(result["type"], "result");
         assert!(result["result"].as_str().unwrap().contains("42"), "el modelo debía leer el archivo y ver 42");
         let _ = std::fs::remove_dir_all(dir);
@@ -1229,7 +1487,22 @@ mod tests {
         let (base, server) = mock_server(replies);
         let (events, emit) = collect_events();
         let m = CloudModel { base_url: base, ..model() };
-        tauri::async_runtime::block_on(run_with_mcp(m, dir.clone(), "c".into(), vec![], "usa la herramienta".into(), vec![], mode.into(), Arc::new(AtomicBool::new(false)), emit, Arc::new(Config::default()), no_resolver(), perms, mcp_tools())).unwrap();
+        tauri::async_runtime::block_on(run_with_mcp(
+            m,
+            dir.clone(),
+            "c".into(),
+            vec![],
+            "usa la herramienta".into(),
+            vec![],
+            mode.into(),
+            Arc::new(AtomicBool::new(false)),
+            emit,
+            Arc::new(Config::default()),
+            no_resolver(),
+            perms,
+            mcp_tools(),
+        ))
+        .unwrap();
         let bodies: Vec<Value> = server.join().unwrap().iter().map(|b| serde_json::from_str(b).unwrap()).collect();
         let ev = events.lock().unwrap().clone();
         (ev, bodies)
@@ -1284,8 +1557,10 @@ mod tests {
     fn leer_la_web_tambien_se_pregunta_y_lo_privado_se_rechaza_sin_preguntar() {
         let dir = project("aprob-web");
         let approver = Recorder::new(crate::agentperms::Decision::Deny);
-        let first = tool_reply(&[("w1", "web_fetch", json!({ "url": "https://docs.rs/serde" })), ("w2", "web_fetch", json!({ "url": "http://127.0.0.1:8080/x" }))]);
-        let (ev, _) = go_perms(model(), &dir, "full", "lee la doc", Config::default(), no_resolver(), perms_with(approver.clone()), vec![first, text_reply("Vale.")]);
+        let first =
+            tool_reply(&[("w1", "web_fetch", json!({ "url": "https://docs.rs/serde" })), ("w2", "web_fetch", json!({ "url": "http://127.0.0.1:8080/x" }))]);
+        let (ev, _) =
+            go_perms(model(), &dir, "full", "lee la doc", Config::default(), no_resolver(), perms_with(approver.clone()), vec![first, text_reply("Vale.")]);
         let asked = approver.asked();
         // Solo preguntó por la dirección pública; la local se rechazó antes.
         assert_eq!(asked.len(), 1);

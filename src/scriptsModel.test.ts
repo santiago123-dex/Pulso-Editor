@@ -4,7 +4,8 @@ import { detectManager, parseScripts, scriptCommand } from "./scriptsModel";
 describe("parseScripts", () => {
   it("lee los scripts en el orden del archivo", () => {
     expect(parseScripts('{"scripts":{"dev":"vite","build":"tsc && vite build"}}')).toEqual([
-      { name: "dev", command: "vite" }, { name: "build", command: "tsc && vite build" },
+      { name: "dev", command: "vite" },
+      { name: "build", command: "tsc && vite build" },
     ]);
   });
   it("tolera JSON inválido, sin scripts o con forma inesperada", () => {
