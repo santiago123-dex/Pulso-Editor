@@ -39,6 +39,7 @@ import { ICON_EXPAND, ICON_SHRINK, ICON_PLUS, ICON_CLOCK, ICON_SEND, ICON_STOP, 
 import { LEGACY_CODEX, splitLabelLevel, titleFromId, tierFromNote } from "./ai/modelLabels";
 import { MAX_IMAGES, MAX_IMAGE_BYTES, ALLOWED_IMAGE_MIME, readAsDataUrl, makeThumbnail } from "./ai/images";
 import { copy, insertCode, linkNode, inline, markdown, setLeaveFullscreenHook } from "./ai/markdownView";
+import { S, lives, tools, isFull, seconds, viewEl, q, USAGE_KEY, USAGE_SIG_KEY, FULL_KEY, type Live, type AiMode } from "./ai/chatState";
 import "./aiChat.css";
 
 setLeaveFullscreenHook(() => { if (isFull()) setFull(false); });
@@ -47,89 +48,25 @@ setLeaveFullscreenHook(() => { if (isFull()) setFull(false); });
  * Asistente de IA: conversa en la carpeta del proyecto con Claude Code, ChatGPT/Codex (`codex app-server`) o Antigravity (`agy`).
  * Pulso nunca ve ni guarda credenciales; cada herramienta administra su propia sesión.
  */
-interface Live { id: string; provider: AiProvider; normalize: (ev: AiEvent) => AiEvent[]; convo: Conversation; cwd: string; title: string; stopping?: boolean }
-
-// v2: la clave anterior pudo quedar con cifras de pruebas; se ignora y se borra al arrancar.
-const USAGE_KEY = "pulso.ai.usage.v2";
-const USAGE_SIG_KEY = "pulso.ai.usageSig";
-const FULL_KEY = "pulso.aiFull";
-
-function readStoredUsage(): Conversation["usage"] {
-  try {
-    removeStorage("pulso.ai.usage");
-    const raw = JSON.parse(readStorage(USAGE_KEY) ?? "{}");
-    return pruneUsage(raw);
-  } catch {
-    return {};
-  }
-}
-
-function savedProvider(): AiProvider {
-  const p = readStorage("pulso.ai.provider");
-  if (p === "codex") return "codex";
-  if (p === "antigravity" || p === "gemini") return "antigravity";
-  if (p === "local") return "local";
-  if (p === "cloud") return "cloud";
-  return "claude";
-}
-
-const lives = new Map<string, Live>();
-let activeProvider: AiProvider = savedProvider();
-let current: Live | null = null;
-const tools: Record<AiProvider, AiTool | null> = { claude: null, codex: null, antigravity: null, local: null, cloud: null };
-let tool: AiTool | null = null;
-let toolAt = 0;
-let detectInFlight: Promise<void> | null = null;
-let usageInFlight: Promise<boolean> | null = null;
-let usageSyncing = false;
-let usageError = "";
-let shown = false;
-let historyOpen = false;
-type AiMode = "read" | "edit" | "full";
-function savedMode(): AiMode {
-  const m = readStorage("pulso.ai.mode");
-  if (m === "full" || m === "edit") return m;
-  return "read";
-}
-let model = readStorage(PROVIDERS[activeProvider].modelKey) ?? "";
-let effort = readStorage("pulso.ai.effort") ?? "";
-let mode: AiMode = savedMode();
-let useFile = true;
-let useSel = true;
-let extraFiles: string[] = [];
-let extraNotes: ContextNote[] = [];
-let attachedImages: UserImage[] = [];
-let mentionFiles: { root: string; list: string[] } | null = null;
-let lastFile = "";
-let usage: Conversation["usage"] = readStoredUsage();
-let closePopover: (() => void) | null = null;
-let loginWatchTimer = 0;
-let awaitingLogin = false;
-let loginProvider: AiProvider = activeProvider;
 
 function switchProvider(next: AiProvider) {
-  if (activeProvider === next && tool === tools[next]) return;
-  activeProvider = next;
+  if (S.activeProvider === next && S.tool === tools[next]) return;
+  S.activeProvider = next;
   writeStorage("pulso.ai.provider", next);
-  model = readStorage(PROVIDERS[next].modelKey) ?? "";
-  tool = tools[next];
-  if (current) {
-    if (!current.convo.messages.length) {
-      current.provider = next;
-      current.normalize = createProviderNormalizer(next, model);
-    } else if (current.provider !== next) {
-      current = newLive();
+  S.model = readStorage(PROVIDERS[next].modelKey) ?? "";
+  S.tool = tools[next];
+  if (S.current) {
+    if (!S.current.convo.messages.length) {
+      S.current.provider = next;
+      S.current.normalize = createProviderNormalizer(next, S.model);
+    } else if (S.current.provider !== next) {
+      S.current = newLive();
     }
   }
-  if (!tool) void detect(true);
-  if (shown) renderBody();
+  if (!S.tool) void detect(true);
+  if (S.shown) renderBody();
 }
 
-const isFull = () => readStorage(FULL_KEY) === "1";
-/** Segundos con un decimal, con la coma o el punto que use el idioma elegido: «3,2» o «3.2». */
-const seconds = (ms: number) => (ms / 1000).toLocaleString(lang(), { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-const viewEl = () => $("view-ai");
-const q = <T extends HTMLElement>(sel: string) => viewEl().querySelector<T>(sel);
 
 
 function providerCatalog(prov: AiProvider): { models: ModelOption[]; specific: ModelOption[] } {
@@ -161,7 +98,7 @@ function providerCatalog(prov: AiProvider): { models: ModelOption[]; specific: M
   };
 }
 
-function findModelOption(val: string, prov: AiProvider = activeProvider): ModelOption {
+function findModelOption(val: string, prov: AiProvider = S.activeProvider): ModelOption {
   const cat = providerCatalog(prov);
   return cat.models.find((m) => m.value === val)
     ?? cat.specific.find((m) => m.value === val)
@@ -169,12 +106,12 @@ function findModelOption(val: string, prov: AiProvider = activeProvider): ModelO
 }
 
 function modelButtonText(): string {
-  const prov = current?.convo.messages.length ? current.provider : activeProvider;
-  const active = findModelOption(model, prov);
-  const resolved = current?.convo.model;
-  const base = !model && resolved ? formatModelName(resolved) : active.label;
-  const fixedLevel = prov === "antigravity" && model ? active.tier : "";
-  const eff = fixedLevel || (PROVIDERS[prov].supportsEffort ? EFFORTS.find((e) => e.value === effort)?.short : "");
+  const prov = S.current?.convo.messages.length ? S.current.provider : S.activeProvider;
+  const active = findModelOption(S.model, prov);
+  const resolved = S.current?.convo.model;
+  const base = !S.model && resolved ? formatModelName(resolved) : active.label;
+  const fixedLevel = prov === "antigravity" && S.model ? active.tier : "";
+  const eff = fixedLevel || (PROVIDERS[prov].supportsEffort ? EFFORTS.find((e) => e.value === S.effort)?.short : "");
   const prefix = prov === "claude" ? "" : `${PROVIDERS[prov].short} · `;
   return `${prefix}${eff ? `${base} · ${eff}` : base}`;
 }
@@ -188,11 +125,11 @@ function syncModelButton() {
 function fromSaved(c: SavedChat): Live {
   const rawProv = c.provider as string | undefined;
   const prov: AiProvider = rawProv === "codex" ? "codex" : rawProv === "antigravity" || rawProv === "gemini" ? "antigravity" : rawProv === "local" ? "local" : rawProv === "cloud" ? "cloud" : "claude";
-  return { id: c.id, provider: prov, normalize: createProviderNormalizer(prov, c.model || ""), cwd: c.cwd, title: c.title, convo: { ...emptyConversation(), messages: c.messages, sessionId: c.sessionId, model: c.model, usage: prov === "claude" ? usage : {} } };
+  return { id: c.id, provider: prov, normalize: createProviderNormalizer(prov, c.model || ""), cwd: c.cwd, title: c.title, convo: { ...emptyConversation(), messages: c.messages, sessionId: c.sessionId, model: c.model, usage: prov === "claude" ? S.usage : {} } };
 }
 
 function newLive(): Live {
-  const live: Live = { id: newChatId(), provider: activeProvider, normalize: createProviderNormalizer(activeProvider, model), convo: { ...emptyConversation(), usage: activeProvider === "claude" ? usage : {} }, cwd: ws.root ?? "", title: tr("Conversación nueva") };
+  const live: Live = { id: newChatId(), provider: S.activeProvider, normalize: createProviderNormalizer(S.activeProvider, S.model), convo: { ...emptyConversation(), usage: S.activeProvider === "claude" ? S.usage : {} }, cwd: ws.root ?? "", title: tr("Conversación nueva") };
   lives.set(live.id, live);
   return live;
 }
@@ -211,7 +148,7 @@ function saveRunningBeforeExit() {
   for (const l of lives.values()) {
     if (!l.convo.messages.length) continue;
     persist(l);
-    if (l.convo.running && (!active || l === current)) active = l;
+    if (l.convo.running && (!active || l === S.current)) active = l;
   }
   if (active) writeJsonStorage(INTERRUPTED_KEY, { id: active.id, cwd: active.cwd });
   else removeStorage(INTERRUPTED_KEY);
@@ -227,21 +164,18 @@ function refreshDisk() {
 
 let paintQueued = false;
 function schedulePaint() {
-  if (paintQueued || !shown) return;
+  if (paintQueued || !S.shown) return;
   paintQueued = true;
   requestAnimationFrame(() => { paintQueued = false; renderBody(); });
 }
 
-let codexUsage: Conversation["usage"] = {};
-let agyUsage: AntigravityUsage | null = null;
-let extraUsageInFlight: Promise<boolean> | null = null;
 
 function agyWindowFromBucket(b: AntigravityBucket): UsageWindow {
   return { utilization: 1 - Math.max(0, Math.min(1, b.remaining_fraction)), resetsAt: resetTimeFromIso(b.reset_time) };
 }
 
 function agyPrimaryUsage(): Conversation["usage"] {
-  const g = agyUsage?.groups?.[0];
+  const g = S.agyUsage?.groups?.[0];
   if (!g) return {};
   const five = g.buckets.find((b) => b.window === "5h");
   const week = g.buckets.find((b) => b.window === "weekly");
@@ -252,12 +186,12 @@ function agyPrimaryUsage(): Conversation["usage"] {
 }
 
 function refreshExtraUsage(): Promise<boolean> {
-  if (extraUsageInFlight) return extraUsageInFlight;
-  extraUsageInFlight = (async () => {
+  if (S.extraUsageInFlight) return S.extraUsageInFlight;
+  S.extraUsageInFlight = (async () => {
     try {
       const res = await invoke<ExtraUsage>("ai_extra_usage");
       if (res.codex) {
-        codexUsage = pruneUsage({
+        S.codexUsage = pruneUsage({
           fiveHour: res.codex.five_hour ? { utilization: res.codex.five_hour.used_percent / 100, resetsAt: res.codex.five_hour.resets_at } : undefined,
           sevenDay: res.codex.seven_day ? { utilization: res.codex.seven_day.used_percent / 100, resetsAt: res.codex.seven_day.resets_at } : undefined,
         });
@@ -265,60 +199,60 @@ function refreshExtraUsage(): Promise<boolean> {
           tools.codex.plan = res.codex.plan;
         }
       }
-      if (res.antigravity) agyUsage = res.antigravity;
-      if (shown) syncTelemetryViews();
+      if (res.antigravity) S.agyUsage = res.antigravity;
+      if (S.shown) syncTelemetryViews();
       return !!(res.codex || res.antigravity);
     } catch {
       return false;
     } finally {
-      extraUsageInFlight = null;
+      S.extraUsageInFlight = null;
     }
   })();
-  return extraUsageInFlight;
+  return S.extraUsageInFlight;
 }
 
-function providerUsage(prov: AiProvider = activeProvider): Conversation["usage"] {
-  if (prov === "claude") { usage = pruneUsage(usage); return usage; }
-  if (prov === "codex") { codexUsage = pruneUsage(codexUsage); return codexUsage; }
+function providerUsage(prov: AiProvider = S.activeProvider): Conversation["usage"] {
+  if (prov === "claude") { S.usage = pruneUsage(S.usage); return S.usage; }
+  if (prov === "codex") { S.codexUsage = pruneUsage(S.codexUsage); return S.codexUsage; }
   if (prov === "local" || prov === "cloud") return {};
   return agyPrimaryUsage();
 }
 
 function saveUsage(u: Conversation["usage"]) {
-  usage = pruneUsage(u);
-  usageError = "";
-  const claudeTool = tools.claude ?? tool;
+  S.usage = pruneUsage(u);
+  S.usageError = "";
+  const claudeTool = tools.claude ?? S.tool;
   if (claudeTool?.version.includes("falso")) return; // la herramienta de pruebas nunca deja cifras guardadas
-  writeJsonStorage(USAGE_KEY, usage);
+  writeJsonStorage(USAGE_KEY, S.usage);
   if (claudeTool) writeStorage(USAGE_SIG_KEY, `${claudeTool.auth_method}:${claudeTool.plan}`);
 }
 
 /** Pide a Claude Code el uso real del plan (`/usage`): no gasta cuota ni toca credenciales. */
 function refreshUsage(): Promise<boolean> {
-  if (activeProvider !== "claude") return Promise.resolve(false);
-  if (usageInFlight) return usageInFlight;
-  usageSyncing = true;
-  usageError = "";
-  if (shown) syncTelemetryViews();
-  usageInFlight = (async () => {
+  if (S.activeProvider !== "claude") return Promise.resolve(false);
+  if (S.usageInFlight) return S.usageInFlight;
+  S.usageSyncing = true;
+  S.usageError = "";
+  if (S.shown) syncTelemetryViews();
+  S.usageInFlight = (async () => {
     try {
       const next = parseUsageText(await invoke<string>("ai_usage"));
       if (!next.fiveHour && !next.sevenDay) {
-        usageError = tr("La CLI no devolvió ventanas de uso reconocibles.");
+        S.usageError = tr("La CLI no devolvió ventanas de uso reconocibles.");
         return false;
       }
       saveUsage(next);
       return true;
     } catch (e) {
-      usageError = e instanceof Error ? e.message : String(e || tr("No se pudo consultar /usage."));
+      S.usageError = e instanceof Error ? e.message : String(e || tr("No se pudo consultar /usage."));
       return false;
     } finally {
-      usageSyncing = false;
-      usageInFlight = null;
-      if (shown) syncTelemetryViews();
+      S.usageSyncing = false;
+      S.usageInFlight = null;
+      if (S.shown) syncTelemetryViews();
     }
   })();
-  return usageInFlight;
+  return S.usageInFlight;
 }
 
 let lastPersistAt = 0;
@@ -328,7 +262,7 @@ function apply(live: Live, ev: AiEvent) {
   live.convo = reduce(live.convo, ev);
   if (live.convo.usage.fiveHour || live.convo.usage.sevenDay) {
     if (live.provider === "claude") saveUsage(live.convo.usage);
-    else if (live.provider === "codex") codexUsage = pruneUsage(live.convo.usage);
+    else if (live.provider === "codex") S.codexUsage = pruneUsage(live.convo.usage);
   }
   if (live.convo.touched > before) refreshDisk();
   const now = Date.now();
@@ -342,21 +276,21 @@ function apply(live: Live, ev: AiEvent) {
     lastPersistAt = now;
     persist(live);
   }
-  if (current === live) schedulePaint();
+  if (S.current === live) schedulePaint();
 }
 
 // ---------- Contexto del editor ----------
 function editorContext(): EditorContext {
   const ctx: EditorContext = {};
   const p = activePath();
-  if (p && useFile) ctx.file = (ws.root && relativeToTop(norm(p), ws.root)) || norm(p);
-  if (extraFiles.length) ctx.extraFiles = [...extraFiles];
-  if (extraNotes.length) ctx.notes = [...extraNotes];
-  if (attachedImages.length) ctx.images = attachedImages.map((i) => ({ path: i.path, name: i.name }));
+  if (p && S.useFile) ctx.file = (ws.root && relativeToTop(norm(p), ws.root)) || norm(p);
+  if (S.extraFiles.length) ctx.extraFiles = [...S.extraFiles];
+  if (S.extraNotes.length) ctx.notes = [...S.extraNotes];
+  if (S.attachedImages.length) ctx.images = S.attachedImages.map((i) => ({ path: i.path, name: i.name }));
   const ed = focusedEditor();
   const sel = ed?.getSelection();
   const edModel = ed?.getModel();
-  if (useSel && ed && sel && edModel && !sel.isEmpty() && edModel.uri.scheme === "file") {
+  if (S.useSel && ed && sel && edModel && !sel.isEmpty() && edModel.uri.scheme === "file") {
     ctx.selection = { text: edModel.getValueInRange(sel), startLine: sel.startLineNumber, endLine: sel.endLineNumber };
   }
   return ctx;
@@ -378,15 +312,15 @@ function renderChips() {
     return c;
   };
   const nodes: HTMLElement[] = [];
-  if (labels.file) nodes.push(chip(labels.file, tr("Archivo abierto: se le dice a la IA cuál es"), () => { useFile = false; }));
-  for (const extra of extraFiles) {
+  if (labels.file) nodes.push(chip(labels.file, tr("Archivo abierto: se le dice a la IA cuál es"), () => { S.useFile = false; }));
+  for (const extra of S.extraFiles) {
     if (extra === ctx.file) continue;
-    nodes.push(chip(baseName(extra), tr("Archivo adjunto: {file}", { file: extra }), () => { extraFiles = extraFiles.filter((f) => f !== extra); }));
+    nodes.push(chip(baseName(extra), tr("Archivo adjunto: {file}", { file: extra }), () => { S.extraFiles = S.extraFiles.filter((f) => f !== extra); }));
   }
-  for (const note of extraNotes) {
-    nodes.push(chip(note.label, note.title, () => { extraNotes = extraNotes.filter((n) => n.id !== note.id); }));
+  for (const note of S.extraNotes) {
+    nodes.push(chip(note.label, note.title, () => { S.extraNotes = S.extraNotes.filter((n) => n.id !== note.id); }));
   }
-  for (const img of attachedImages) {
+  for (const img of S.attachedImages) {
     const c = h("span", "ai-chip ai-chip-img");
     c.title = tr("Imagen adjunta: {name}", { name: img.name });
     if (img.preview) {
@@ -400,11 +334,11 @@ function renderChips() {
     c.append(h("span", "", img.name));
     const x = h("button", "ai-chip-x", "×");
     x.type = "button"; x.title = tr("No adjuntar esto"); x.setAttribute("aria-label", tr("Quitar {item}", { item: img.name }));
-    x.onclick = () => { attachedImages = attachedImages.filter((i) => i !== img); renderChips(); };
+    x.onclick = () => { S.attachedImages = S.attachedImages.filter((i) => i !== img); renderChips(); };
     c.append(x);
     nodes.push(c);
   }
-  if (labels.selection) nodes.push(chip(labels.selection, tr("Tu selección se envía a la IA con el mensaje"), () => { useSel = false; }));
+  if (labels.selection) nodes.push(chip(labels.selection, tr("Tu selección se envía a la IA con el mensaje"), () => { S.useSel = false; }));
   box.replaceChildren(...nodes);
   box.hidden = !nodes.length;
   const ctxWrap = q(".ai-dock-ctx");
@@ -602,9 +536,9 @@ function usageRing(ratioLeft: number, size = 14): HTMLElement {
 }
 
 function dismissPopover() {
-  if (!closePopover) return;
-  const fn = closePopover;
-  closePopover = null;
+  if (!S.closePopover) return;
+  const fn = S.closePopover;
+  S.closePopover = null;
   fn();
 }
 
@@ -630,7 +564,7 @@ function openPopover(anchor: HTMLElement, pop: HTMLElement, placement: "below" |
   window.addEventListener("pointerdown", onDown, true);
   window.addEventListener("keydown", onKeyDown, true);
   window.addEventListener("blur", onBlur);
-  closePopover = () => {
+  S.closePopover = () => {
     pop.remove();
     window.removeEventListener("pointerdown", onDown, true);
     window.removeEventListener("keydown", onKeyDown, true);
@@ -643,7 +577,7 @@ function buildProviderTabs(onPick?: (p: AiProvider) => void): HTMLElement {
   for (const id of ["claude", "codex", "antigravity", "local", "cloud"] as const) {
     const t = tools[id];
     const dotCls = t?.logged_in ? "on" : t?.installed ? "wait" : "off";
-    const btn = h("button", `ai-prov-tab${activeProvider === id ? " active" : ""}`);
+    const btn = h("button", `ai-prov-tab${S.activeProvider === id ? " active" : ""}`);
     btn.type = "button";
     btn.title = t?.logged_in ? tr("{provider} conectado", { provider: PROVIDERS[id].title }) : t?.installed ? tr("{provider}: falta iniciar sesión", { provider: PROVIDERS[id].title }) : tr("{provider}: sin instalar", { provider: PROVIDERS[id].title });
     btn.append(h("span", `ai-prov-dot ${dotCls}`, ""), h("span", "", PROVIDERS[id].short));
@@ -710,7 +644,7 @@ function buildAccountsList(onClose?: () => void): HTMLElement {
   for (const id of ["claude", "codex", "antigravity", "local", "cloud"] as const) {
     const meta = PROVIDERS[id];
     const t = tools[id];
-    const isCurrent = activeProvider === id;
+    const isCurrent = S.activeProvider === id;
     const dotCls = t?.logged_in ? "on" : t?.installed ? "wait" : "off";
     const row = h("div", `ai-acct-row${isCurrent ? " active" : ""}`);
     const info = h("div", "ai-acct-info");
@@ -764,7 +698,7 @@ function openAccountsPopover(anchor: HTMLElement) {
     checkBtn.onclick = () => {
       checkBtn.disabled = true;
       checkBtn.textContent = tr("Comprobando…");
-      toolAt = 0;
+      S.toolAt = 0;
       void detect(true).finally(() => { if (pop.isConnected) render(); });
     };
     head.append(checkBtn);
@@ -788,7 +722,7 @@ function openModelPopover(anchor: HTMLElement) {
   sideUsage.hidden = true;
   dockWrap.append(pop, sideUsage);
 
-  let specificOpen = providerCatalog(activeProvider).specific.some((m) => m.value === model);
+  let specificOpen = providerCatalog(S.activeProvider).specific.some((m) => m.value === S.model);
   let usageSideOpen = false;
 
   const syncSidePosition = () => {
@@ -815,13 +749,13 @@ function openModelPopover(anchor: HTMLElement) {
   };
 
   const render = () => {
-    const meta = PROVIDERS[activeProvider];
-    const cat = providerCatalog(activeProvider);
+    const meta = PROVIDERS[S.activeProvider];
+    const cat = providerCatalog(S.activeProvider);
     pop.replaceChildren();
     pop.append(h("div", "ai-pop-head", tr("Herramienta")), buildProviderTabs(() => {
-      const target = tools[activeProvider];
+      const target = tools[S.activeProvider];
       if (target && !target.logged_in) { dismissPopover(); return; }
-      specificOpen = providerCatalog(activeProvider).specific.some((m) => m.value === model);
+      specificOpen = providerCatalog(S.activeProvider).specific.some((m) => m.value === S.model);
       syncModelButton();
       render();
       if (usageSideOpen) renderSideUsage();
@@ -830,7 +764,7 @@ function openModelPopover(anchor: HTMLElement) {
 
     const listBox = h("div", "ai-model-list");
     const addOption = (m: ModelOption) => {
-      const active = m.value === model;
+      const active = m.value === S.model;
       const row = h("button", `ai-pop-item${active ? " active" : ""}`);
       row.type = "button";
       row.title = m.hint;
@@ -842,8 +776,8 @@ function openModelPopover(anchor: HTMLElement) {
       if (m.badge) left.append(h("span", "ai-pop-badge", m.badge));
       row.append(left, h("span", "ai-pop-check", active ? "✓" : ""));
       row.onclick = () => {
-        model = m.value;
-        writeStorage(meta.modelKey, model);
+        S.model = m.value;
+        writeStorage(meta.modelKey, S.model);
         dismissPopover();
         syncModelButton();
       };
@@ -870,25 +804,25 @@ function openModelPopover(anchor: HTMLElement) {
     custom.append(customMain);
     custom.onclick = async () => {
       dismissPopover();
-      const entered = await promptText({ title: tr("Identificador exacto del modelo"), value: model, placeholder: cat.models[1]?.value ?? "modelo" });
+      const entered = await promptText({ title: tr("Identificador exacto del modelo"), value: S.model, placeholder: cat.models[1]?.value ?? "modelo" });
       if (!entered) return;
-      model = entered.trim();
-      writeStorage(meta.modelKey, model);
+      S.model = entered.trim();
+      writeStorage(meta.modelKey, S.model);
       syncModelButton();
     };
     listBox.append(custom);
     pop.append(listBox);
 
-    if (meta.supportsEffort && (activeProvider !== "antigravity" || !model)) {
+    if (meta.supportsEffort && (S.activeProvider !== "antigravity" || !S.model)) {
       const effBox = h("div", "ai-pop-effort");
       effBox.append(h("span", "ai-pop-effort-lbl", tr("Esfuerzo")));
       const pills = h("div", "ai-effort-pills");
       for (const e of EFFORTS) {
-        const b = h("button", `ai-effort-pill${effort === e.value ? " active" : ""}`, e.label);
+        const b = h("button", `ai-effort-pill${S.effort === e.value ? " active" : ""}`, e.label);
         b.type = "button";
         b.onclick = () => {
-          effort = e.value;
-          writeStorage("pulso.ai.effort", effort);
+          S.effort = e.value;
+          writeStorage("pulso.ai.effort", S.effort);
           syncModelButton();
           render();
         };
@@ -926,10 +860,10 @@ function openModelPopover(anchor: HTMLElement) {
 }
 
 async function syncAccountAndUsage(): Promise<void> {
-  toolAt = 0;
+  S.toolAt = 0;
   await detect(true);
   await Promise.all([
-    tools.claude?.logged_in ? (usageInFlight ?? refreshUsage()) : Promise.resolve(false),
+    tools.claude?.logged_in ? (S.usageInFlight ?? refreshUsage()) : Promise.resolve(false),
     (tools.codex?.logged_in || tools.antigravity?.logged_in) ? refreshExtraUsage() : Promise.resolve(false),
   ]);
 }
@@ -941,23 +875,23 @@ function agyBucketLabel(b: AntigravityBucket): string {
 }
 
 function fillQuotaCard(card: HTMLElement) {
-  const meta = PROVIDERS[activeProvider];
+  const meta = PROVIDERS[S.activeProvider];
   const curUsage = providerUsage();
   card.replaceChildren();
   const head = h("div", "ai-inst-head");
   const headLeft = h("div", "ai-inst-head-left");
-  const planBadgeText = activeProvider === "claude"
-    ? (tool?.plan ? tr("Plan {plan}", { plan: planLabel(tool.plan) }) : tr("Conectado"))
-    : activeProvider === "codex"
-      ? (tool?.plan && tool.plan !== "ChatGPT" ? tr("Plan {plan}", { plan: planLabel(tool.plan) }) : "ChatGPT")
-      : (tool?.plan || meta.short);
+  const planBadgeText = S.activeProvider === "claude"
+    ? (S.tool?.plan ? tr("Plan {plan}", { plan: planLabel(S.tool.plan) }) : tr("Conectado"))
+    : S.activeProvider === "codex"
+      ? (S.tool?.plan && S.tool.plan !== "ChatGPT" ? tr("Plan {plan}", { plan: planLabel(S.tool.plan) }) : "ChatGPT")
+      : (S.tool?.plan || meta.short);
   headLeft.append(
     h("span", "ai-inst-kicker", tr("Cuotas del plan")),
     h("span", "ai-inst-plan", planBadgeText),
   );
-  const syncBtn = h("button", "ai-inst-sync", usageSyncing ? tr("Actualizando…") : tr("Sincronizar"));
+  const syncBtn = h("button", "ai-inst-sync", S.usageSyncing ? tr("Actualizando…") : tr("Sincronizar"));
   syncBtn.type = "button";
-  syncBtn.disabled = usageSyncing;
+  syncBtn.disabled = S.usageSyncing;
   syncBtn.title = tr("Actualizar límites disponibles del plan");
   syncBtn.onclick = () => {
     syncBtn.disabled = true;
@@ -967,10 +901,10 @@ function fillQuotaCard(card: HTMLElement) {
   head.append(headLeft, syncBtn);
   card.append(head);
 
-  if (activeProvider === "antigravity") {
+  if (S.activeProvider === "antigravity") {
     const meters = h("div", "ai-inst-meters");
-    if (agyUsage?.groups?.length) {
-      for (const g of agyUsage.groups) {
+    if (S.agyUsage?.groups?.length) {
+      for (const g of S.agyUsage.groups) {
         for (const b of g.buckets) {
           const w = agyWindowFromBucket(b);
           const row = h("div", "ai-inst-row");
@@ -1008,8 +942,8 @@ function fillQuotaCard(card: HTMLElement) {
     track.append(bar);
     const cd = resetCountdown(w);
     const clock = resetClockText(w);
-    const emptyMsg = activeProvider === "claude"
-      ? (usageSyncing ? tr("Leyendo /usage…") : tr("Sin datos en esta ventana"))
+    const emptyMsg = S.activeProvider === "claude"
+      ? (S.usageSyncing ? tr("Leyendo /usage…") : tr("Sin datos en esta ventana"))
       : tr("Consultando límites de ChatGPT…");
     const reset = cd && cd !== "ahora" ? tr("Se reinicia en {time}", { time: cd }) : (clock || emptyMsg);
     row.append(top, track, h("div", "ai-inst-sub", reset));
@@ -1017,9 +951,9 @@ function fillQuotaCard(card: HTMLElement) {
   }
   card.append(meters);
 
-  if (activeProvider === "claude" && usageError) {
-    card.append(h("div", "ai-inst-note err", usageError));
-  } else if (activeProvider === "claude" && usageSyncing) {
+  if (S.activeProvider === "claude" && S.usageError) {
+    card.append(h("div", "ai-inst-note err", S.usageError));
+  } else if (S.activeProvider === "claude" && S.usageSyncing) {
     card.append(h("div", "ai-inst-note", tr("Sincronizando límites reales con Claude Code…")));
   }
 }
@@ -1036,7 +970,7 @@ function fillScopeStrip(box: HTMLElement, ctx: EditorContext) {
   if (ctx.selection) {
     pills.append(h("span", "ai-scope-item sel", `L${ctx.selection.startLine}–${ctx.selection.endLine}`));
   }
-  for (const ex of extraFiles) {
+  for (const ex of S.extraFiles) {
     if (ex !== ctx.file) pills.append(h("span", "ai-scope-item", baseName(ex)));
   }
   const add = h("button", "ai-scope-add", tr("+ Adjuntar"));
@@ -1066,13 +1000,13 @@ function usageRingRow(title: string, w: UsageWindow | undefined, emptyText: stri
 }
 
 function populateUsageContainer(pop: HTMLElement, onRefreshDone: () => void) {
-  const prov = current?.convo.messages.length ? current.provider : activeProvider;
+  const prov = S.current?.convo.messages.length ? S.current.provider : S.activeProvider;
   pop.replaceChildren();
   const head = h("div", "ai-usage-pop-head");
   head.append(h("span", "ai-usage-group", tr("Uso")));
-  const syncBtn = h("button", "ai-usage-sync", usageSyncing ? tr("Actualizando…") : tr("Actualizar"));
+  const syncBtn = h("button", "ai-usage-sync", S.usageSyncing ? tr("Actualizando…") : tr("Actualizar"));
   syncBtn.type = "button";
-  syncBtn.disabled = usageSyncing;
+  syncBtn.disabled = S.usageSyncing;
   syncBtn.onclick = () => {
     syncBtn.disabled = true;
     syncBtn.textContent = tr("Actualizando…");
@@ -1083,10 +1017,10 @@ function populateUsageContainer(pop: HTMLElement, onRefreshDone: () => void) {
 
   const order: AiProvider[] = [prov, ...(["claude", "codex", "antigravity", "local", "cloud"] as const).filter((p) => p !== prov && !!tools[p]?.logged_in)];
   for (const id of order) {
-    const t = tools[id] ?? (id === prov ? tool : null);
+    const t = tools[id] ?? (id === prov ? S.tool : null);
     if (id === "antigravity") {
-      if (agyUsage?.groups?.length) {
-        for (const g of agyUsage.groups) {
+      if (S.agyUsage?.groups?.length) {
+        for (const g of S.agyUsage.groups) {
           const sec = h("div", "ai-usage-section");
           sec.append(h("div", "ai-usage-sec-title", g.name));
           for (const b of g.buckets) {
@@ -1118,10 +1052,10 @@ function populateUsageContainer(pop: HTMLElement, onRefreshDone: () => void) {
       const title = t?.plan ? "Claude Code · " + tr("Plan {plan}", { plan: planLabel(t.plan) }) : "Claude Code";
       sec.append(
         h("div", "ai-usage-sec-title", title),
-        usageRingRow(tr("Límite semanal"), cur.sevenDay, usageSyncing ? tr("Consultando /usage…") : tr("Pendiente de lectura")),
-        usageRingRow(tr("Límite 5 h"), cur.fiveHour, usageSyncing ? tr("Consultando /usage…") : tr("Pendiente de lectura")),
+        usageRingRow(tr("Límite semanal"), cur.sevenDay, S.usageSyncing ? tr("Consultando /usage…") : tr("Pendiente de lectura")),
+        usageRingRow(tr("Límite 5 h"), cur.fiveHour, S.usageSyncing ? tr("Consultando /usage…") : tr("Pendiente de lectura")),
       );
-      if (usageError) sec.append(h("div", "ai-usage-note err", usageError));
+      if (S.usageError) sec.append(h("div", "ai-usage-note err", S.usageError));
     } else {
       const cur = providerUsage("codex");
       const title = t?.plan && t.plan !== "ChatGPT" ? "ChatGPT / Codex · " + tr("Plan {plan}", { plan: planLabel(t.plan) }) : "ChatGPT / Codex";
@@ -1134,7 +1068,7 @@ function populateUsageContainer(pop: HTMLElement, onRefreshDone: () => void) {
     pop.append(sec);
   }
 
-  const convo = current?.convo;
+  const convo = S.current?.convo;
   if (convo && (convo.model || convo.outcome)) {
     const sess = h("div", "ai-usage-sess");
     if (convo.model) sess.append(h("div", "ai-usage-meta", tr("Modelo activo: {model}", { model: formatModelName(convo.model) })));
@@ -1149,7 +1083,7 @@ function openUsagePopover(anchor: HTMLElement) {
   const fill = () => populateUsageContainer(pop, () => { if (pop.isConnected) fill(); });
   fill();
   openPopover(anchor, pop, "above");
-  if (tools.claude?.logged_in || activeProvider === "claude") {
+  if (tools.claude?.logged_in || S.activeProvider === "claude") {
     void refreshUsage().finally(() => { if (pop.isConnected) fill(); });
   }
   if (tools.codex?.logged_in || tools.antigravity?.logged_in) {
@@ -1230,7 +1164,7 @@ function collectReferencedImagePaths(): string[] {
   };
   for (const c of loadChats()) scanTurns(c.messages);
   for (const l of lives.values()) scanTurns(l.convo.messages);
-  for (const img of attachedImages) if (img.path) paths.add(img.path);
+  for (const img of S.attachedImages) if (img.path) paths.add(img.path);
   return Array.from(paths);
 }
 
@@ -1242,7 +1176,7 @@ function pruneUnusedImages() {
 async function addImageFiles(files: Iterable<File>) {
   if (!ws.root) { setStatus(tr("Abre una carpeta primero")); return; }
   for (const file of files) {
-    if (attachedImages.length >= MAX_IMAGES) {
+    if (S.attachedImages.length >= MAX_IMAGES) {
       setStatus(tr("Puedes adjuntar como máximo {max} imágenes por mensaje", { max: MAX_IMAGES }), 4000);
       break;
     }
@@ -1266,7 +1200,7 @@ async function addImageFiles(files: Iterable<File>) {
         dataBase64: base64,
       });
       const preview = await makeThumbnail(dataUrl);
-      attachedImages.push({ path: saved.path, name: saved.name, ...(preview ? { preview } : {}) });
+      S.attachedImages.push({ path: saved.path, name: saved.name, ...(preview ? { preview } : {}) });
       renderChips();
     } catch (e) {
       setStatus(tr("No se pudo adjuntar la imagen: {error}", { error: String(e) }), 5000);
@@ -1276,7 +1210,7 @@ async function addImageFiles(files: Iterable<File>) {
 }
 
 function addContextNote(note: ContextNote) {
-  extraNotes = [...extraNotes.filter((n) => n.id !== note.id), note];
+  S.extraNotes = [...S.extraNotes.filter((n) => n.id !== note.id), note];
   renderChips();
   q<HTMLTextAreaElement>(".ai-input")?.focus();
 }
@@ -1291,7 +1225,7 @@ function attachProjectFileOnly() {
         label: baseName(p),
         detail: dirName(r),
         run: () => {
-          if (!extraFiles.includes(r)) extraFiles.push(r);
+          if (!S.extraFiles.includes(r)) S.extraFiles.push(r);
           renderChips();
           q<HTMLTextAreaElement>(".ai-input")?.focus();
         },
@@ -1379,8 +1313,8 @@ function attachProjectFile() {
 }
 
 function usageText(): string {
-  const prov = current?.convo.messages.length ? current.provider : activeProvider;
-  const curTool = tools[prov] ?? tool;
+  const prov = S.current?.convo.messages.length ? S.current.provider : S.activeProvider;
+  const curTool = tools[prov] ?? S.tool;
   const curUsage = providerUsage(prov);
   const parts: string[] = [];
   if (curTool?.plan) parts.push(prov === "claude" ? tr("Plan {plan}", { plan: planLabel(curTool.plan) }) : `${PROVIDERS[prov].short} · ${planLabel(curTool.plan)}`);
@@ -1392,7 +1326,7 @@ function usageText(): string {
 function renderFoot() {
   const foot = q(".ai-foot");
   if (!foot) return;
-  const prov = current?.convo.messages.length ? current.provider : activeProvider;
+  const prov = S.current?.convo.messages.length ? S.current.provider : S.activeProvider;
   const curUsage = providerUsage(prov);
   const text = usageText();
   foot.replaceChildren();
@@ -1447,47 +1381,47 @@ async function detectProviderNow(prov: AiProvider) {
     const wasInstalled = !!tools[prov]?.installed;
     const wasLogged = !!tools[prov]?.logged_in;
     tools[prov] = next;
-    if (prov === activeProvider) tool = next;
+    if (prov === S.activeProvider) S.tool = next;
     if (next.logged_in) {
-      awaitingLogin = false;
-      window.clearInterval(loginWatchTimer);
+      S.awaitingLogin = false;
+      window.clearInterval(S.loginWatchTimer);
       if (!wasLogged) setStatus(tr("{provider} conectado", { provider: PROVIDERS[prov].title }), 4000);
       if (prov === "claude") void refreshUsage();
       void detect(true);
     }
-    if (shown && (next.logged_in || next.installed !== wasInstalled)) renderBody();
+    if (S.shown && (next.logged_in || next.installed !== wasInstalled)) renderBody();
   } catch { /* reintento en el siguiente tick */ }
 }
 
 function watchLogin(prov: AiProvider, intervalMs = 1000) {
-  awaitingLogin = true;
-  loginProvider = prov;
+  S.awaitingLogin = true;
+  S.loginProvider = prov;
   const started = Date.now();
-  window.clearInterval(loginWatchTimer);
-  loginWatchTimer = window.setInterval(() => {
-    if (!awaitingLogin || tools[prov]?.logged_in || Date.now() - started > 600_000) {
-      awaitingLogin = false;
-      window.clearInterval(loginWatchTimer);
+  window.clearInterval(S.loginWatchTimer);
+  S.loginWatchTimer = window.setInterval(() => {
+    if (!S.awaitingLogin || tools[prov]?.logged_in || Date.now() - started > 600_000) {
+      S.awaitingLogin = false;
+      window.clearInterval(S.loginWatchTimer);
       return;
     }
     void detectProviderNow(prov);
   }, intervalMs);
 }
 
-function startLoginFlow(prov: AiProvider = activeProvider) {
+function startLoginFlow(prov: AiProvider = S.activeProvider) {
   // Los modelos en la nube no tienen inicio de sesión: se conecta un proveedor pegando su clave.
-  if (prov === "cloud") { connectProvider(() => { toolAt = 0; void detect(true); }); return; }
+  if (prov === "cloud") { connectProvider(() => { S.toolAt = 0; void detect(true); }); return; }
   watchLogin(prov, 1000);
   void runInTerminal(PROVIDERS[prov].loginCmd);
 }
 
 function buildEmptyWorkbench(): HTMLElement {
-  const meta = PROVIDERS[activeProvider];
+  const meta = PROVIDERS[S.activeProvider];
   const empty = h("div", "ai-empty ai-bench");
   const main = h("div", "ai-bench-main");
 
-  const modeShort = mode === "full" ? tr("Agente") : mode === "edit" ? tr("Puede editar") : tr("Solo leer");
-  const modeCls = mode === "full" ? " full" : mode === "edit" ? " edit" : "";
+  const modeShort = S.mode === "full" ? tr("Agente") : S.mode === "edit" ? tr("Puede editar") : tr("Solo leer");
+  const modeCls = S.mode === "full" ? " full" : S.mode === "edit" ? " edit" : "";
   const eyebrow = h("div", "ai-bench-eyebrow");
   eyebrow.append(
     h("span", `ai-meta-pill${modeCls}`, modeShort),
@@ -1524,7 +1458,7 @@ function buildEmptyWorkbench(): HTMLElement {
   thLeft.append(h("span", "ai-inst-kicker", tr("Sesiones recientes")));
   const allBtn = h("button", "ai-inst-sync", tr("Ver todo"));
   allBtn.type = "button";
-  allBtn.onclick = () => { historyOpen = true; renderBody(); };
+  allBtn.onclick = () => { S.historyOpen = true; renderBody(); };
   thHead.append(thLeft, allBtn);
   threadsCard.append(thHead);
 
@@ -1538,7 +1472,7 @@ function buildEmptyWorkbench(): HTMLElement {
       btn.onclick = () => {
         const opened = lives.get(c.id) ?? (() => { const l = fromSaved(c); lives.set(l.id, l); return l; })();
         switchProvider(opened.provider);
-        current = opened;
+        S.current = opened;
         renderBody();
       };
       list.append(btn);
@@ -1546,11 +1480,11 @@ function buildEmptyWorkbench(): HTMLElement {
     threadsCard.append(list);
   } else {
     const spec = h("div", "ai-inst-spec");
-    const activeOpt = findModelOption(model);
-    const effOpt = EFFORTS.find((e) => e.value === effort)?.label ?? "Auto";
+    const activeOpt = findModelOption(S.model);
+    const effOpt = EFFORTS.find((e) => e.value === S.effort)?.label ?? "Auto";
     spec.append(
       h("div", "ai-spec-row", tr("Motor activo: {model}", { model: activeOpt.label })),
-      h("div", "ai-spec-row", tr("Esfuerzo: {effort} · Modo: {mode}", { effort: effOpt, mode: mode === "full" ? tr("Agente completo") : mode === "edit" ? tr("Edición directa") : tr("Solo lectura") })),
+      h("div", "ai-spec-row", tr("Esfuerzo: {effort} · Modo: {mode}", { effort: effOpt, mode: S.mode === "full" ? tr("Agente completo") : S.mode === "edit" ? tr("Edición directa") : tr("Solo lectura") })),
       h("div", "ai-inst-note", tr("Tus hilos guardados en {folder} aparecerán aquí para retomarlos en un clic.", { folder: wsName })),
     );
     threadsCard.append(spec);
@@ -1571,7 +1505,7 @@ function buildDenialCard(live: Live, denials: number, actions: readonly DeniedAc
   card.setAttribute("role", "region");
   card.setAttribute("aria-label", tr("Permiso requerido por el agente"));
 
-  const wantsFull = mode !== "read" || needsCommandPermission(actions);
+  const wantsFull = S.mode !== "read" || needsCommandPermission(actions);
   const targetMode: AiMode = wantsFull ? "full" : "edit";
   const targetLabel = targetMode === "full" ? tr("Agente") : tr("Puede editar");
 
@@ -1614,8 +1548,8 @@ function buildDenialCard(live: Live, denials: number, actions: readonly DeniedAc
   switchBtn.type = "button";
   switchBtn.onclick = () => {
     dismissedDenials.add(dismissKey);
-    mode = targetMode;
-    writeStorage("pulso.ai.mode", mode);
+    S.mode = targetMode;
+    writeStorage("pulso.ai.mode", S.mode);
     writeStorage(targetMode === "full" ? "pulso.ai.fullOk" : "pulso.ai.editOk", "1");
     build();
     const contPrompt = targetMode === "full"
@@ -1657,7 +1591,7 @@ function renderIssueBanner() {
   prBtn.type = "button";
   prBtn.title = tr("Crear pull request enlazando Closes #{number}", { number: work.number });
   prBtn.onclick = () => {
-    const files = current ? touchedFiles(current.convo.messages) : [];
+    const files = S.current ? touchedFiles(S.current.convo.messages) : [];
     void createPrForActiveIssue(files);
   };
   const endBtn = h("button", "ai-issue-btn", tr("Finalizar"));
@@ -1695,10 +1629,10 @@ function renderBody() {
   const body = q(".ai-body");
   const compose = q(".ai-compose");
   if (!body || !compose) return;
-  const prov = current?.convo.messages.length ? current.provider : activeProvider;
+  const prov = S.current?.convo.messages.length ? S.current.provider : S.activeProvider;
   const meta = PROVIDERS[prov];
-  const curTool = tools[prov] ?? (prov === activeProvider ? tool : null);
-  tool = tools[activeProvider];
+  const curTool = tools[prov] ?? (prov === S.activeProvider ? S.tool : null);
+  S.tool = tools[S.activeProvider];
   const sub = q(".ai-sub");
   if (sub) {
     if (!curTool?.installed) sub.textContent = "";
@@ -1719,12 +1653,12 @@ function renderBody() {
         : prov === "local" ? "Ollama" : (curTool?.plan || "Antigravity");
   }
   const histBtn = q<HTMLButtonElement>(`.ai-tools button[title="${CSS.escape(tr("Conversaciones anteriores"))}"]`);
-  if (histBtn) { histBtn.classList.toggle("active", historyOpen); histBtn.setAttribute("aria-pressed", String(historyOpen)); }
+  if (histBtn) { histBtn.classList.toggle("active", S.historyOpen); histBtn.setAttribute("aria-pressed", String(S.historyOpen)); }
   renderIssueBanner();
   renderFoot();
-  const recheck = () => { toolAt = 0; void detect(true); };
+  const recheck = () => { S.toolAt = 0; void detect(true); };
   const ready = !!curTool?.installed && curTool.logged_in && !!ws.root;
-  compose.hidden = !ready || historyOpen;
+  compose.hidden = !ready || S.historyOpen;
   if (!curTool) { resetTurnCache(); body.replaceChildren(setupMessage(tr("Detectando {provider}", { provider: meta.title }), tr("Comprobando sesión y estado de tu cuenta…"))); return; }
   if (!curTool.installed) {
     resetTurnCache();
@@ -1766,15 +1700,15 @@ function renderBody() {
     return;
   }
   if (!ws.root) { resetTurnCache(); body.replaceChildren(setupMessage(tr("Abre un proyecto"), tr("Abre una carpeta de proyecto para que el asistente pueda leer tu código y ayudarte dentro de ella."))); return; }
-  if (historyOpen) { resetTurnCache(); renderHistory(body); return; }
+  if (S.historyOpen) { resetTurnCache(); renderHistory(body); return; }
 
-  if (current && !sameDir(current.cwd, ws.root)) {
-    if (current.convo.messages.length) persist(current, true);
-    else lives.delete(current.id);
-    current = null;
+  if (S.current && !sameDir(S.current.cwd, ws.root)) {
+    if (S.current.convo.messages.length) persist(S.current, true);
+    else lives.delete(S.current.id);
+    S.current = null;
     resetTurnCache();
   }
-  const live = current ?? (current = newLive());
+  const live = S.current ?? (S.current = newLive());
   const c = live.convo;
   syncModelButton();
   const atBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 80;
@@ -1934,17 +1868,17 @@ function renderHistory(body: HTMLElement) {
   const nodes: HTMLElement[] = [h("div", "ai-hist-title", tr("Conversaciones de este proyecto"))];
   if (!rows.length) nodes.push(h("div", "ai-hist-empty", tr("Aún no hay conversaciones guardadas.")));
   for (const r of rows) {
-    const row = h("div", `ai-hist-row${current?.id === r.id ? " current" : ""}`);
+    const row = h("div", `ai-hist-row${S.current?.id === r.id ? " current" : ""}`);
     const open = h("button", "ai-hist-open"); open.type = "button";
     open.append(h("span", "ai-hist-name", r.title), h("span", "ai-hist-when", r.running ? "respondiendo…" : agoFrom(r.when)));
     open.onclick = () => {
       const opened = lives.get(r.id) ?? (() => { const l = fromSaved(saved.find((c) => c.id === r.id)!); lives.set(l.id, l); return l; })();
       switchProvider(opened.provider);
-      current = opened;
-      historyOpen = false; renderBody();
+      S.current = opened;
+      S.historyOpen = false; renderBody();
     };
     const del = iconBtn('<svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/></svg>', tr("Eliminar esta conversación"), "ai-hist-del");
-    del.onclick = () => { deleteChat(r.id); if (lives.get(r.id)?.convo.running) { void invoke("ai_stop", { id: r.id }); } lives.delete(r.id); if (current?.id === r.id) current = null; pruneUnusedImages(); renderBody(); };
+    del.onclick = () => { deleteChat(r.id); if (lives.get(r.id)?.convo.running) { void invoke("ai_stop", { id: r.id }); } lives.delete(r.id); if (S.current?.id === r.id) S.current = null; pruneUnusedImages(); renderBody(); };
     row.append(open, del);
     nodes.push(row);
   }
@@ -1953,11 +1887,11 @@ function renderHistory(body: HTMLElement) {
 
 // ---------- Acciones ----------
 async function detect(force = false) {
-  if (!force && tool && Date.now() - toolAt < 60_000) { if (shown) renderBody(); return; }
-  if (detectInFlight) return detectInFlight;
-  const wasLogged = !!tools[activeProvider]?.logged_in;
-  if (!tool && shown) renderBody();
-  detectInFlight = (async () => {
+  if (!force && S.tool && Date.now() - S.toolAt < 60_000) { if (S.shown) renderBody(); return; }
+  if (S.detectInFlight) return S.detectInFlight;
+  const wasLogged = !!tools[S.activeProvider]?.logged_in;
+  if (!S.tool && S.shown) renderBody();
+  S.detectInFlight = (async () => {
     try {
       const all = await invoke<AllAiTools>("ai_detect_all").catch(async () => {
         const claude = await invoke<AiTool>("ai_detect");
@@ -1967,8 +1901,8 @@ async function detect(force = false) {
       const sig = `${nextClaude.auth_method}:${nextClaude.plan}`;
       const prevSig = readStorage(USAGE_SIG_KEY);
       if (!nextClaude.logged_in || prevSig !== sig) {
-        usage = {};
-        usageError = "";
+        S.usage = {};
+        S.usageError = "";
         removeStorage(USAGE_KEY);
       }
       tools.claude = nextClaude;
@@ -1976,7 +1910,7 @@ async function detect(force = false) {
       tools.antigravity = all.antigravity;
       tools.local = ("local" in all ? all.local : null) ?? null;
       tools.cloud = ("cloud" in all ? all.cloud : null) ?? null;
-      tool = tools[activeProvider];
+      S.tool = tools[S.activeProvider];
 
       if (nextClaude.logged_in) {
         writeStorage(USAGE_SIG_KEY, sig);
@@ -1985,27 +1919,27 @@ async function detect(force = false) {
       if (all.codex?.logged_in || all.antigravity?.logged_in) {
         void refreshExtraUsage();
       }
-      const curTool = tools[activeProvider];
-      if (curTool?.logged_in && (awaitingLogin || (!wasLogged && shown))) {
-        awaitingLogin = false;
-        window.clearInterval(loginWatchTimer);
-        if (activeProvider === "claude" && curTool.plan) {
+      const curTool = tools[S.activeProvider];
+      if (curTool?.logged_in && (S.awaitingLogin || (!wasLogged && S.shown))) {
+        S.awaitingLogin = false;
+        window.clearInterval(S.loginWatchTimer);
+        if (S.activeProvider === "claude" && curTool.plan) {
           setStatus(tr("Claude Code conectado · Plan {plan}", { plan: planLabel(curTool.plan) }), 4000);
-        } else if (activeProvider !== "claude") {
-          setStatus(tr("{provider} conectado", { provider: PROVIDERS[activeProvider].title }), 4000);
+        } else if (S.activeProvider !== "claude") {
+          setStatus(tr("{provider} conectado", { provider: PROVIDERS[S.activeProvider].title }), 4000);
         }
       }
     } catch (e) {
       const fail: AiTool = { installed: false, version: "", logged_in: false, auth_method: "", plan: "", error: String(e) };
-      tools[activeProvider] = fail;
-      tool = fail;
+      tools[S.activeProvider] = fail;
+      S.tool = fail;
     } finally {
-      toolAt = Date.now();
-      detectInFlight = null;
-      if (shown) renderBody();
+      S.toolAt = Date.now();
+      S.detectInFlight = null;
+      if (S.shown) renderBody();
     }
   })();
-  return detectInFlight;
+  return S.detectInFlight;
 }
 
 function autosize() {
@@ -2026,18 +1960,18 @@ async function dispatchPrompt(live: Live, displayText: string, prompt: string, e
   live.cwd = ws.root;
   live.stopping = false;
   if (!live.convo.messages.length) {
-    live.provider = activeProvider;
-    live.normalize = createProviderNormalizer(live.provider, model || "");
+    live.provider = S.activeProvider;
+    live.normalize = createProviderNormalizer(live.provider, S.model || "");
   }
-  const useEffort = PROVIDERS[live.provider].supportsEffort && !(live.provider === "antigravity" && model)
-    ? effort || null
+  const useEffort = PROVIDERS[live.provider].supportsEffort && !(live.provider === "antigravity" && S.model)
+    ? S.effort || null
     : null;
   apply(live, userEvent(displayText, images));
   try {
     // El agente local no guarda sesiones: recibe la conversación anterior (solo el texto) desde aquí.
-    const sendModel = live.provider === "local" ? model || tools.local?.models?.[0]?.id || null
-      : live.provider === "cloud" ? model || tools.cloud?.models?.[0]?.id || null
-      : model || null;
+    const sendModel = live.provider === "local" ? S.model || tools.local?.models?.[0]?.id || null
+      : live.provider === "cloud" ? S.model || tools.cloud?.models?.[0]?.id || null
+      : S.model || null;
     const history = live.provider === "local" || live.provider === "cloud" ? localHistory(live) : null;
     const imagePaths = images.length ? images.map((i) => i.path) : null;
     await invoke("ai_send", { id: live.id, cwd: ws.root, prompt, session: live.convo.sessionId || null, model: sendModel, effort: useEffort, mode: effectiveMode, provider: live.provider, history, images: imagePaths });
@@ -2047,30 +1981,30 @@ async function dispatchPrompt(live: Live, displayText: string, prompt: string, e
 }
 
 async function send() {
-  const live = current;
+  const live = S.current;
   const input = q<HTMLTextAreaElement>(".ai-input");
   if (!live || !input || !ws.root) return;
   if (live.convo.running) { live.stopping = true; await invoke("ai_stop", { id: live.id }).catch(() => {}); return; }
   const text = input.value.trim();
-  if (!text && !attachedImages.length) return;
-  const imgs = [...attachedImages];
+  if (!text && !S.attachedImages.length) return;
+  const imgs = [...S.attachedImages];
   const promptText = text || (imgs.length === 1 ? tr("Analiza la imagen adjunta.") : tr("Analiza las imágenes adjuntas."));
   const prompt = buildPrompt(promptText, editorContext());
   input.value = ""; autosize();
-  attachedImages = [];
-  extraNotes = [];
+  S.attachedImages = [];
+  S.extraNotes = [];
   renderChips();
-  await dispatchPrompt(live, text, prompt, mode, imgs);
+  await dispatchPrompt(live, text, prompt, S.mode, imgs);
 }
 
 function newConversation() {
   dismissPopover();
-  if (current && !current.convo.messages.length) { historyOpen = false; renderBody(); return; }
-  current = newLive();
-  extraFiles = [];
-  extraNotes = [];
-  attachedImages = [];
-  historyOpen = false;
+  if (S.current && !S.current.convo.messages.length) { S.historyOpen = false; renderBody(); return; }
+  S.current = newLive();
+  S.extraFiles = [];
+  S.extraNotes = [];
+  S.attachedImages = [];
+  S.historyOpen = false;
   renderBody();
   q<HTMLTextAreaElement>(".ai-input")?.focus();
 }
@@ -2090,13 +2024,13 @@ function setFull(full: boolean) {
 }
 
 function onKey(e: KeyboardEvent) {
-  if (e.key === "Escape" && !closePopover && isFull() && !document.querySelector(".modal")) { e.preventDefault(); e.stopPropagation(); setFull(false); }
+  if (e.key === "Escape" && !S.closePopover && isFull() && !document.querySelector(".modal")) { e.preventDefault(); e.stopPropagation(); setFull(false); }
 }
 
 async function chooseMode(next: AiMode) {
-  if (next === mode) return;
+  if (next === S.mode) return;
   if (next === "edit" && readStorage("pulso.ai.editOk") !== "1") {
-    const msg = tr("Con «Puede editar», {provider} podrá modificar y crear archivos en tu proyecto sin preguntar cada vez. Verás los cambios en el panel de Git y podrás descartarlos. Si necesita ejecutar un comando de terminal, Pulso te pedirá permiso.", { provider: PROVIDERS[activeProvider].title });
+    const msg = tr("Con «Puede editar», {provider} podrá modificar y crear archivos en tu proyecto sin preguntar cada vez. Verás los cambios en el panel de Git y podrás descartarlos. Si necesita ejecutar un comando de terminal, Pulso te pedirá permiso.", { provider: PROVIDERS[S.activeProvider].title });
     const r = await showDialog({
       title: tr("Permitir que la IA edite archivos"),
       message: msg,
@@ -2105,7 +2039,7 @@ async function chooseMode(next: AiMode) {
     if (r !== "ok") { build(); return; }
     writeStorage("pulso.ai.editOk", "1");
   } else if (next === "full" && readStorage("pulso.ai.fullOk") !== "1") {
-    const msg = tr("Con «Agente», {provider} podrá modificar archivos Y ejecutar comandos de terminal (pruebas, búsquedas, diagnósticos, git, etc.) dentro de tu proyecto sin pedir confirmación en cada paso. Actívalo solo en proyectos en los que confíes.", { provider: PROVIDERS[activeProvider].title });
+    const msg = tr("Con «Agente», {provider} podrá modificar archivos Y ejecutar comandos de terminal (pruebas, búsquedas, diagnósticos, git, etc.) dentro de tu proyecto sin pedir confirmación en cada paso. Actívalo solo en proyectos en los que confíes.", { provider: PROVIDERS[S.activeProvider].title });
     const r = await showDialog({
       title: tr("Activar modo Agente completo"),
       message: msg,
@@ -2114,8 +2048,8 @@ async function chooseMode(next: AiMode) {
     if (r !== "ok") { build(); return; }
     writeStorage("pulso.ai.fullOk", "1");
   }
-  mode = next;
-  writeStorage("pulso.ai.mode", mode);
+  S.mode = next;
+  writeStorage("pulso.ai.mode", S.mode);
   build();
 }
 
@@ -2140,7 +2074,7 @@ function build() {
   titles.append(titleRow, h("span", "ai-sub", ""));
   const tools = h("div", "ai-tools");
   const add = iconBtn(ICON_PLUS, tr("Nueva conversación")); add.onclick = newConversation;
-  const hist = iconBtn(ICON_CLOCK, tr("Conversaciones anteriores")); hist.onclick = () => { historyOpen = !historyOpen; renderBody(); };
+  const hist = iconBtn(ICON_CLOCK, tr("Conversaciones anteriores")); hist.onclick = () => { S.historyOpen = !S.historyOpen; renderBody(); };
   const themeBtn = iconBtn(ICON_PALETTE, tr("Cambiar color de fondo")); themeBtn.onclick = () => openAppearancePopover(themeBtn);
   const expand = iconBtn(ICON_EXPAND, tr("Pantalla completa"), "ai-expand"); expand.onclick = () => setFull(!isFull());
   tools.append(add, hist, themeBtn, expand);
@@ -2200,7 +2134,7 @@ function build() {
     ["full", tr("Agente"), tr("La IA puede editar archivos y ejecutar comandos de terminal en tu proyecto para completar tareas")],
   ];
   for (const [value, label, hint] of modeOptions) {
-    const b = h("button", "", label); b.type = "button"; b.title = hint; b.setAttribute("role", "tab"); b.setAttribute("aria-selected", String(mode === value));
+    const b = h("button", "", label); b.type = "button"; b.title = hint; b.setAttribute("role", "tab"); b.setAttribute("aria-selected", String(S.mode === value));
     b.onclick = () => void chooseMode(value);
     seg.append(b);
   }
@@ -2226,7 +2160,7 @@ function build() {
     const inserted = `@${file} `;
     input.value = `${before}${inserted}${after}`;
     input.selectionStart = input.selectionEnd = before.length + inserted.length;
-    if (!extraFiles.includes(file)) extraFiles.push(file);
+    if (!S.extraFiles.includes(file)) S.extraFiles.push(file);
     closeMention();
     renderChips();
     autosize();
@@ -2254,10 +2188,10 @@ function build() {
     mentionStart = hit.start;
     mentionQuery = hit.query;
     const root = ws.root;
-    if (!mentionFiles || mentionFiles.root !== root) {
+    if (!S.mentionFiles || S.mentionFiles.root !== root) {
       try {
         const raw = await invoke<string[]>("list_files", { path: root });
-        mentionFiles = { root, list: raw.map((p) => rel(p)).sort((a, b) => a.localeCompare(b)) };
+        S.mentionFiles = { root, list: raw.map((p) => rel(p)).sort((a, b) => a.localeCompare(b)) };
       } catch {
         closeMention();
         return;
@@ -2266,7 +2200,7 @@ function build() {
     if (ws.root !== root || mentionStart < 0) return;
     const again = fileMentionAt(input.value, input.selectionStart ?? input.value.length);
     if (!again || again.query !== mentionQuery) return;
-    mentionItems = filterProjectFiles(mentionFiles.list, again.query, 8);
+    mentionItems = filterProjectFiles(S.mentionFiles.list, again.query, 8);
     mentionIdx = 0;
     paintMention();
   };
@@ -2327,13 +2261,13 @@ function build() {
 
 /** Lo llama el selector de vistas de la barra lateral. */
 export function setAiVisible(visible: boolean) {
-  shown = visible;
+  S.shown = visible;
   window.removeEventListener("keydown", onKey, true);
   if (!visible) { dismissPopover(); return; }
   window.addEventListener("keydown", onKey, true);
   if (isFull()) bus.emit("overlay", "ai");
   if (!q(".ai-shell")) build(); else { applyMode(); renderBody(); }
-  void detect(!tool?.logged_in);
+  void detect(!S.tool?.logged_in);
   q<HTMLTextAreaElement>(".ai-input")?.focus();
 }
 
@@ -2352,12 +2286,12 @@ export function initAi() {
           const l = fromSaved(saved);
           lives.set(l.id, l);
           switchProvider(l.provider);
-          current = l;
+          S.current = l;
         }
       }
     } catch { /* nada que hacer */ }
     pruneUnusedImages();
-    if (shown) renderBody();
+    if (S.shown) renderBody();
   });
   window.addEventListener("beforeunload", saveRunningBeforeExit);
   window.addEventListener("pagehide", saveRunningBeforeExit);
@@ -2365,8 +2299,8 @@ export function initAi() {
   // Reconoce Claude Code y su plan al instante al iniciar la aplicación.
   void detect(true);
   window.addEventListener("focus", () => {
-    if (awaitingLogin) void detectProviderNow(loginProvider);
-    else if (shown && !tool?.logged_in) void detect(true);
+    if (S.awaitingLogin) void detectProviderNow(S.loginProvider);
+    else if (S.shown && !S.tool?.logged_in) void detect(true);
   });
   void listen<{ id: string; line: string }>("ai-line", (e) => {
     const live = lives.get(e.payload.id);
@@ -2382,7 +2316,7 @@ export function initAi() {
         } else {
           resolveRequest(live.id, perm.id);
         }
-        if (live === current) renderBody();
+        if (live === S.current) renderBody();
         return;
       }
       for (const ev of live.normalize(raw)) apply(live, ev);
@@ -2395,15 +2329,15 @@ export function initAi() {
   });
   // El contexto adjunto sigue al editor: archivo y selección actuales, liberando listeners al cerrar el editor.
   const attach = (ed: monaco.editor.ICodeEditor) => {
-    const d1 = ed.onDidChangeCursorSelection(() => { if (shown && ed === focusedEditor()) { useSel = true; renderChips(); } });
-    const d2 = ed.onDidFocusEditorText(() => { const p = activePath() ?? ""; if (p !== lastFile) { lastFile = p; useFile = true; } if (shown) renderChips(); });
+    const d1 = ed.onDidChangeCursorSelection(() => { if (S.shown && ed === focusedEditor()) { S.useSel = true; renderChips(); } });
+    const d2 = ed.onDidFocusEditorText(() => { const p = activePath() ?? ""; if (p !== S.lastFile) { S.lastFile = p; S.useFile = true; } if (S.shown) renderChips(); });
     ed.onDidDispose(() => { d1.dispose(); d2.dispose(); });
   };
   monaco.editor.getEditors().forEach(attach);
   monaco.editor.onDidCreateEditor(attach);
   bus.on("overlay", (kind) => { if (kind === "board" && isFull()) setFull(false); });
   bus.on("issue-workflow-start", ({ body: prompt }) => {
-    historyOpen = false;
+    S.historyOpen = false;
     newConversation();
     renderIssueBanner();
     const inp = q<HTMLTextAreaElement>(".ai-input");
@@ -2440,19 +2374,19 @@ export async function stopRunningAiForWorkspace(root: string | null): Promise<vo
 /** Al cambiar o cerrar carpeta se descarta la conversación activa del proyecto anterior y se actualiza la vista para el nuevo. */
 export function resetAi() {
   dismissPopover();
-  extraFiles = [];
-  extraNotes = [];
-  attachedImages = [];
-  mentionFiles = null;
-  lastFile = "";
-  useFile = true;
-  useSel = true;
-  historyOpen = false;
-  const keepCurrent = !!(ws.root && current && current.convo.messages.length && sameDir(current.cwd, ws.root));
-  if (!keepCurrent && current) {
-    if (current.convo.messages.length) persist(current, true);
-    else lives.delete(current.id);
-    current = null;
+  S.extraFiles = [];
+  S.extraNotes = [];
+  S.attachedImages = [];
+  S.mentionFiles = null;
+  S.lastFile = "";
+  S.useFile = true;
+  S.useSel = true;
+  S.historyOpen = false;
+  const keepCurrent = !!(ws.root && S.current && S.current.convo.messages.length && sameDir(S.current.cwd, ws.root));
+  if (!keepCurrent && S.current) {
+    if (S.current.convo.messages.length) persist(S.current, true);
+    else lives.delete(S.current.id);
+    S.current = null;
     resetTurnCache();
   }
   const input = q<HTMLTextAreaElement>(".ai-input");
@@ -2460,8 +2394,8 @@ export function resetAi() {
     input.value = "";
     autosize();
   }
-  if (shown) renderBody();
+  if (S.shown) renderBody();
 }
 
 /** «IA: Nueva conversación» desde la paleta. */
-export const startNewConversation = () => { historyOpen = false; newConversation(); };
+export const startNewConversation = () => { S.historyOpen = false; newConversation(); };
