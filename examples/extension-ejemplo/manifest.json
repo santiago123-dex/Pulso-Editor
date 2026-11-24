@@ -1,0 +1,25 @@
+{
+  "id": "pulso.ejemplo-aurora",
+  "name": "Aurora (Extensión de ejemplo)",
+  "version": "1.0.0",
+  "description": "Extensión declarativa de ejemplo con un tema oscuro y fragmentos de TypeScript.",
+  "author": "Pulso Editor",
+  "permissions": ["files"],
+  "contributes": {
+    "themes": [
+      {
+        "id": "aurora-ejemplo",
+        "label": "Aurora Ejemplo",
+        "path": "themes/aurora.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "typescript",
+        "path": "snippets/typescript.json"
+      }
+    ],
+    "commands": [],
+    "languageServers": []
+  }
+}

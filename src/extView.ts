@@ -43,6 +43,7 @@ function renderExtensions() {
   for (const item of shown) {
     const m = item.manifest;
     const card = h("div", `ext-card${item.enabled ? "" : " disabled"}`);
+    card.setAttribute("role", "listitem");
     const head = h("div", "ext-head");
     head.append(
       h("span", "ext-name", m.name),
@@ -65,8 +66,10 @@ function renderExtensions() {
     }
 
     const actions = h("div", "ext-actions");
-    const toggleBtn = h("button", "", item.enabled ? t("Desactivar") : t("Activar"));
+    const toggleLabel = item.enabled ? t("Desactivar") : t("Activar");
+    const toggleBtn = h("button", "", toggleLabel);
     toggleBtn.type = "button";
+    toggleBtn.setAttribute("aria-label", `${toggleLabel} ${m.name}`);
     toggleBtn.onclick = async () => {
       if (!inTauri) return;
       try {
