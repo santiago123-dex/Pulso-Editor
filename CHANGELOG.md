@@ -8,6 +8,7 @@ Todos los cambios notables en Pulso Editor se documentan en este archivo.
 - `lib.rs` (1352 líneas) se divide: carpeta de trabajo, archivos, copias de recuperación, credenciales, búsqueda, temas y estado de Git pasan a su propio módulo, y `lib.rs` queda con el registro de comandos y `run()`. Sin cambios de comportamiento.
 ### Seguridad
 - **Depurador:** la confianza en la carpeta se concede con un diálogo nativo (ya no con un comando que pudiera llamar la propia ventana) y `dap_launch` lee la configuración de los archivos del proyecto en lugar de aceptarla desde la ventana, así que una ventana comprometida no puede lanzar un programa o un adaptador cualquiera.
+- `gitops.rs` (1258 líneas) se divide en `gitops/`: cambios, ramas, remoto e historial, con las pruebas en su propio archivo. Sin cambios de comportamiento.
 
 ### Corregido
 - **El panel «Ver uso y límites» del selector de modelos ya no se abre solo ni se queda abierto.** Se abría al pasar el cursor y, al pulsar para cerrarlo, se volvía a abrir porque el botón se redibujaba bajo el cursor. Ahora solo se abre y se cierra con un clic.
