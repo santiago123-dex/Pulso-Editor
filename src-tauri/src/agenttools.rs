@@ -82,6 +82,8 @@ pub struct Session<'a> {
     pub agent: String,
     pub proposed: Vec<(String, String)>,
     pub todos: Vec<Todo>,
+    /// Memoria del proyecto entre sesiones; solo la tiene el agente principal.
+    pub memory: Option<crate::agentmem::MemoryStore>,
 }
 
 fn cut(mut s: String) -> String {
@@ -121,6 +123,8 @@ pub fn schema(mode: Mode) -> Value {
                 "Run a READ-ONLY command in the project folder: git status, git diff, git log, git show, git branch, git blame, ls/dir. Anything else is refused in this mode."
             },
             json!({ "command": { "type": "string" }, "timeout_seconds": { "type": "integer", "description": "Default 60, maximum 300" } }), &["command"]),
+        function("memory_save", "Save one short note about this project for future sessions (a durable convention, decision or preference). Not for secrets or for things that only matter right now.",
+            json!({ "note": { "type": "string", "description": "One or two sentences" } }), &["note"]),
         function("todo_write", "Keep a short task list for a multi-step job. Replace the whole list each time; keep exactly one task in_progress.",
             json!({ "todos": { "type": "array", "items": { "type": "object", "properties": {
                 "content": { "type": "string" }, "status": { "type": "string", "enum": ["pending", "in_progress", "completed"] } }, "required": ["content", "status"] } } }), &["todos"]),
@@ -381,6 +385,18 @@ impl Session<'_> {
         }
     }
 
+    fn memory_save(&mut self, args: &Value) -> Outcome {
+        let note = args["note"].as_str().unwrap_or("").to_string();
+        let ui = json!({ "note": note });
+        let Some(store) = &self.memory else {
+            return Outcome::err("Memory", ui, tr("La memoria no está disponible aquí: solo la usa el agente principal en un proyecto de confianza.").into());
+        };
+        match store.add(&note) {
+            Ok(n) => Outcome::ok("Memory", ui, crate::agentmem::saved_message(n)),
+            Err(e) => Outcome::err("Memory", ui, e),
+        }
+    }
+
     fn todo_write(&mut self, args: &Value) -> Outcome {
         let ui = json!({ "todos": args["todos"] });
         let Some(list) = args["todos"].as_array().filter(|l| l.len() <= 50) else {
@@ -627,6 +643,7 @@ pub async fn dispatch(s: &mut Session<'_>, name: &str, args: &Value) -> Outcome 
         "edit_file" => s.edit_file(args),
         "write_file" => s.write_file(args),
         "todo_write" => s.todo_write(args),
+        "memory_save" => s.memory_save(args),
         "propose_edit" => {
             // Nombre de la fase 1: equivale a escribir el archivo completo.
             s.write_file(args)
@@ -715,6 +732,33 @@ pub fn prune_context(msgs: &mut [crate::llm::Msg], context_tokens: u64) -> usize
     pruned
 }
 
+fn msg_size(m: &crate::llm::Msg) -> usize {
+    use crate::llm::Msg;
+    match m {
+        Msg::User { text, .. } => text.len(),
+        Msg::Assistant { text, calls } => text.len() + calls.iter().map(|c| c.args.to_string().len()).sum::<usize>(),
+        Msg::Tool { content, .. } => content.len(),
+    }
+}
+
+/// Cuántos mensajes se conservan tal cual al resumir la conversación.
+const KEEP_TAIL: usize = 8;
+
+/// Si, tras vaciar los resultados viejos, la conversación sigue por encima del presupuesto de contexto, devuelve hasta qué
+/// mensaje (sin incluirlo) hay que resumir. El corte cae siempre al inicio de un mensaje de la persona o del asistente, nunca en
+/// medio de una llamada a herramienta y sus resultados.
+pub fn compaction_cut(msgs: &[crate::llm::Msg], context_tokens: u64) -> Option<usize> {
+    use crate::llm::Msg;
+    if context_tokens == 0 || msgs.len() < KEEP_TAIL + 3 {
+        return None;
+    }
+    let budget = (context_tokens as usize).saturating_mul(4) * 6 / 10;
+    if msgs.iter().map(msg_size).sum::<usize>() <= budget {
+        return None;
+    }
+    (2..=msgs.len() - KEEP_TAIL).rev().find(|&k| !matches!(msgs[k], Msg::Tool { .. }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -734,7 +778,7 @@ mod tests {
     }
 
     fn session<'a>(root: &'a Path, mode: Mode, cancel: &Arc<AtomicBool>) -> Session<'a> {
-        Session { root, mode, cancel: cancel.clone(), perms: Arc::new(Permissions::fixed(crate::agentperms::Decision::Once)), agent: String::new(), proposed: vec![], todos: vec![] }
+        Session { root, mode, cancel: cancel.clone(), perms: Arc::new(Permissions::fixed(crate::agentperms::Decision::Once)), agent: String::new(), proposed: vec![], todos: vec![], memory: None }
     }
 
     fn run(s: &mut Session, name: &str, args: Value) -> Outcome {
@@ -976,5 +1020,39 @@ mod tests {
         println!("grep: {r} ({:?})", t.elapsed());
         assert!(r.contains("agenttools.rs"));
         assert!(!r.contains("target/"));
+    }
+
+    #[test]
+    fn memory_save_guarda_notas_solo_con_memoria_disponible() {
+        let d = project();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let mut s = session(&d, Mode::Read, &cancel);
+        assert!(run(&mut s, "memory_save", json!({ "note": "Usa pnpm" })).is_error, "sin memoria (subagente o sin confianza) se rechaza");
+        let file = std::env::temp_dir().join(format!("pulso-memtool-{}.json", std::process::id()));
+        let _ = std::fs::remove_file(&file);
+        s.memory = Some(crate::agentmem::MemoryStore::new(file.clone(), &d));
+        assert!(!run(&mut s, "memory_save", json!({ "note": "Usa pnpm" })).is_error);
+        assert!(run(&mut s, "memory_save", json!({ "note": "  " })).is_error);
+        assert_eq!(s.memory.as_ref().unwrap().load(), vec!["Usa pnpm".to_string()]);
+        let _ = std::fs::remove_file(file);
+    }
+
+    #[test]
+    fn el_resumen_corta_en_un_limite_seguro_y_solo_si_hace_falta() {
+        let grande = "x".repeat(4_000);
+        let mut m: Vec<Msg> = vec![Msg::User { text: "pide algo".into(), images: vec![] }];
+        for i in 0..12 {
+            m.push(Msg::Assistant { text: grande.clone(), calls: vec![Call { id: format!("c{i}"), name: "read_file".into(), args: json!({ "path": "a" }) }] });
+            m.push(Msg::Tool { id: format!("c{i}"), name: "read_file".into(), content: grande.clone() });
+        }
+        // Cabe: no se resume.
+        assert_eq!(compaction_cut(&m, 1_000_000), None);
+        assert_eq!(compaction_cut(&m, 0), None);
+        // No cabe: el corte deja al menos 8 mensajes y no cae sobre un resultado de herramienta.
+        let cut = compaction_cut(&m, 4_000).expect("debe resumir");
+        assert!(cut >= 2 && m.len() - cut >= 8);
+        assert!(!matches!(m[cut], Msg::Tool { .. }), "no se separa una llamada de su resultado");
+        // Con pocos mensajes no hay nada que resumir.
+        assert_eq!(compaction_cut(&m[..6], 100), None);
     }
 }

@@ -8,6 +8,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { lang, t, translateStatic } from "./i18n";
 import { connectProvider } from "./ai/providers";
 import { showAgentConfig, trustProject } from "./ai/agentConfig";
+import { showAgentMemory } from "./ai/memory";
 import { showPermissionRules } from "./ai/permissions";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getVersion } from "@tauri-apps/api/app";
@@ -35,6 +36,7 @@ import { isOnboardingDone, openOnboarding, shouldShowOnboarding } from "./onboar
 import { initIssues, loadIssues } from "./issues";
 import { initProblems, resetProjectProblems, runProjectProblemsCheck, setProblemsVisible } from "./problems";
 import { initTestsView, resetTestsView, runAllTests, setTestsVisible } from "./testsView";
+import { initDebug, setDebugVisible, startOrContinueDebug, stepIntoDebug, stepOutDebug, stepOverDebug, stopDebug, toggleCurrentBreakpoint } from "./debugView";
 import { initConflictHelper } from "./conflictHelper";
 import { initInlineCompletions, resetInlineAiBackoff } from "./inlineCompletion";
 import { pickScript } from "./scripts";
@@ -103,20 +105,21 @@ const inTauri = "__TAURI_INTERNALS__" in window;
 hooks.focusEditor = () => focusedEditor()?.focus();
 
 // ---------- Vistas de la barra lateral ----------
-type View = "explorer" | "search" | "git" | "issues" | "problems" | "tests" | "chat" | "prs" | "ai";
+type View = "explorer" | "search" | "git" | "issues" | "problems" | "tests" | "debug" | "chat" | "prs" | "ai";
 let currentView: View = "explorer";
 
 function showView(view: View | "settings") {
   if (view === "settings") { toggleSettings(); return; }
   closeSettings();
   const app = $("app");
-  if (view === currentView && !app.classList.contains("no-sidebar")) { app.classList.add("no-sidebar"); setProblemsVisible(false); setTestsVisible(false); setChatVisible(false); setPrsVisible(false); setAiVisible(false); return; }
+  if (view === currentView && !app.classList.contains("no-sidebar")) { app.classList.add("no-sidebar"); setProblemsVisible(false); setTestsVisible(false); setDebugVisible(false); setChatVisible(false); setPrsVisible(false); setAiVisible(false); return; }
   app.classList.remove("no-sidebar");
   currentView = view;
   document.querySelectorAll<HTMLElement>(".act[data-view]").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
-  for (const v of ["explorer", "search", "git", "issues", "problems", "tests", "chat", "prs", "ai"] as View[]) $(`view-${v}`).hidden = v !== view;
+  for (const v of ["explorer", "search", "git", "issues", "problems", "tests", "debug", "chat", "prs", "ai"] as View[]) $(`view-${v}`).hidden = v !== view;
   setProblemsVisible(view === "problems");
   setTestsVisible(view === "tests");
+  setDebugVisible(view === "debug");
   setChatVisible(view === "chat");
   setPrsVisible(view === "prs");
   setAiVisible(view === "ai");
@@ -515,6 +518,7 @@ register(
   { id: "app.onboarding", label: t("Ayuda: Asistente de bienvenida"), keywords: "bienvenida inicio configurar tema idioma github onboarding", run: () => openOnboarding({ onOpenFolder: pickFolder }) },
   { id: "ai.permissionRules", label: t("IA: Comandos permitidos para este proyecto…"), keywords: "ai ia permisos comandos reglas permitir aprobar approve permissions", run: showPermissionRules },
   { id: "ai.agentConfig", label: t("IA: Ver instrucciones, skills y agentes del proyecto…"), keywords: "ai ia agente skills subagentes instrucciones agents.md claude.md comandos", run: showAgentConfig },
+  { id: "ai.memory", label: t("IA: Memoria del agente en este proyecto…"), keywords: "ai ia agente memoria notas recuerda", run: showAgentMemory },
   { id: "ai.trustProject", label: t("IA: Confiar en este proyecto…"), keywords: "ai ia confiar confianza trust proyecto agents.md", run: () => void trustProject() },
   { id: "ai.connectProvider", label: t("IA: Conectar un proveedor de modelos…"), keywords: "ai ia modelos provider proveedor api key clave openai anthropic openrouter models.dev", run: () => connectProvider() },
   { id: "file.openRecent", label: t("Archivo: Abrir carpeta reciente…"), run: pickRecent },
@@ -609,6 +613,13 @@ register(
 
   { id: "explorer.refresh", label: t("Explorador: Actualizar"), run: () => void refreshTree() },
   { id: "explorer.collapse", label: t("Explorador: Contraer todo"), run: collapseAll },
+  { id: "view.debug", label: t("Ver: Depurador"), keywords: "debug depurar breakpoint dap variables", run: () => showView("debug") },
+  { id: "debug.start", label: t("Depurador: Iniciar o continuar"), key: "F5", keywords: "debug depurar ejecutar continuar", run: () => { showView("debug"); void startOrContinueDebug(); } },
+  { id: "debug.stop", label: t("Depurador: Detener"), key: "Shift+F5", keywords: "debug detener parar", run: () => void stopDebug() },
+  { id: "debug.stepOver", label: t("Depurador: Paso por encima"), key: "F10", keywords: "debug step over paso", run: () => void stepOverDebug() },
+  { id: "debug.stepInto", label: t("Depurador: Entrar en función"), key: "Shift+F10", keywords: "debug step into entrar", run: () => void stepIntoDebug() },
+  { id: "debug.stepOut", label: t("Depurador: Salir de función"), key: "Shift+F11", keywords: "debug step out salir", run: () => void stepOutDebug() },
+  { id: "debug.toggleBreakpoint", label: t("Depurador: Alternar punto de interrupción"), key: "F9", keywords: "debug breakpoint punto interrupcion", run: toggleCurrentBreakpoint },
 );
 
 initKeys();
@@ -820,6 +831,7 @@ initAi();
 bus.on("issue-workflow-start", () => showView("ai"));
 initProblems(() => showView("problems"));
 initTestsView();
+initDebug((path, line) => openFile(path, line ? { line } : undefined));
 initConflictHelper();
 initInlineCompletions();
 initSettingsPage(() => void loadIssues());
