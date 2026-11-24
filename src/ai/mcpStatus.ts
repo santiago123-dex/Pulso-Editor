@@ -53,7 +53,16 @@ function showTools(s: McpServer): void {
 }
 
 export async function showMcpServers(): Promise<void> {
-  if (!ws.root) { setStatus(tr("Abre una carpeta de proyecto primero."), 5000); return; }
+  if (!ws.root) {
+    // Sin carpeta no hay nada que arrancar (los servidores se arrancan en la carpeta del proyecto). Se dice en la propia lista, no en la
+    // barra de estado, que es fácil de no ver.
+    quickPick({
+      placeholder: tr("Servidores MCP del agente (los configurados en mcp.json)"),
+      empty: tr("Abre una carpeta de proyecto para ver sus servidores MCP (se arrancan en esa carpeta)."),
+      load: () => [],
+    });
+    return;
+  }
   const root = ws.root;
   quickPick({
     placeholder: tr("Servidores MCP del agente (los configurados en mcp.json)"),
