@@ -1,7 +1,15 @@
 import { lang, t as tr } from "./i18n";
 /** Lógica pura del chat del repositorio (sin DOM ni red) para poder probarla. */
-export interface ChatUser { login: string; avatar_url: string }
-export interface ChatComment { id: number; body: string; user: ChatUser | null; created_at: string }
+export interface ChatUser {
+  login: string;
+  avatar_url: string;
+}
+export interface ChatComment {
+  id: number;
+  body: string;
+  user: ChatUser | null;
+  created_at: string;
+}
 
 /** Mensajes seguidos de la misma persona dentro de este margen se agrupan bajo un solo nombre. */
 const GROUP_GAP_MS = 5 * 60_000;
@@ -12,7 +20,10 @@ export type ChatItem =
 
 const sameLogin = (a?: string | null, b?: string | null) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
 
-const dayKey = (t: number) => { const d = new Date(t); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
+const dayKey = (t: number) => {
+  const d = new Date(t);
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+};
 
 /** «Hoy», «Ayer» o la fecha corta. */
 export function dayLabel(t: number, now = Date.now()): string {
@@ -29,11 +40,25 @@ export function buildItems(comments: readonly ChatComment[], me: string, now = D
   for (const c of comments) {
     const at = Date.parse(c.created_at) || 0;
     const day = dayKey(at);
-    if (day !== lastDay) { out.push({ type: "day", key: day, label: dayLabel(at, now) }); lastDay = day; prev = null; }
+    if (day !== lastDay) {
+      out.push({ type: "day", key: day, label: dayLabel(at, now) });
+      lastDay = day;
+      prev = null;
+    }
     const login = c.user?.login ?? tr("usuario eliminado");
     const joins = !!prev && sameLogin(prev.login, login) && at - prev.at < GROUP_GAP_MS;
     if (prev && !joins) prev.tail = true;
-    const msg: Extract<ChatItem, { type: "msg" }> = { type: "msg", id: c.id, login, avatar: c.user?.avatar_url ?? "", mine: sameLogin(login, me), body: c.body, at, head: !joins, tail: false };
+    const msg: Extract<ChatItem, { type: "msg" }> = {
+      type: "msg",
+      id: c.id,
+      login,
+      avatar: c.user?.avatar_url ?? "",
+      mine: sameLogin(login, me),
+      body: c.body,
+      at,
+      head: !joins,
+      tail: false,
+    };
     out.push(msg);
     prev = msg;
   }
@@ -65,7 +90,8 @@ export interface BodyPart {
 /** Parte un mensaje en texto, @menciones, enlaces https, #issues y referencias archivo:línea sin usar HTML. */
 export function splitBody(body: string): BodyPart[] {
   const parts: BodyPart[] = [];
-  const re = /(https?:\/\/[^\s<>"']+)|(^|[^\w@])(@[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))(?![\w-])|(^|[\s(])(#[1-9]\d{0,6})(?![\w-])|(^|[\s(`"'])((?:[\w.-]+\/)*[\w.-]+\.[A-Za-z][A-Za-z0-9]{0,7}):(\d{1,6})(?![\w.:/])/g;
+  const re =
+    /(https?:\/\/[^\s<>"']+)|(^|[^\w@])(@[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))(?![\w-])|(^|[\s(])(#[1-9]\d{0,6})(?![\w-])|(^|[\s(`"'])((?:[\w.-]+\/)*[\w.-]+\.[A-Za-z][A-Za-z0-9]{0,7}):(\d{1,6})(?![\w.:/])/g;
   let last = 0;
   for (let m = re.exec(body); m; m = re.exec(body)) {
     if (m[1]) {
@@ -100,7 +126,10 @@ export function splitBody(body: string): BodyPart[] {
 export const mentionsPerson = (body: string, login: string): boolean =>
   !!login && splitBody(body).some((p) => p.kind === "mention" && p.text.slice(1).toLowerCase() === login.toLowerCase());
 
-export interface MentionQuery { start: number; query: string }
+export interface MentionQuery {
+  start: number;
+  query: string;
+}
 
 /** ¿El cursor está escribiendo una @mención? Devuelve dónde empieza y lo escrito tras la @. */
 export function mentionAt(text: string, caret: number): MentionQuery | null {
@@ -146,7 +175,8 @@ export function lastSpoke(comments: readonly ChatComment[]): Map<string, number>
 
 export const ROOM_LABEL = "pulso-chat";
 /** La issue que guarda el chat no es trabajo: no debe salir en el tablero ni en la lista de issues. */
-export const isChatRoom = (issue: { labels: readonly { name: string }[] }): boolean => issue.labels.some((l) => l.name.toLowerCase() === ROOM_LABEL);
+export const isChatRoom = (issue: { labels: readonly { name: string }[] }): boolean =>
+  issue.labels.some((l) => l.name.toLowerCase() === ROOM_LABEL);
 // Fijo, sin traducir: es el nombre de la issue de la sala en GitHub, igual para todo el equipo.
 export const ROOM_TITLE = "💬 Chat de Pulso";
 export const MAX_MESSAGE = 4000;

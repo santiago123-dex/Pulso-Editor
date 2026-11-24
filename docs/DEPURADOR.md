@@ -1,0 +1,71 @@
+# Depurador integrado (DAP)
+
+Pulso Editor incluye un cliente nativo del **Debug Adapter Protocol (DAP)** en Rust conectado al editor Monaco y a una vista dedicada en la barra lateral.
+
+## Arquitectura
+
+- **Backend Rust:**
+  - `src-tauri/src/dap.rs`: framing `Content-Length`, correlación de peticiones/respuestas por `seq`, hilo lector de eventos (`dap-event`) y gestión del ciclo de vida con `procguard` (`configure_child`, `attach_job`, `kill_tree`) para no dejar procesos huérfanos.
+  - `src-tauri/src/dap_config.rs`: lector JSON/JSONC de `.pulso/launch.json` y respaldo `.vscode/launch.json`, expansión de variables (`${workspaceFolder}`, `${file}`, `${fileBasename}`) y detección del adaptador.
+- **Frontend TypeScript:**
+  - `src/debugModel.ts`: estado puro de puntos de interrupción, persistencia mediante `src/core/storage.ts` y consola de depuración.
+  - `src/debugView.ts` + `src/debug.css`: margen de puntos de interrupción y línea activa en Monaco, vista lateral `#view-debug` (barra de control, variables expandibles, pila de llamadas, puntos de interrupción y consola con evaluación `evaluate`).
+
+## Lenguajes soportados
+
+### 1. Python (`debugpy`)
+
+1. Instala `debugpy` en el entorno de Python del proyecto (o global):
+   ```bash
+   pip install debugpy
+   ```
+2. Pulso busca primero `.venv` / `venv` dentro del espacio de trabajo y después `python` / `python3` en el `PATH`, lanzando `python -m debugpy.adapter` por entrada/salida estándar.
+3. Si abres un archivo `.py` y no tienes `launch.json`, Pulso ofrece automáticamente **«Python: Archivo actual»**.
+
+### 2. Node.js / TypeScript (`js-debug`)
+
+1. Pulso detecta automáticamente archivos `.js`, `.mjs`, `.cjs`, `.ts`, `.mts` y `.cts` (o proyectos con `package.json`) y ofrece **«Node / TypeScript: Archivo actual»**.
+2. Al lanzar una configuración `type: "node"` / `"pwa-node"` / `"typescript"`, Pulso busca `node` en el `PATH` y el adaptador DAP `js-debug` en:
+   - La variable de entorno `PULSO_NODE_DAP` (ruta explícita a `dapDebugServer.js` o `nodeDebug.js`).
+   - `node_modules/@vscode/js-debug/src/dapDebugServer.js` o `node_modules/vscode-node-debug2/out/src/nodeDebug.js`.
+   - Extensiones instaladas de VS Code (`ms-vscode.js-debug`).
+3. También puedes indicar `"adapterCommand"` y `"adapterArgs"` directamente en `.pulso/launch.json`.
+
+## Configuración por proyecto (`.pulso/launch.json`)
+
+Puedes pulsar el botón de configuración en la vista **Depurador** para crear `.pulso/launch.json`. Si el proyecto ya tiene `.vscode/launch.json` (incluso con comentarios `//` o comas finales), Pulso también lo lee automáticamente.
+
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: Archivo actual",
+      "type": "python",
+      "request": "launch",
+      "program": "${file}",
+      "cwd": "${workspaceFolder}",
+      "args": []
+    }
+  ]
+}
+```
+
+También se admite cualquier adaptador DAP estándar por stdio indicando `"adapterCommand"` y `"adapterArgs"` en la configuración.
+
+## Seguridad y confianza
+
+- Todas las rutas (`program`, `cwd` y archivos con puntos de interrupción) se validan con `fsguard::WorkspaceGuard`.
+- Antes de ejecutar código, el depurador exige que la carpeta sea **de confianza**, con la misma lista que la CLI `pulso` y el agente de IA (`trusted-folders.json`). La confianza se concede con un **diálogo nativo que abre Rust** (`project_trust_request`): la ventana no puede darse la confianza a sí misma. Las carpetas demasiado amplias (raíz de disco, carpeta personal, etc.) se rechazan.
+- `dap_launch` recibe solo **el nombre** de la configuración y la busca en `.pulso/launch.json` y `.vscode/launch.json` en el backend; la ventana no puede enviar su propio `adapterCommand` ni su propio programa.
+
+## Atajos de teclado
+
+| Atajo | Acción |
+| --- | --- |
+| `F9` / clic en margen izquierdo | Alternar punto de interrupción |
+| `F5` | Iniciar o continuar depuración |
+| `Shift+F5` | Detener depuración |
+| `F10` | Paso por encima (*Step Over*) |
+| `Shift+F10` | Entrar en función (*Step Into*) |
+| `Shift+F11` | Salir de función (*Step Out*) |

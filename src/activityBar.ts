@@ -131,7 +131,10 @@ export function initActivityBar(options: Options) {
 
     let justDragged = false;
     btn.onclick = () => {
-      if (justDragged) { justDragged = false; return; }
+      if (justDragged) {
+        justDragged = false;
+        return;
+      }
       opts?.onSelect(id);
     };
 
@@ -193,7 +196,9 @@ export function initActivityBar(options: Options) {
         barEl?.classList.remove("act-reordering");
         if (dragging) {
           justDragged = true;
-          window.setTimeout(() => { justDragged = false; }, 0);
+          window.setTimeout(() => {
+            justDragged = false;
+          }, 0);
           if (applyDrop && dropTarget) {
             const fromIdx = cfg.order.indexOf(id);
             let toIdx = cfg.order.indexOf(dropTarget.id) + (dropTarget.after ? 1 : 0);
@@ -215,7 +220,11 @@ export function initActivityBar(options: Options) {
       const onUp = () => finish(true);
       const onCancel = () => finish(false);
       const onEsc = (e: KeyboardEvent) => {
-        if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); finish(false); }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
+          finish(false);
+        }
       };
 
       window.addEventListener("pointermove", onMove, true);
@@ -252,7 +261,9 @@ export function customizeActivityBar() {
         return {
           label: `${isVis ? "✓ " : "   "}${labelOf(id)}`,
           detail: isVis ? (visCount <= 1 ? t("Visible (obligatorio)") : t("Visible — clic para ocultar")) : t("Oculto — clic para mostrar"),
-          run: () => { commit(toggleActivityVisible(cfg, id)); },
+          run: () => {
+            commit(toggleActivityVisible(cfg, id));
+          },
         };
       });
       items.push({

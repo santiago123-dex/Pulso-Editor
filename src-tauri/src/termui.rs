@@ -1,6 +1,6 @@
 //! Parte visual y de seguridad de `pulso` en la terminal: qué carpetas se aceptan, en cuáles ya se confió,
 //! y cómo se ve la respuesta (markdown sencillo, recuadros). Todo puro y probado; sin entrada ni salida.
-use crate::i18n::{tr};
+use crate::i18n::tr;
 use std::path::Path;
 
 pub const ACCENT: &str = "38;2;56;189;248";
@@ -25,11 +25,12 @@ pub struct SlashCmd {
 }
 
 pub const SLASH_COMMANDS: &[SlashCmd] = &[
-    SlashCmd { name: "/provider", desc: "Cambiar IA (claude | codex | antigravity)", needs_arg: true },
-    SlashCmd { name: "/model", desc: "Elegir modelo activo (vacío = predeterminado)", needs_arg: true },
-    SlashCmd { name: "/effort", desc: "Nivel de razonamiento (low | medium | high | max)", needs_arg: true },
+    SlashCmd { name: "/provider", desc: "Elegir o cambiar IA (claude | codex | antigravity)", needs_arg: false },
+    SlashCmd { name: "/model", desc: "Elegir modelo del proveedor activo", needs_arg: false },
+    SlashCmd { name: "/effort", desc: "Nivel de razonamiento (low | medium | high | max)", needs_arg: false },
     SlashCmd { name: "/edit", desc: "Activar edición de archivos en esta carpeta", needs_arg: false },
     SlashCmd { name: "/read", desc: "Volver a modo solo lectura", needs_arg: false },
+    SlashCmd { name: "/doctor", desc: "Comprobar proveedores instalados y entorno", needs_arg: false },
     SlashCmd { name: "/new", desc: "Iniciar una conversación nueva", needs_arg: false },
     SlashCmd { name: "/clear", desc: "Limpiar la pantalla", needs_arg: false },
     SlashCmd { name: "/help", desc: "Mostrar ayuda y atajos", needs_arg: false },
@@ -60,11 +61,7 @@ pub fn short_path(dir: &Path, home: Option<&Path>) -> String {
         let sep = if cfg!(windows) { '\\' } else { '/' };
         let stripped_raw = raw.strip_prefix(r"\\?\").or_else(|| raw.strip_prefix("//?/")).unwrap_or(&raw);
         let h_count = h_norm.trim_end_matches('/').split('/').filter(|s| !s.is_empty()).count();
-        let tail: Vec<&str> = stripped_raw
-            .split(['/', '\\'])
-            .filter(|s| !s.is_empty())
-            .skip(h_count)
-            .collect();
+        let tail: Vec<&str> = stripped_raw.split(['/', '\\']).filter(|s| !s.is_empty()).skip(h_count).collect();
         if tail.is_empty() {
             return "~".into();
         }
@@ -128,15 +125,16 @@ pub fn rule(width: usize, color: bool) -> String {
 /// Formatea una acción de herramienta como línea de timeline con icono semántico.
 pub fn tool_badge(tool: &str, color: bool) -> String {
     let lower = tool.to_ascii_lowercase();
-    let (icon, tone) = if lower.starts_with("read") || lower.starts_with("view") || lower.starts_with("glob") || lower.starts_with("grep") || lower.starts_with("list") {
-        ("◈", CYAN)
-    } else if lower.starts_with("edit") || lower.starts_with("write") || lower.starts_with("replace") {
-        ("✦", AMBER)
-    } else if lower.starts_with("command") || lower.starts_with("bash") || lower.starts_with("run") {
-        ("⚡", VIOLET)
-    } else {
-        ("▸", SLATE)
-    };
+    let (icon, tone) =
+        if lower.starts_with("read") || lower.starts_with("view") || lower.starts_with("glob") || lower.starts_with("grep") || lower.starts_with("list") {
+            ("◈", CYAN)
+        } else if lower.starts_with("edit") || lower.starts_with("write") || lower.starts_with("replace") {
+            ("✦", AMBER)
+        } else if lower.starts_with("command") || lower.starts_with("bash") || lower.starts_with("run") {
+            ("⚡", VIOLET)
+        } else {
+            ("▸", SLATE)
+        };
     format!("  {} {} {}", paint(color, RULE, "├─"), paint(color, tone, icon), paint(color, SLATE, tool))
 }
 
@@ -158,15 +156,9 @@ pub fn header_banner(
     let p_col = provider_color(provider);
     let model_txt = model.unwrap_or("modelo predeterminado");
     let effort_txt = effort.unwrap_or("normal");
-    let mode_badge = if edit {
-        paint(color, AMBER, tr("⚡ edición activa"))
-    } else {
-        paint(color, CYAN, "● solo lectura")
-    };
+    let mode_badge = if edit { paint(color, AMBER, tr("⚡ edición activa")) } else { paint(color, CYAN, "● solo lectura") };
     let path_txt = short_path(dir, home);
-    let branch_txt = branch
-        .map(|b| format!("  {}  {}", paint(color, RULE, "·"), paint(color, VIOLET, &format!("git:{b}"))))
-        .unwrap_or_default();
+    let branch_txt = branch.map(|b| format!("  {}  {}", paint(color, RULE, "·"), paint(color, VIOLET, &format!("git:{b}")))).unwrap_or_default();
 
     // Emblema de pulso cardíaco con bloques Unicode estándar (100% compatible con todas las fuentes).
     let logo1 = format!("{}{}{}", paint(color, CYAN, "  ▄▄"), paint(color, INDIGO, "  █▄  "), paint(color, VIOLET, "  "));
@@ -202,21 +194,27 @@ pub fn header_banner(
         paint(color, DIM, "Ctrl+C salir"),
     );
 
-    format!(
-        "\n{logo1}  {info1}\n{logo2}  {info2}\n{logo3}  {info3}\n\n{tip}\n{}\n",
-        rule(width, color)
-    )
+    format!("\n{logo1}  {info1}\n{logo2}  {info2}\n{logo3}  {info3}\n\n{tip}\n{}\n", rule(width, color))
 }
 
 /// Tarjeta de confirmación de carpeta de proyecto.
 pub fn trust_card(dir: &Path, home: Option<&Path>, color: bool) -> String {
     let shown = short_path(dir, home);
-    boxed(&[
-        (tr("◈ Pulso CLI · Seguridad del espacio de trabajo").into(), paint(color, &format!("1;{CYAN}"), tr("◈ Pulso CLI · Seguridad del espacio de trabajo"))),
-        (String::new(), String::new()),
-        (format!("Carpeta: {shown}"), format!("{} {}", paint(color, DIM, "Carpeta:"), paint(color, BRIGHT, &shown))),
-        (tr("La IA podrá leer archivos aquí y modificarlos solo si activas /edit o Shift+Tab.").into(), paint(color, SLATE, tr("La IA podrá leer archivos aquí y modificarlos solo si activas /edit o Shift+Tab."))),
-    ], color)
+    boxed(
+        &[
+            (
+                tr("◈ Pulso CLI · Seguridad del espacio de trabajo").into(),
+                paint(color, &format!("1;{CYAN}"), tr("◈ Pulso CLI · Seguridad del espacio de trabajo")),
+            ),
+            (String::new(), String::new()),
+            (format!("Carpeta: {shown}"), format!("{} {}", paint(color, DIM, "Carpeta:"), paint(color, BRIGHT, &shown))),
+            (
+                tr("La IA podrá leer archivos aquí y modificarlos solo si activas /edit o Shift+Tab.").into(),
+                paint(color, SLATE, tr("La IA podrá leer archivos aquí y modificarlos solo si activas /edit o Shift+Tab.")),
+            ),
+        ],
+        color,
+    )
 }
 
 // ---------- Carpetas: límites y confianza ----------
@@ -254,11 +252,15 @@ pub fn broad_dir_reason(dir: &Path, home: Option<&Path>) -> Option<&'static str>
     let rest = if on_drive { &d[3..] } else { d.trim_start_matches('/') };
     let first = rest.split('/').next().unwrap_or("");
     let top_level = if on_drive { !rest.contains('/') } else { d.starts_with('/') && !rest.contains('/') };
-    if top_level && ["windows", "program files", "program files (x86)", "programdata", "users", "etc", "usr", "bin", "sbin", "var", "system", "library", "applications"].contains(&rest) {
+    if top_level
+        && ["windows", "program files", "program files (x86)", "programdata", "users", "etc", "usr", "bin", "sbin", "var", "system", "library", "applications"]
+            .contains(&rest)
+    {
         return Some(tr("es una carpeta del sistema"));
     }
     if (d.starts_with('/') && ["etc", "usr", "bin", "sbin", "system"].contains(&first))
-        || (on_drive && (rest == "windows/system32" || rest.starts_with("windows/system32/") || rest == "windows/syswow64" || rest.starts_with("windows/syswow64/")))
+        || (on_drive
+            && (rest == "windows/system32" || rest.starts_with("windows/system32/") || rest == "windows/syswow64" || rest.starts_with("windows/syswow64/")))
     {
         return Some(tr("es una carpeta del sistema"));
     }
@@ -290,7 +292,11 @@ pub fn add_trusted(text: &str, dir: &Path) -> String {
 // ---------- Presentación ----------
 
 pub fn paint(on: bool, code: &str, text: &str) -> String {
-    if on { format!("\x1b[{code}m{text}\x1b[0m") } else { text.to_string() }
+    if on {
+        format!("\x1b[{code}m{text}\x1b[0m")
+    } else {
+        text.to_string()
+    }
 }
 
 /// Aplica **negrita** y `código` dentro de una línea de texto.
@@ -437,7 +443,18 @@ mod tests {
 
     #[test]
     fn cabecera_y_herramientas_se_renderizan_sin_panico() {
-        let h = header_banner("0.1.0", "antigravity", Some("gemini-4-hydrogen-high"), Some("high"), true, Path::new("C:\\Users\\ASUS\\Documents\\pulso"), Some(Path::new("C:\\Users\\ASUS")), Some("main"), 80, false);
+        let h = header_banner(
+            "0.1.0",
+            "antigravity",
+            Some("gemini-4-hydrogen-high"),
+            Some("high"),
+            true,
+            Path::new("C:\\Users\\ASUS\\Documents\\pulso"),
+            Some(Path::new("C:\\Users\\ASUS")),
+            Some("main"),
+            80,
+            false,
+        );
         assert!(h.contains("Pulso CLI"));
         assert!(h.contains("Antigravity"));
         assert!(h.contains("edición activa"));

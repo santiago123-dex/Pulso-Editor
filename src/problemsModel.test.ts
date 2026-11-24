@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { countProblems, groupProblems, selectionLength, severityOf, statusText, summaryText, type Problem } from "./problemsModel";
 
-const p = (path: string, line: number, severity: Problem["severity"], extra: Partial<Problem> = {}): Problem =>
-  ({ path, line, col: 1, endLine: line, endCol: 4, severity, message: "m", ...extra });
+const p = (path: string, line: number, severity: Problem["severity"], extra: Partial<Problem> = {}): Problem => ({
+  path,
+  line,
+  col: 1,
+  endLine: line,
+  endCol: 4,
+  severity,
+  message: "m",
+  ...extra,
+});
 
 describe("severityOf", () => {
   it("traduce los niveles de Monaco y descarta las pistas", () => {
@@ -14,9 +22,7 @@ describe("severityOf", () => {
 });
 
 describe("groupProblems", () => {
-  const list = [
-    p("b.ts", 9, "warning"), p("a.ts", 5, "error"), p("b.ts", 2, "error"), p("b.ts", 3, "error"), p("c.ts", 1, "info"),
-  ];
+  const list = [p("b.ts", 9, "warning"), p("a.ts", 5, "error"), p("b.ts", 2, "error"), p("b.ts", 3, "error"), p("c.ts", 1, "info")];
   it("pone primero los archivos con más errores y ordena por línea", () => {
     const g = groupProblems(list);
     expect(g.map((f) => f.path)).toEqual(["b.ts", "a.ts", "c.ts"]);

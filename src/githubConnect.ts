@@ -22,7 +22,11 @@ async function gitFlow(): Promise<boolean> {
     return true;
   } catch (e) {
     setStatus(t("No se pudo conectar con GitHub"), 4000);
-    await showDialog({ title: t("No se pudo conectar con GitHub"), message: e instanceof Error ? e.message : String(e), buttons: [{ label: t("Entendido"), value: "ok" }] });
+    await showDialog({
+      title: t("No se pudo conectar con GitHub"),
+      message: e instanceof Error ? e.message : String(e),
+      buttons: [{ label: t("Entendido"), value: "ok" }],
+    });
     return false;
   }
 }
@@ -47,17 +51,25 @@ async function deviceFlow(): Promise<boolean> {
     const r = await showDialog({
       title: t("No se pudo iniciar sesión con GitHub"),
       message: String(e),
-      buttons: [{ label: t("Cancelar"), value: "cancel" }, { label: t("Usar la sesión de Git"), value: "git", primary: true }],
+      buttons: [
+        { label: t("Cancelar"), value: "cancel" },
+        { label: t("Usar la sesión de Git"), value: "git", primary: true },
+      ],
     });
     return r === "git" ? gitFlow() : false;
   }
   // La espera empieza ya: GitHub responde «pendiente» hasta que se autorice el código.
-  const waiting: Promise<Outcome> = deviceLoginFinish(code).then((login) => ({ ok: true as const, login }), (e) => ({ ok: false as const, error: String(e) }));
+  const waiting: Promise<Outcome> = deviceLoginFinish(code).then(
+    (login) => ({ ok: true as const, login }),
+    (e) => ({ ok: false as const, error: String(e) }),
+  );
   const finished = waiting.then(() => "finished");
 
   const first = await showDialog({
     title: t("Iniciar sesión con GitHub"),
-    message: t("Pulso te pedirá permiso para ver tus repositorios, issues y pull requests. El token se guarda en el almacén de credenciales del sistema."),
+    message: t(
+      "Pulso te pedirá permiso para ver tus repositorios, issues y pull requests. El token se guarda en el almacén de credenciales del sistema.",
+    ),
     extra: codeBox(code),
     buttons: [
       { label: t("Cancelar"), value: "cancel" },
@@ -80,7 +92,10 @@ async function deviceFlow(): Promise<boolean> {
       buttons: [{ label: t("Cancelar"), value: "cancel" }],
       closeWhen: finished,
     });
-    if (second === "cancel") { await deviceLoginCancel(); return false; }
+    if (second === "cancel") {
+      await deviceLoginCancel();
+      return false;
+    }
   }
   const result = await waiting;
   if (result.ok) {
@@ -88,7 +103,11 @@ async function deviceFlow(): Promise<boolean> {
     return true;
   }
   setStatus(t("No se pudo conectar con GitHub"), 4000);
-  await showDialog({ title: t("No se pudo conectar con GitHub"), message: result.error, buttons: [{ label: t("Entendido"), value: "ok" }] });
+  await showDialog({
+    title: t("No se pudo conectar con GitHub"),
+    message: result.error,
+    buttons: [{ label: t("Entendido"), value: "ok" }],
+  });
   return false;
 }
 
@@ -97,7 +116,11 @@ export function connectButton(after: () => void): HTMLButtonElement {
   const b = h("button", "diff-btn primary", t("Conectar con GitHub"));
   b.onclick = async () => {
     b.disabled = true;
-    try { if (await connectFlow()) after(); } finally { b.disabled = false; }
+    try {
+      if (await connectFlow()) after();
+    } finally {
+      b.disabled = false;
+    }
   };
   return b;
 }

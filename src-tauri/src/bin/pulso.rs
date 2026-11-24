@@ -1,14 +1,17 @@
 //! `pulso`: el comando de la terminal. Sin argumentos abre el asistente de IA en esta terminal;
 //! con una ruta (`pulso .`, `pulso archivo`, `pulso -g archivo:línea`) abre la ventana de Pulso Editor.
-use pulso_editor_lib::aichat::{build_agy_args, build_claude_args, build_codex_args, claude_program, resolve_cli, spawn_stream, ChatOptions};
+use pulso_editor_lib::aichat::{
+    build_agy_args, build_claude_args, build_codex_args, claude_program, detect_antigravity, detect_claude, detect_codex, list_cli_models, resolve_cli,
+    spawn_stream, AiModelInfo, AiTool, ChatOptions,
+};
 use pulso_editor_lib::i18n::{tr, trf};
 use pulso_editor_lib::termchat::{normalize_provider, route, Action, Ev, Parser, Settings, HELP};
 use pulso_editor_lib::termui::{
-    add_trusted, broad_dir_reason, git_branch, header_banner, is_trusted, paint, provider_color,
-    provider_label, render_line, rule, slash_matches, tool_badge, trust_card, trusted_list,
-    AMBER, BG_SEL, BRIGHT, CYAN, DIM, INDIGO, MINT, ROSE, RULE, SLATE, VIOLET,
+    add_trusted, broad_dir_reason, git_branch, header_banner, is_trusted, paint, provider_color, provider_label, render_line, rule, slash_matches, tool_badge,
+    trust_card, trusted_list, AMBER, BG_SEL, BRIGHT, CYAN, DIM, INDIGO, MINT, ROSE, RULE, SLATE, VIOLET,
 };
-use std::io::{BufRead, IsTerminal, Write};
+use std::collections::HashMap;
+use std::io::{BufRead, IsTerminal, Read, Write};
 use std::path::PathBuf;
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -36,21 +39,63 @@ fn main() {
             eprintln!("{} {e}", paint(use_color(), ROSE, "✗"));
             std::process::exit(2);
         }
+        Action::Doctor(cwd) => {
+            if let Some(ref dir) = cwd {
+                if let Err(e) = std::env::set_current_dir(dir) {
+                    eprintln!("{} {}", paint(use_color(), ROSE, "✗"), trf("No se pudo abrir la carpeta {dir}: {e}", &[("dir", dir), ("e", &e.to_string())]));
+                    std::process::exit(2);
+                }
+            }
+            run_doctor(use_color());
+        }
         Action::Ask(s, q) => {
+            if let Err(e) = apply_cwd(&s) {
+                eprintln!("{} {e}", paint(use_color(), ROSE, "✗"));
+                std::process::exit(2);
+            }
             if let Err(e) = guard_folder(&s) {
                 eprintln!("{e}");
                 std::process::exit(2);
             }
+            let prompt = combine_with_stdin(q);
             let mut chat = Chat { settings: s, session: None, color: use_color() };
-            std::process::exit(if chat.turn(&q) { 0 } else { 1 });
+            let ok = if chat.settings.json { chat.turn_json(&prompt) } else { chat.turn(&prompt) };
+            std::process::exit(if ok { 0 } else { 1 });
         }
         Action::Repl(s) => {
+            if let Err(e) = apply_cwd(&s) {
+                eprintln!("{} {e}", paint(use_color(), ROSE, "✗"));
+                std::process::exit(2);
+            }
             if let Err(e) = guard_folder(&s) {
                 eprintln!("{e}");
                 std::process::exit(2);
             }
             repl(s);
         }
+    }
+}
+
+fn apply_cwd(s: &Settings) -> Result<(), String> {
+    if let Some(ref dir) = s.cwd {
+        std::env::set_current_dir(dir).map_err(|e| trf("No se pudo abrir la carpeta {dir}: {e}", &[("dir", dir), ("e", &e.to_string())]))?;
+    }
+    Ok(())
+}
+
+/// Si la entrada estándar viene de un pipe (`git diff | pulso -p "..."`), se adjunta al prompt (máx. 512 KB).
+fn combine_with_stdin(prompt: String) -> String {
+    if std::io::stdin().is_terminal() {
+        return prompt;
+    }
+    const MAX_STDIN: u64 = 512 * 1024;
+    let mut piped = String::new();
+    let _ = std::io::stdin().take(MAX_STDIN).read_to_string(&mut piped);
+    let trimmed = piped.trim();
+    if trimmed.is_empty() {
+        prompt
+    } else {
+        format!("<stdin>\n{trimmed}\n</stdin>\n\n{prompt}")
     }
 }
 
@@ -93,11 +138,7 @@ fn guard_folder(s: &Settings) -> Result<(), String> {
     if let Some(why) = broad_dir_reason(&dir, home_dir().as_deref()) {
         return Err(trf(
             "{icon} Esta carpeta {why}:\n  {dir}\n\nEntra en la carpeta de un proyecto (cd) y vuelve a ejecutar `pulso`.",
-            &[
-                ("icon", &paint(color, ROSE, tr("✗ No abro el asistente aquí."))),
-                ("why", &why),
-                ("dir", &paint(color, SLATE, &dir.display().to_string())),
-            ],
+            &[("icon", &paint(color, ROSE, tr("✗ No abro el asistente aquí."))), ("why", &why), ("dir", &paint(color, SLATE, &dir.display().to_string()))],
         ));
     }
     let file = trust_file();
@@ -110,11 +151,7 @@ fn guard_folder(s: &Settings) -> Result<(), String> {
             return Err(tr("Carpeta sin confianza. Ejecuta `pulso` una vez en ella desde una terminal, o añade --trust.").into());
         }
         println!("\n{}", trust_card(&dir, home_dir().as_deref(), color));
-        print!(
-            "\n{} {} ",
-            paint(color, BRIGHT, tr("¿Confiar y continuar?")),
-            paint(color, DIM, tr("[s/N · Ctrl+C cancelar]"))
-        );
+        print!("\n{} {} ", paint(color, BRIGHT, tr("¿Confiar y continuar?")), paint(color, DIM, tr("[s/N · Ctrl+C cancelar]")));
         let _ = std::io::stdout().flush();
         let accepted = if let Some(raw) = RawConsole::enter() {
             let ok = loop {
@@ -158,16 +195,7 @@ struct Chat {
     color: bool,
 }
 
-const PULSE_FRAMES: [&str; 8] = [
-    "▁▂▄▆█▆▄▂",
-    "▂▄▆█▆▄▂▁",
-    "▄▆█▆▄▂▁▂",
-    "▆█▆▄▂▁▂▄",
-    "█▆▄▂▁▂▄▆",
-    "▆▄▂▁▂▄▆█",
-    "▄▂▁▂▄▆█▆",
-    "▂▁▂▄▆█▆▄",
-];
+const PULSE_FRAMES: [&str; 8] = ["▁▂▄▆█▆▄▂", "▂▄▆█▆▄▂▁", "▄▆█▆▄▂▁▂", "▆█▆▄▂▁▂▄", "█▆▄▂▁▂▄▆", "▆▄▂▁▂▄▆█", "▄▂▁▂▄▆█▆", "▂▁▂▄▆█▆▄"];
 
 fn kill_process_tree(pid: u32) {
     #[cfg(windows)]
@@ -183,9 +211,7 @@ fn kill_process_tree(pid: u32) {
     }
     #[cfg(not(windows))]
     {
-        let _ = std::process::Command::new("kill")
-            .args(["-TERM", &pid.to_string()])
-            .status();
+        let _ = std::process::Command::new("kill").args(["-TERM", &pid.to_string()]).status();
     }
 }
 
@@ -246,16 +272,8 @@ impl Chat {
         let raw = RawConsole::enter();
         let started = Instant::now();
         let mut parser = Parser::new(&self.settings.provider);
-        let mut view = View {
-            color: self.color,
-            out: std::io::stdout(),
-            pending: String::new(),
-            in_code: false,
-            first: true,
-            spinner_on: false,
-            ticks: 0,
-            tools_used: 0,
-        };
+        let mut view =
+            View { color: self.color, out: std::io::stdout(), pending: String::new(), in_code: false, first: true, spinner_on: false, ticks: 0, tools_used: 0 };
         let mut result: Option<Result<(), String>> = None;
         let (mut stderr_tail, mut code, mut cancelled) = (String::new(), None, false);
 
@@ -320,18 +338,95 @@ impl Chat {
                 String::new()
             };
             let p_name = provider_label(&self.settings.provider);
-            println!(
-                "  {} {} {}",
-                paint(true, RULE, "╰─"),
-                paint(true, MINT, "✓"),
-                paint(true, DIM, &format!("{p_name} · {secs:.1} s{tools_note}"))
-            );
+            println!("  {} {} {}", paint(true, RULE, "╰─"), paint(true, MINT, "✓"), paint(true, DIM, &format!("{p_name} · {secs:.1} s{tools_note}")));
         }
         ok
     }
 
     fn fail(&self, msg: &str) {
         eprintln!("  {} {}", paint(self.color, ROSE, "✗"), paint(self.color, SLATE, msg));
+    }
+
+    /// Modo estructurado (`--json`): emite eventos NDJSON limpios por stdout sin ANSI ni spinner.
+    fn turn_json(&mut self, prompt: &str) -> bool {
+        let emit = |v: serde_json::Value| {
+            println!("{v}");
+            let _ = std::io::stdout().flush();
+        };
+        let (program, args, stdin) = match self.command(prompt) {
+            Ok(c) => c,
+            Err(e) => {
+                emit(serde_json::json!({ "type": "done", "ok": false, "error": e }));
+                return false;
+            }
+        };
+        let cwd = std::env::current_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| ".".into());
+        let (tx, rx) = mpsc::channel::<Msg>();
+        let (tx1, tx2) = (Arc::new(Mutex::new(tx.clone())), Arc::new(Mutex::new(tx)));
+        if let Err(e) = spawn_stream(
+            &program,
+            &args,
+            &cwd,
+            &stdin,
+            Arc::new(move |l| {
+                let _ = tx1.lock().map(|t| t.send(Msg::Line(l)));
+            }),
+            Arc::new(move |c, e| {
+                let _ = tx2.lock().map(|t| t.send(Msg::Exit(c, e)));
+            }),
+        ) {
+            emit(serde_json::json!({ "type": "done", "ok": false, "error": e }));
+            return false;
+        }
+        let mut parser = Parser::new(&self.settings.provider);
+        let mut result: Option<Result<(), String>> = None;
+        let (mut stderr_tail, mut code, mut had_text) = (String::new(), None, false);
+        for msg in rx {
+            match msg {
+                Msg::Line(l) => {
+                    for ev in parser.feed(&l) {
+                        match ev {
+                            Ev::Session(id) => {
+                                self.session = Some(id.clone());
+                                emit(serde_json::json!({ "type": "session", "id": id }));
+                            }
+                            Ev::Text(t) => {
+                                had_text = true;
+                                emit(serde_json::json!({ "type": "text", "text": t }));
+                            }
+                            Ev::Tool(t) => {
+                                emit(serde_json::json!({ "type": "tool", "tool": t }));
+                            }
+                            Ev::Done(r) => result = Some(r),
+                        }
+                    }
+                }
+                Msg::Exit(c, e) => {
+                    code = c;
+                    stderr_tail = e;
+                    break;
+                }
+            }
+        }
+        match result {
+            Some(Ok(())) => {
+                emit(serde_json::json!({ "type": "done", "ok": true }));
+                true
+            }
+            Some(Err(e)) => {
+                emit(serde_json::json!({ "type": "done", "ok": false, "error": e }));
+                false
+            }
+            None if code == Some(0) && had_text => {
+                emit(serde_json::json!({ "type": "done", "ok": true }));
+                true
+            }
+            None => {
+                let err = if stderr_tail.trim().is_empty() { format!("exit code {code:?}") } else { stderr_tail.trim().to_string() };
+                emit(serde_json::json!({ "type": "done", "ok": false, "error": err }));
+                false
+            }
+        }
     }
 }
 
@@ -454,14 +549,7 @@ fn char_to_byte(s: &str, char_idx: usize) -> usize {
     s.char_indices().nth(char_idx).map(|(b, _)| b).unwrap_or(s.len())
 }
 
-fn draw_composer(
-    chat: &Chat,
-    buf: &str,
-    cursor_chars: usize,
-    menu_sel: usize,
-    ctrl_c_armed: bool,
-    drawn: &mut bool,
-) {
+fn draw_composer(chat: &Chat, buf: &str, cursor_chars: usize, menu_sel: usize, ctrl_c_armed: bool, drawn: &mut bool) {
     let mut out = std::io::stdout();
     let width = term_width();
     let color = chat.color;
@@ -521,10 +609,7 @@ fn draw_composer(
             format!("  {} {}", paint(color, AMBER, tr("▸▸ edición activa")), paint(color, DIM, tr("(Shift+Tab solo lectura)"))),
         )
     } else {
-        (
-            "  ▸▸ solo lectura (Shift+Tab editar)",
-            format!("  {} {}", paint(color, CYAN, "▸▸ solo lectura"), paint(color, DIM, "(Shift+Tab editar)")),
-        )
+        ("  ▸▸ solo lectura (Shift+Tab editar)", format!("  {} {}", paint(color, CYAN, "▸▸ solo lectura"), paint(color, DIM, "(Shift+Tab editar)")))
     };
     let (right_plain, right_styled) = if ctrl_c_armed {
         (tr("Pulsa Ctrl+C de nuevo para salir"), paint(color, AMBER, tr("Pulsa Ctrl+C de nuevo para salir")))
@@ -544,18 +629,9 @@ fn draw_composer(
         let clipped: String = text.chars().take(width.saturating_sub(2)).collect();
         if selected {
             let pad = width.saturating_sub(clipped.chars().count() + 2);
-            let _ = write!(
-                out,
-                "{}",
-                paint(color, &format!("{BG_SEL};{CYAN}"), &format!("▸ {clipped}{}", " ".repeat(pad)))
-            );
+            let _ = write!(out, "{}", paint(color, &format!("{BG_SEL};{CYAN}"), &format!("▸ {clipped}{}", " ".repeat(pad))));
         } else {
-            let _ = write!(
-                out,
-                "  {} {}",
-                paint(color, SLATE, &format!("{:<11}", cmd.name)),
-                paint(color, DIM, tr(cmd.desc))
-            );
+            let _ = write!(out, "  {} {}", paint(color, SLATE, &format!("{:<11}", cmd.name)), paint(color, DIM, tr(cmd.desc)));
         }
     }
 
@@ -775,6 +851,171 @@ fn read_composer(chat: &mut Chat, history: &[String]) -> PromptEvent {
     }
 }
 
+// ---------- Selector interactivo y diagnóstico (`pulso doctor`) ----------
+
+struct PickItem {
+    value: String,
+    label: String,
+    badge: String,
+    note: String,
+}
+
+/// Selector interactivo en línea con flechas ↑/↓, Enter y Esc (o número si no hay consola raw).
+fn pick_option(title: &str, items: &[PickItem], initial: usize, color: bool) -> Option<usize> {
+    if items.is_empty() {
+        return None;
+    }
+    let mut sel = initial.min(items.len() - 1);
+    let max_vis = items.len().min(10);
+
+    if let Some(raw) = RawConsole::enter() {
+        let mut out = std::io::stdout();
+        let mut drawn_lines = 0usize;
+        let result = loop {
+            if drawn_lines > 0 {
+                let _ = write!(out, "\x1b[{drawn_lines}A\r\x1b[0J");
+            }
+            let _ = write!(out, "\x1b[?25l");
+            let width = term_width();
+            let start = if sel >= max_vis { sel + 1 - max_vis } else { 0 };
+            let end = (start + max_vis).min(items.len());
+            let mut lines = 0usize;
+
+            let _ = writeln!(out, "  {}  {}", paint(color, BRIGHT, title), paint(color, DIM, tr("↑/↓ mover · Enter elegir · Esc cancelar")));
+            lines += 1;
+
+            for (idx, item) in items[start..end].iter().enumerate() {
+                let real = start + idx;
+                let active = real == sel;
+                let note_part = if item.note.is_empty() { String::new() } else { format!("  {}", item.note) };
+                let badge_part = if item.badge.is_empty() { String::new() } else { format!("  [{}]", item.badge) };
+                let max_note = width.saturating_sub(item.label.chars().count() + badge_part.chars().count() + 10);
+                let clipped_note: String = note_part.chars().take(max_note).collect();
+                if active {
+                    let _ = writeln!(out, "  {}", paint(color, &format!("{BG_SEL};{BRIGHT}"), &format!(" ❯ {}{}{} ", item.label, badge_part, clipped_note)));
+                } else {
+                    let _ = writeln!(out, "    {}{}{}", paint(color, SLATE, &item.label), paint(color, DIM, &badge_part), paint(color, DIM, &clipped_note));
+                }
+                lines += 1;
+            }
+            if items.len() > max_vis {
+                let _ = writeln!(out, "    {}", paint(color, DIM, &format!("{}/{}", sel + 1, items.len())));
+                lines += 1;
+            }
+            let _ = out.flush();
+            drawn_lines = lines;
+
+            match raw.read_key() {
+                Key::Up => sel = if sel == 0 { items.len() - 1 } else { sel - 1 },
+                Key::Down | Key::Tab => sel = (sel + 1) % items.len(),
+                Key::Enter => break Some(sel),
+                Key::Esc | Key::CtrlC | Key::CtrlD => break None,
+                _ => {}
+            }
+        };
+        if drawn_lines > 0 {
+            let _ = write!(out, "\x1b[{drawn_lines}A\r\x1b[0J\x1b[?25h");
+            let _ = out.flush();
+        }
+        drop(raw);
+        return result;
+    }
+
+    // Fallback sin consola raw: lista numerada.
+    println!("  {}", paint(color, BRIGHT, title));
+    for (i, item) in items.iter().enumerate() {
+        let extra = if item.note.is_empty() { String::new() } else { format!(" — {}", item.note) };
+        println!("    {}. {}{}", i + 1, item.label, extra);
+    }
+    print!("  {} ", paint(color, DIM, tr("Número (Enter cancela):")));
+    let _ = std::io::stdout().flush();
+    let mut line = String::new();
+    let _ = std::io::stdin().lock().read_line(&mut line);
+    let n = line.trim().parse::<usize>().ok()?;
+    (n >= 1 && n <= items.len()).then_some(n - 1)
+}
+
+fn detect_all_cli_providers() -> Vec<(&'static str, AiTool)> {
+    let t_claude = std::thread::spawn(detect_claude);
+    let t_codex = std::thread::spawn(detect_codex);
+    let t_agy = std::thread::spawn(detect_antigravity);
+    vec![("claude", t_claude.join().unwrap_or_default()), ("codex", t_codex.join().unwrap_or_default()), ("antigravity", t_agy.join().unwrap_or_default())]
+}
+
+fn capture_cmd_version(cmd: &str, arg: &str) -> Option<String> {
+    let out = std::process::Command::new(cmd).arg(arg).stdin(std::process::Stdio::null()).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&out.stdout);
+    s.lines().next().map(|l| l.trim().to_string()).filter(|l| !l.is_empty())
+}
+
+fn run_doctor(color: bool) {
+    println!("\n  {}  {}", paint(color, &format!("1;{CYAN}"), "◈ Pulso CLI Doctor"), paint(color, DIM, &format!("v{}", env!("CARGO_PKG_VERSION"))));
+    println!("  {}", rule(60, color));
+
+    let t_providers = std::thread::spawn(detect_all_cli_providers);
+    let t_ollama = std::thread::spawn(pulso_editor_lib::ollama::detect);
+    let git_ver = capture_cmd_version("git", "--version");
+    let node_ver = capture_cmd_version("node", "--version");
+
+    let editor_name = if cfg!(windows) { "pulso-editor.exe" } else { "pulso-editor" };
+    let editor_ok = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join(editor_name))).is_some_and(|p| p.exists());
+
+    let providers = t_providers.join().unwrap_or_default();
+    let ollama = t_ollama.join().unwrap_or_default();
+
+    println!("\n  {}", paint(color, BRIGHT, tr("Proveedores de IA")));
+    for (id, tool) in &providers {
+        let lbl = provider_label(id);
+        let (icon, tone, status) = if !tool.installed {
+            ("✗", ROSE, tr("no instalado").to_string())
+        } else if tool.logged_in {
+            let plan = if tool.plan.is_empty() { String::new() } else { format!(" · {}", tool.plan) };
+            let models = if tool.models.is_empty() { String::new() } else { format!(" · {} modelos", tool.models.len()) };
+            ("✓", MINT, format!("listo ({}{plan}{models})", tool.version))
+        } else {
+            ("⚠", AMBER, format!("instalado ({}) pero sin sesión", tool.version))
+        };
+        println!("    {} {:<13} {}", paint(color, tone, icon), paint(color, BRIGHT, lbl), paint(color, SLATE, &status));
+    }
+    {
+        let (icon, tone, status) = if ollama.installed && ollama.logged_in {
+            ("✓", MINT, format!("activo ({} · {} modelos)", ollama.version, ollama.models.len()))
+        } else if ollama.installed {
+            ("⚠", AMBER, "instalado pero sin modelos activos".into())
+        } else {
+            ("·", DIM, "no detectado (opcional, modelos locales)".into())
+        };
+        println!("    {} {:<13} {}", paint(color, tone, icon), paint(color, BRIGHT, "Ollama"), paint(color, SLATE, &status));
+    }
+
+    println!("\n  {}", paint(color, BRIGHT, tr("Entorno")));
+    let row = |ok: bool, name: &str, detail: &str| {
+        let (icon, tone) = if ok { ("✓", MINT) } else { ("⚠", AMBER) };
+        println!("    {} {:<13} {}", paint(color, tone, icon), paint(color, BRIGHT, name), paint(color, SLATE, detail));
+    };
+    row(editor_ok, "pulso-editor", if editor_ok { "encontrado junto a la CLI" } else { "no encontrado junto a pulso" });
+    row(git_ver.is_some(), "Git", git_ver.as_deref().unwrap_or("no encontrado en PATH"));
+    row(node_ver.is_some(), "Node.js", node_ver.as_deref().unwrap_or("no encontrado (opcional con TS 7)"));
+
+    if let Ok(cwd) = std::env::current_dir() {
+        let broad = broad_dir_reason(&cwd, home_dir().as_deref());
+        let text = trust_file().and_then(|f| std::fs::read_to_string(f).ok()).unwrap_or_default();
+        let trusted = is_trusted(&trusted_list(&text), &cwd);
+        let (ok, detail) = if let Some(why) = broad {
+            (false, format!("{} ({why})", cwd.display()))
+        } else if trusted {
+            (true, format!("{} (confiable)", cwd.display()))
+        } else {
+            (false, format!("{} (pedirá confirmación)", cwd.display()))
+        };
+        row(ok, "Carpeta", &detail);
+    }
+    println!();
+}
+
 fn repl(settings: Settings) {
     let color = use_color();
     let mut chat = Chat { settings, session: None, color };
@@ -783,6 +1024,8 @@ fn repl(settings: Settings) {
     }
     print_header(&chat);
     let mut history: Vec<String> = Vec::new();
+    let mut model_cache: HashMap<String, Vec<AiModelInfo>> = HashMap::new();
+    let mut provider_cache: Option<Vec<(&'static str, AiTool)>> = None;
 
     loop {
         let line = match read_composer(&mut chat, &history) {
@@ -839,25 +1082,166 @@ fn repl(settings: Settings) {
                 }
                 "read" => {
                     chat.settings.edit = false;
-                    note("●", CYAN, "Modo solo lectura activado.");
+                    note("●", CYAN, tr("Modo solo lectura activado."));
+                }
+                "doctor" => {
+                    run_doctor(color);
                 }
                 "model" => {
-                    chat.settings.model = (!arg.is_empty()).then(|| arg.to_string());
-                    note("◈", CYAN, &format!("Modelo: {}", if arg.is_empty() { "predeterminado" } else { arg }));
+                    let arg_low = arg.to_ascii_lowercase();
+                    if arg_low == "default" || arg_low == "reset" || arg_low == "predeterminado" {
+                        chat.settings.model = None;
+                        note("◈", CYAN, tr("Modelo restablecido al predeterminado del proveedor."));
+                    } else if !arg.is_empty() && arg_low != "refresh" && arg_low != "list" {
+                        chat.settings.model = Some(arg.to_string());
+                        note("◈", CYAN, &format!("Modelo: {arg}"));
+                    } else {
+                        if arg_low == "refresh" {
+                            model_cache.remove(&chat.settings.provider);
+                        }
+                        let prov = chat.settings.provider.clone();
+                        let models = if let Some(cached) = model_cache.get(&prov) {
+                            cached.clone()
+                        } else {
+                            note("◌", DIM, &format!("Consultando modelos de {}…", provider_label(&prov)));
+                            let fetched = list_cli_models(&prov);
+                            model_cache.insert(prov.clone(), fetched.clone());
+                            fetched
+                        };
+                        let mut items = vec![PickItem {
+                            value: String::new(),
+                            label: "Predeterminado".into(),
+                            badge: "default".into(),
+                            note: format!("El modelo por defecto de {}", provider_label(&prov)),
+                        }];
+                        for m in &models {
+                            items.push(PickItem {
+                                value: m.id.clone(),
+                                label: if m.label.is_empty() { m.id.clone() } else { m.label.clone() },
+                                badge: if m.label != m.id { m.id.clone() } else { String::new() },
+                                note: m.note.clone(),
+                            });
+                        }
+                        if models.is_empty() {
+                            note(
+                                "⚠",
+                                AMBER,
+                                &format!(
+                                    "No se detectaron modelos para {}. Puedes escribir `/model <id>` manualmente o ejecutar `/doctor`.",
+                                    provider_label(&prov)
+                                ),
+                            );
+                        }
+                        let initial = chat.settings.model.as_deref().and_then(|cur| items.iter().position(|it| it.value == cur)).unwrap_or(0);
+                        let title = format!("◈ Modelos · {}", provider_label(&prov));
+                        if let Some(idx) = pick_option(&title, &items, initial, color) {
+                            let chosen = &items[idx];
+                            if chosen.value.is_empty() {
+                                chat.settings.model = None;
+                                note("◈", CYAN, "Modelo: predeterminado");
+                            } else {
+                                chat.settings.model = Some(chosen.value.clone());
+                                note("◈", CYAN, &format!("Modelo: {} ({})", chosen.label, chosen.value));
+                            }
+                        }
+                    }
                 }
                 "effort" => {
-                    chat.settings.effort = (!arg.is_empty()).then(|| arg.to_string());
-                    note("◐", CYAN, &format!("Esfuerzo: {}", if arg.is_empty() { "normal" } else { arg }));
-                }
-                "provider" => match normalize_provider(arg) {
-                    Some(p) => {
-                        chat.settings.provider = p.into();
-                        chat.settings.model = None;
-                        chat.session = None;
-                        note("✦", provider_color(p), &trf("Proveedor cambiado a {provider} (conversación nueva).", &[("provider", &provider_label(p))]));
+                    let arg_low = arg.to_ascii_lowercase();
+                    if arg_low == "normal" || arg_low == "default" || arg_low == "reset" {
+                        chat.settings.effort = None;
+                        note("◐", CYAN, "Esfuerzo: normal");
+                    } else if !arg.is_empty() {
+                        chat.settings.effort = Some(arg.to_string());
+                        note("◐", CYAN, &format!("Esfuerzo: {arg}"));
+                    } else {
+                        let levels = [
+                            ("", "normal", "predeterminado del proveedor"),
+                            ("low", "low", "respuestas rápidas y directas"),
+                            ("medium", "medium", "equilibrio entre velocidad y análisis"),
+                            ("high", "high", "razonamiento profundo"),
+                            ("xhigh", "xhigh", "análisis extendido"),
+                            ("max", "max", "máximo esfuerzo disponible"),
+                        ];
+                        let items: Vec<PickItem> = levels
+                            .iter()
+                            .map(|(val, lbl, desc)| PickItem { value: (*val).into(), label: (*lbl).into(), badge: String::new(), note: (*desc).into() })
+                            .collect();
+                        let initial = chat.settings.effort.as_deref().and_then(|cur| items.iter().position(|it| it.value == cur)).unwrap_or(0);
+                        if let Some(idx) = pick_option("◐ Nivel de esfuerzo", &items, initial, color) {
+                            let chosen = &items[idx];
+                            chat.settings.effort = (!chosen.value.is_empty()).then(|| chosen.value.clone());
+                            note("◐", CYAN, &format!("Esfuerzo: {}", chosen.label));
+                        }
                     }
-                    None => note("▸", AMBER, "Usa: /provider claude | codex | antigravity"),
-                },
+                }
+                "provider" => {
+                    let arg_low = arg.to_ascii_lowercase();
+                    if arg.is_empty() || arg_low == "refresh" {
+                        if arg_low == "refresh" {
+                            provider_cache = None;
+                        }
+                        let detected = if let Some(ref cached) = provider_cache {
+                            cached.clone()
+                        } else {
+                            note("◌", DIM, "Comprobando proveedores instalados…");
+                            let res = detect_all_cli_providers();
+                            for (pid, tool) in &res {
+                                if !tool.models.is_empty() {
+                                    model_cache.insert((*pid).to_string(), tool.models.clone());
+                                }
+                            }
+                            provider_cache = Some(res.clone());
+                            res
+                        };
+                        let items: Vec<PickItem> = detected
+                            .iter()
+                            .map(|(id, tool)| {
+                                let badge = if !tool.installed {
+                                    "no instalado".into()
+                                } else if tool.logged_in {
+                                    if tool.plan.is_empty() {
+                                        "✓ listo".into()
+                                    } else {
+                                        format!("✓ {}", tool.plan)
+                                    }
+                                } else {
+                                    "⚠ sin sesión".into()
+                                };
+                                let note_str = if !tool.installed {
+                                    "CLI no encontrada en PATH".into()
+                                } else if !tool.models.is_empty() {
+                                    format!("{} · {} modelos", tool.version, tool.models.len())
+                                } else {
+                                    tool.version.clone()
+                                };
+                                PickItem { value: (*id).into(), label: provider_label(id).into(), badge, note: note_str }
+                            })
+                            .collect();
+                        let initial = items.iter().position(|it| it.value == chat.settings.provider).unwrap_or(0);
+                        if let Some(idx) = pick_option("✦ Proveedor de IA", &items, initial, color) {
+                            let p = items[idx].value.clone();
+                            chat.settings.provider = p.clone();
+                            chat.settings.model = None;
+                            chat.session = None;
+                            note("✦", provider_color(&p), &trf("Proveedor cambiado a {provider} (conversación nueva).", &[("provider", &provider_label(&p))]));
+                        }
+                    } else {
+                        match normalize_provider(arg) {
+                            Some(p) => {
+                                chat.settings.provider = p.into();
+                                chat.settings.model = None;
+                                chat.session = None;
+                                note(
+                                    "✦",
+                                    provider_color(p),
+                                    &trf("Proveedor cambiado a {provider} (conversación nueva).", &[("provider", &provider_label(p))]),
+                                );
+                            }
+                            None => note("▸", AMBER, "Usa: /provider (selector) o /provider claude | codex | antigravity"),
+                        }
+                    }
+                }
                 _ => note("✗", ROSE, "Comando desconocido. Escribe / o /help."),
             }
             continue;
@@ -1196,11 +1580,7 @@ mod console {
 
         fn read_byte_timeout(ms: i32) -> Option<u8> {
             unsafe {
-                let mut pfd = libc::pollfd {
-                    fd: libc::STDIN_FILENO,
-                    events: libc::POLLIN,
-                    revents: 0,
-                };
+                let mut pfd = libc::pollfd { fd: libc::STDIN_FILENO, events: libc::POLLIN, revents: 0 };
                 if libc::poll(&mut pfd, 1, ms) > 0 && (pfd.revents & libc::POLLIN) != 0 {
                     let mut b = [0u8; 1];
                     if std::io::stdin().read(&mut b).ok()? == 1 {

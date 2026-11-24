@@ -22,20 +22,13 @@ fn ensure_installed() -> Result<(), String> {
 
 async fn find(app: &AppHandle) -> Result<Option<tauri_plugin_updater::Update>, String> {
     let updater = app.updater().map_err(|e| trf("No se pudo preparar el actualizador: {e}", &[("e", &e)]))?;
-    updater
-        .check()
-        .await
-        .map_err(|e| trf("No se pudo comprobar si hay una versión nueva: {e}", &[("e", &e)]))
+    updater.check().await.map_err(|e| trf("No se pudo comprobar si hay una versión nueva: {e}", &[("e", &e)]))
 }
 
 #[tauri::command]
 pub async fn update_check(app: AppHandle) -> Result<Option<UpdateInfo>, String> {
     ensure_installed()?;
-    Ok(find(&app).await?.map(|u| UpdateInfo {
-        version: u.version.clone(),
-        current: u.current_version.clone(),
-        notes: u.body.clone(),
-    }))
+    Ok(find(&app).await?.map(|u| UpdateInfo { version: u.version.clone(), current: u.current_version.clone(), notes: u.body.clone() }))
 }
 
 /// Descarga, verifica e instala la versión nueva y reinicia Pulso. En Windows el instalador
@@ -43,18 +36,11 @@ pub async fn update_check(app: AppHandle) -> Result<Option<UpdateInfo>, String> 
 #[tauri::command]
 pub async fn update_install(app: AppHandle) -> Result<(), String> {
     ensure_installed()?;
-    let update = find(&app)
-        .await?
-        .ok_or_else(|| tr("Ya no hay ninguna versión nueva pendiente.").to_string())?;
-    let bytes = update
-        .download(|_, _| {}, || {})
-        .await
-        .map_err(|e| trf("No se pudo descargar la actualización: {e}", &[("e", &e)]))?;
+    let update = find(&app).await?.ok_or_else(|| tr("Ya no hay ninguna versión nueva pendiente.").to_string())?;
+    let bytes = update.download(|_, _| {}, || {}).await.map_err(|e| trf("No se pudo descargar la actualización: {e}", &[("e", &e)]))?;
     app.state::<crate::term::TermState>().kill_all();
     app.state::<crate::lsp::LspState>().stop();
     app.state::<crate::aichat::AiState>().stop_all();
-    update
-        .install(bytes)
-        .map_err(|e| trf("No se pudo instalar la actualización: {e}", &[("e", &e)]))?;
+    update.install(bytes).map_err(|e| trf("No se pudo instalar la actualización: {e}", &[("e", &e)]))?;
     app.restart();
 }

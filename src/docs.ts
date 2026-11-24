@@ -1,6 +1,7 @@
 import { t } from "./i18n";
 import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
+import { backupDelayFor, isLargeFile } from "./largeFile";
 import { state } from "./settings";
 import { setStatus, showDialog } from "./ui";
 import { baseName, fileKey, norm } from "./util";
@@ -28,7 +29,12 @@ export function hashText(text: string): string {
 }
 
 /** Copia de seguridad de cambios sin guardar. */
-export interface Backup { path: string; contents: string; base_mtime: number; saved_at: number }
+export interface Backup {
+  path: string;
+  contents: string;
+  base_mtime: number;
+  saved_at: number;
+}
 
 export const docs = new Map<string, Doc>();
 
@@ -41,12 +47,16 @@ export function findOpenDoc(path: string): Doc | undefined {
 }
 
 const subs = new Set<() => void>();
-export const onDocsChange = (f: () => void) => { subs.add(f); };
+export const onDocsChange = (f: () => void) => {
+  subs.add(f);
+};
 const emit = () => subs.forEach((f) => f());
 
 const savedSubs = new Set<(path: string) => void>();
 /** Se llama después de guardar un archivo (para refrescar Git, por ejemplo). */
-export const onDocSaved = (f: (path: string) => void) => { savedSubs.add(f); };
+export const onDocSaved = (f: (path: string) => void) => {
+  savedSubs.add(f);
+};
 
 export const isDirty = (d: Doc) => d.model.getAlternativeVersionId() !== d.savedVersion;
 export const dirtyDocs = () => Array.from(docs.values()).filter(isDirty);
@@ -64,10 +74,14 @@ const timers = new Map<string, number>();
 function scheduleAutoSave(d: Doc) {
   if (!state.settings.autoSave) return;
   clearTimeout(timers.get(d.path));
-  timers.set(d.path, window.setTimeout(() => { if (isDirty(d)) void saveDoc(d, false, false, true); }, 800));
+  timers.set(
+    d.path,
+    window.setTimeout(() => {
+      if (isDirty(d)) void saveDoc(d, false, false, true);
+    }, 800),
+  );
 }
 
-const BACKUP_DELAY = 1000;
 const backupTimers = new Map<string, number>();
 const backupOperations = new Map<string, Promise<void>>();
 // A lo sumo una escritura pendiente por ruta, además de la que ya está en curso.
@@ -76,18 +90,26 @@ const pendingBackupWrites = new Map<string, object>();
 // Serializar por ruta evita que una copia antigua reaparezca después de guardar o descartar.
 function queueBackup(path: string, operation: () => Promise<void>): Promise<void> {
   const previous = backupOperations.get(path) ?? Promise.resolve();
-  const next = previous.catch(() => {}).then(operation).catch((e) => {
-    setStatus(t("No se pudo actualizar la recuperación de {file}: {error}", { file: baseName(path), error: String(e) }), 10000);
-  });
+  const next = previous
+    .catch(() => {})
+    .then(operation)
+    .catch((e) => {
+      setStatus(t("No se pudo actualizar la recuperación de {file}: {error}", { file: baseName(path), error: String(e) }), 10000);
+    });
   backupOperations.set(path, next);
-  void next.then(() => { if (backupOperations.get(path) === next) backupOperations.delete(path); });
+  void next.then(() => {
+    if (backupOperations.get(path) === next) backupOperations.delete(path);
+  });
   return next;
 }
 
 function runBackup(d: Doc) {
   backupTimers.delete(d.path);
   if (docs.get(d.path) !== d) return;
-  if (!isDirty(d)) { void removeBackup(d.path); return; }
+  if (!isDirty(d)) {
+    void removeBackup(d.path);
+    return;
+  }
   if (pendingBackupWrites.has(d.path)) return;
   const pending = {};
   pendingBackupWrites.set(d.path, pending);
@@ -102,8 +124,23 @@ function runBackup(d: Doc) {
 
 /** Guarda en segundo plano una copia de los cambios sin guardar, por si la app se cierra de golpe. */
 function scheduleBackup(d: Doc) {
+  // En Monaco `getValueLength()` es O(1) y no serializa el texto; en stubs de prueba cae al retardo normal.
+  const chars = typeof d.model.getValueLength === "function" ? d.model.getValueLength() : 0;
+  const delay = backupDelayFor(chars);
+  if (isLargeFile(chars)) {
+    // En archivos grandes esperamos una pausa real de escritura antes de serializar varios MB por IPC.
+    clearTimeout(backupTimers.get(d.path));
+    backupTimers.set(
+      d.path,
+      window.setTimeout(() => runBackup(d), delay),
+    );
+    return;
+  }
   if (backupTimers.has(d.path)) return;
-  backupTimers.set(d.path, window.setTimeout(() => runBackup(d), BACKUP_DELAY));
+  backupTimers.set(
+    d.path,
+    window.setTimeout(() => runBackup(d), delay),
+  );
 }
 
 /**
@@ -114,7 +151,8 @@ export function flushBackups() {
   for (const [path, timer] of Array.from(backupTimers)) {
     clearTimeout(timer);
     const d = docs.get(path);
-    if (d) runBackup(d); else backupTimers.delete(path);
+    if (d) runBackup(d);
+    else backupTimers.delete(path);
   }
 }
 
@@ -132,7 +170,11 @@ function register(path: string, text: string, mtime: number): Doc {
   model.updateOptions({ tabSize: state.settings.tabSize });
   const d: Doc = { path, model, savedVersion: model.getAlternativeVersionId(), mtime, diskHash: hashText(text) };
   notifiedDirty.set(d, false);
-  model.onDidChangeContent(() => { notifyDirtyChange(d); scheduleAutoSave(d); scheduleBackup(d); });
+  model.onDidChangeContent(() => {
+    notifyDirtyChange(d);
+    scheduleAutoSave(d);
+    scheduleBackup(d);
+  });
   docs.set(path, d);
   return d;
 }
@@ -159,7 +201,9 @@ export function loadDoc(path: string): Promise<Doc> {
 // ---------- Guardado ----------
 let beforeSave: ((d: Doc) => Promise<void>) | null = null;
 /** Registra lo que se ejecuta justo antes de guardar a mano (el formateo lo aporta el cliente LSP). */
-export const setBeforeSave = (f: ((d: Doc) => Promise<void>) | null) => { beforeSave = f; };
+export const setBeforeSave = (f: ((d: Doc) => Promise<void>) | null) => {
+  beforeSave = f;
+};
 const conflictOpen = new Set<string>();
 const saving = new Set<string>();
 
@@ -172,7 +216,11 @@ export async function saveDoc(d: Doc, force = false, retried = false, auto = fal
   saving.add(d.path);
   // Formatear antes de escribir, solo en guardados manuales: en el autoguardado movería el texto mientras se escribe.
   if (!auto && !retried && state.settings.formatOnSave && beforeSave) {
-    try { await beforeSave(d); } catch (e) { setStatus(t("No se pudo formatear {file}: {error}", { file: baseName(d.path), error: String(e) }), 6000); }
+    try {
+      await beforeSave(d);
+    } catch (e) {
+      setStatus(t("No se pudo formatear {file}: {error}", { file: baseName(d.path), error: String(e) }), 6000);
+    }
   }
   const version = d.model.getAlternativeVersionId();
   try {
@@ -184,7 +232,8 @@ export async function saveDoc(d: Doc, force = false, retried = false, auto = fal
     });
     d.diskHash = hashText(contents);
     d.savedVersion = version;
-    if (isDirty(d)) scheduleBackup(d); else await removeBackup(d.path);
+    if (isDirty(d)) scheduleBackup(d);
+    else await removeBackup(d.path);
     notifyDirtyChange(d);
     savedSubs.forEach((f) => f(d.path));
     // El usuario pudo seguir escribiendo mientras se guardaba: no cerrar esos cambios.
@@ -193,7 +242,7 @@ export async function saveDoc(d: Doc, force = false, retried = false, auto = fal
     if (String(e).includes("CONFLICT")) {
       saving.delete(d.path);
       // Otro programa solo "tocó" el archivo (mismo contenido, otra fecha): no es un conflicto real.
-      if (!force && !retried && await unchangedOnDisk(d)) return saveDoc(d, false, true);
+      if (!force && !retried && (await unchangedOnDisk(d))) return saveDoc(d, false, true);
       return resolveConflict(d);
     }
     setStatus(t("Error al guardar {file}: {error}", { file: baseName(d.path), error: String(e) }));
@@ -209,7 +258,9 @@ async function resolveConflict(d: Doc): Promise<boolean> {
   try {
     const r = await showDialog({
       title: t("El archivo cambió en el disco"),
-      message: t("{file} se modificó fuera del editor después de abrirlo. Si guardas ahora, esos cambios se perderán.", { file: baseName(d.path) }),
+      message: t("{file} se modificó fuera del editor después de abrirlo. Si guardas ahora, esos cambios se perderán.", {
+        file: baseName(d.path),
+      }),
       buttons: [
         { label: t("Cancelar"), value: "cancel" },
         { label: t("Ver diferencias"), value: "diff" },
@@ -307,7 +358,11 @@ export async function checkExternal() {
   try {
     for (const d of Array.from(docs.values())) {
       let m: number;
-      try { m = await invoke<number>("file_mtime", { path: d.path }); } catch { continue; }
+      try {
+        m = await invoke<number>("file_mtime", { path: d.path });
+      } catch {
+        continue;
+      }
       if (m === d.mtime) continue;
       if (await unchangedOnDisk(d)) continue;
       if (!isDirty(d)) {
@@ -320,9 +375,21 @@ export async function checkExternal() {
         message: t("{file} se modificó fuera del editor y tienes cambios sin guardar.", { file: baseName(d.path) }),
         buttons: [
           { label: t("Mantener los míos"), value: "keep" },
+          { label: t("Ver diferencias"), value: "diff" },
           { label: t("Recargar desde el disco"), value: "reload", danger: true },
         ],
       });
+      if (r === "diff") {
+        const disk = await invoke<string>("read_file", { path: d.path });
+        const { openDiffRequest } = await import("./diffView");
+        await openDiffRequest({
+          title: t("{file} (conflicto)", { file: baseName(d.path) }),
+          sub: t("Disco (externo) ↔ Editor (tus cambios sin guardar)"),
+          path: d.path,
+          openPath: d.path,
+          load: async () => ({ original: disk, modified: d.model.getValue(), binary: false }),
+        });
+      }
       // Con "mantener", guardar volverá a avisar del conflicto: la decisión final es al guardar.
       if (r === "reload") await reloadDoc(d.path);
     }
@@ -361,7 +428,8 @@ export async function restoreFromBackup(b: Backup): Promise<Doc> {
   // Si el disco ya no es el que vio la copia, su contenido anterior es desconocido: debe avisar al guardar.
   if (d.mtime !== b.base_mtime) d.diskHash = "";
   d.mtime = b.base_mtime;
-  if (isDirty(d)) scheduleBackup(d); else void removeBackup(b.path);
+  if (isDirty(d)) scheduleBackup(d);
+  else void removeBackup(b.path);
   notifyDirtyChange(d);
   return d;
 }
@@ -369,9 +437,16 @@ export async function restoreFromBackup(b: Backup): Promise<Doc> {
 /** Al iniciar, ofrece recuperar los cambios sin guardar de la sesión anterior. */
 export async function offerRecovery(open: (path: string) => Promise<void>): Promise<void> {
   let list: Backup[];
-  try { list = await invoke<Backup[]>("backup_list"); } catch { return; }
+  try {
+    list = await invoke<Backup[]>("backup_list");
+  } catch {
+    return;
+  }
   if (!list.length) return;
-  const shown = list.slice(0, 8).map((b) => `• ${baseName(b.path)} (${ago(b.saved_at)})`).join("\n");
+  const shown = list
+    .slice(0, 8)
+    .map((b) => `• ${baseName(b.path)} (${ago(b.saved_at)})`)
+    .join("\n");
   const more = list.length > 8 ? "\n" + t("… y {count} más", { count: list.length - 8 }) : "";
   const r = await showDialog({
     title: t("Recuperar cambios sin guardar"),

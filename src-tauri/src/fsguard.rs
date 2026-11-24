@@ -14,6 +14,11 @@ struct GuardInner {
     roots: HashMap<String, PathBuf>,
     extra_files: HashSet<PathBuf>,
     readonly_roots: Vec<PathBuf>,
+    /// Carpetas de archivos de tema que la persona eligió con el diálogo del sistema (para resolver su `include`).
+    theme_dirs: Vec<PathBuf>,
+    /// Carpetas que la persona aprobó (diálogo del sistema, línea de comandos o confirmación nativa): solo en
+    /// ellas puede la ventana fijar su espacio de trabajo.
+    approved_dirs: HashSet<PathBuf>,
 }
 
 pub struct WorkspaceGuard {
@@ -36,6 +41,8 @@ impl Default for WorkspaceGuard {
                 roots: HashMap::new(),
                 extra_files: HashSet::new(),
                 readonly_roots,
+                theme_dirs: Vec::new(),
+                approved_dirs: HashSet::new(),
             }),
         }
     }
@@ -109,6 +116,36 @@ impl WorkspaceGuard {
         }
     }
 
+    /// Marca una carpeta como aprobada por la persona y devuelve su ruta canónica.
+    pub fn approve_dir(&self, raw: &str) -> Result<PathBuf, String> {
+        let p = Path::new(raw);
+        if has_parent_traversal(p) {
+            return Err(tr("La ruta del espacio de trabajo no es válida").into());
+        }
+        let canon = fs::canonicalize(p).map_err(|e| trf("No se pudo abrir la carpeta: {e}", &[("e", &e)]))?;
+        if !canon.is_dir() {
+            return Err(tr("La ruta indicada no es una carpeta").into());
+        }
+        self.inner.lock().map_err(|e| e.to_string())?.approved_dirs.insert(canon.clone());
+        Ok(canon)
+    }
+
+    /// ¿La persona ya aprobó esta carpeta en esta sesión? Compara la ruta canónica.
+    pub fn is_dir_approved(&self, raw: &str) -> bool {
+        let Ok(canon) = fs::canonicalize(raw) else { return false };
+        self.inner.lock().map(|g| g.approved_dirs.contains(&canon)).unwrap_or(false)
+    }
+
+    /// Fija la carpeta de una ventana **solo si fue aprobada**. Es lo que usa el comando que llama la ventana.
+    pub fn set_root_approved(&self, label: &str, path: Option<&str>) -> Result<Option<PathBuf>, String> {
+        if let Some(raw) = path {
+            if !self.is_dir_approved(raw) {
+                return Err(tr("Esta carpeta no está autorizada: ábrela con el diálogo «Abrir carpeta».").into());
+            }
+        }
+        self.set_root_for(label, path)
+    }
+
     /// Libera la carpeta autorizada al cerrarse una ventana.
     pub fn remove_window(&self, label: &str) {
         if let Ok(mut g) = self.inner.lock() {
@@ -152,6 +189,32 @@ impl WorkspaceGuard {
         Err(tr("Acceso denegado: la ruta está fuera del espacio de trabajo abierto").into())
     }
 
+    /// Recuerda la carpeta del tema que la persona acaba de elegir, para que se pueda leer él y lo que incluya.
+    pub fn allow_theme_dir(&self, dir: &Path) {
+        if let (Ok(canon), Ok(mut g)) = (resolve_safe(dir), self.inner.lock()) {
+            if !g.theme_dirs.contains(&canon) {
+                g.theme_dirs.push(canon);
+            }
+        }
+    }
+
+    /// Lectura de un archivo de tema: el espacio de trabajo, los temas de VS Code instalados o una carpeta elegida con el diálogo.
+    pub fn ensure_theme_read(&self, raw: &str) -> Result<PathBuf, String> {
+        if let Ok(p) = self.ensure_read(raw) {
+            return Ok(p);
+        }
+        let p = Path::new(raw);
+        if has_parent_traversal(p) {
+            return Err(tr("Acceso denegado: ruta fuera del espacio de trabajo").into());
+        }
+        let resolved = resolve_safe(p)?;
+        let g = self.inner.lock().map_err(|e| e.to_string())?;
+        if g.theme_dirs.iter().any(|d| is_within(&resolved, d)) {
+            return Ok(resolved);
+        }
+        Err(tr("Acceso denegado: la ruta está fuera del espacio de trabajo abierto").into())
+    }
+
     /// Verifica que `path` esté autorizado para escritura o mutación.
     /// Si es un enlace simbólico, también verifica que el destino canonizado siga dentro del límite.
     pub fn ensure_write(&self, raw: &str) -> Result<PathBuf, String> {
@@ -189,6 +252,40 @@ impl WorkspaceGuard {
     }
 }
 
+/// Carpetas que la persona ya aprobó en sesiones anteriores (lista de rutas canónicas en la carpeta de datos de
+/// Pulso, que la ventana no puede escribir). Sirve para reabrir recientes y restaurar la sesión sin preguntar de nuevo.
+pub struct ApprovedStore(pub PathBuf);
+
+impl ApprovedStore {
+    fn key(p: &Path) -> String {
+        let s = p.to_string_lossy().replace('\\', "/");
+        let s = s.strip_prefix("//?/").unwrap_or(&s).to_string();
+        s.trim_end_matches('/').to_lowercase()
+    }
+
+    fn load(&self) -> Vec<String> {
+        fs::read_to_string(&self.0).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+    }
+
+    pub fn contains(&self, canon: &Path) -> bool {
+        let k = Self::key(canon);
+        self.load().iter().any(|x| *x == k)
+    }
+
+    pub fn add(&self, canon: &Path) -> Result<(), String> {
+        let k = Self::key(canon);
+        let mut l = self.load();
+        if l.iter().any(|x| *x == k) {
+            return Ok(());
+        }
+        l.push(k);
+        if let Some(dir) = self.0.parent() {
+            fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        fs::write(&self.0, serde_json::to_string_pretty(&l).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -196,11 +293,7 @@ mod tests {
 
     fn tmp_dir(tag: &str) -> PathBuf {
         static N: AtomicU64 = AtomicU64::new(0);
-        let d = std::env::temp_dir().join(format!(
-            "pulso-fsguard-{tag}-{}-{}",
-            std::process::id(),
-            N.fetch_add(1, Ordering::Relaxed)
-        ));
+        let d = std::env::temp_dir().join(format!("pulso-fsguard-{tag}-{}-{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         d
@@ -270,5 +363,33 @@ mod tests {
 
         let _ = fs::remove_dir_all(&ws);
         let _ = fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    fn la_ventana_solo_fija_carpetas_aprobadas() {
+        let a = tmp_dir("aprobada");
+        let b = tmp_dir("ajena");
+        let g = WorkspaceGuard::default();
+        assert!(g.set_root_approved("main", Some(&b.to_string_lossy())).is_err());
+        g.approve_dir(&a.to_string_lossy()).unwrap();
+        assert!(g.set_root_approved("main", Some(&a.to_string_lossy())).is_ok());
+        assert!(g.set_root_approved("main", Some(&b.to_string_lossy())).is_err(), "aprobar una no aprueba otra");
+        assert!(g.set_root_approved("main", None).is_ok(), "cerrar la carpeta siempre se puede");
+        let raiz = std::env::temp_dir().ancestors().last().unwrap().to_string_lossy().into_owned();
+        assert!(g.set_root_approved("main", Some(&raiz)).is_err());
+    }
+
+    #[test]
+    fn la_lista_de_aprobadas_persiste() {
+        let d = tmp_dir("lista");
+        let store = ApprovedStore(d.join("approved.json"));
+        let x = tmp_dir("x");
+        let x = fs::canonicalize(&x).unwrap();
+        assert!(!store.contains(&x));
+        store.add(&x).unwrap();
+        store.add(&x).unwrap();
+        assert!(store.contains(&x));
+        assert!(ApprovedStore(d.join("approved.json")).contains(&x));
+        assert_eq!(store.load().len(), 1);
     }
 }

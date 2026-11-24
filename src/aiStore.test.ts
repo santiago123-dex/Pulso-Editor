@@ -1,13 +1,42 @@
 import { describe, expect, it } from "vitest";
 import type { Turn } from "./aiModel";
-import { chatsFor, deleteChat, loadChats, MAX_BYTES, MAX_CHATS, mergeChats, newChatId, pickHistory, sameDir, saveChat, titleFrom, type SavedChat, type Store } from "./aiStore";
+import {
+  chatsFor,
+  deleteChat,
+  loadChats,
+  MAX_BYTES,
+  MAX_CHATS,
+  mergeChats,
+  newChatId,
+  pickHistory,
+  sameDir,
+  saveChat,
+  titleFrom,
+  type SavedChat,
+  type Store,
+} from "./aiStore";
 
 const memory = (): Store & { data: Map<string, string> } => {
   const data = new Map<string, string>();
-  return { data, getItem: (k) => data.get(k) ?? null, setItem: (k, v) => { data.set(k, v); } };
+  return {
+    data,
+    getItem: (k) => data.get(k) ?? null,
+    setItem: (k, v) => {
+      data.set(k, v);
+    },
+  };
 };
 const turn = (role: "user" | "assistant", text: string): Turn => ({ id: role, role, blocks: [{ kind: "text", text }], done: false });
-const chat = (id: string, at: number, extra: Partial<SavedChat> = {}): SavedChat => ({ id, title: id, cwd: "C:/p", sessionId: "s", model: "", updatedAt: at, messages: [turn("user", "hola")], ...extra });
+const chat = (id: string, at: number, extra: Partial<SavedChat> = {}): SavedChat => ({
+  id,
+  title: id,
+  cwd: "C:/p",
+  sessionId: "s",
+  model: "",
+  updatedAt: at,
+  messages: [turn("user", "hola")],
+  ...extra,
+});
 
 describe("titleFrom y newChatId", () => {
   it("usa el primer mensaje de la persona, en una línea y recortado", () => {
@@ -26,9 +55,15 @@ describe("titleFrom y newChatId", () => {
 describe("guardar y cargar", () => {
   it("guarda, ordena por la más reciente y actualiza sin duplicar", () => {
     const s = memory();
-    saveChat(chat("a", 1), s); saveChat(chat("b", 3), s); saveChat(chat("c", 2), s);
+    saveChat(chat("a", 1), s);
+    saveChat(chat("b", 3), s);
+    saveChat(chat("c", 2), s);
     saveChat(chat("a", 5, { title: "nuevo" }), s);
-    expect(loadChats(s).map((c) => [c.id, c.title])).toEqual([["a", "nuevo"], ["b", "b"], ["c", "c"]]);
+    expect(loadChats(s).map((c) => [c.id, c.title])).toEqual([
+      ["a", "nuevo"],
+      ["b", "b"],
+      ["c", "c"],
+    ]);
   });
   it("conserva como máximo 30 conversaciones", () => {
     const s = memory();
@@ -39,7 +74,12 @@ describe("guardar y cargar", () => {
   });
   it("recorta resultados largos de herramientas y marca los mensajes como terminados", () => {
     const s = memory();
-    const big: Turn = { id: "a", role: "assistant", done: false, blocks: [{ kind: "tool", id: "t", name: "Read", input: {}, json: "{}", result: "x".repeat(5000) }] };
+    const big: Turn = {
+      id: "a",
+      role: "assistant",
+      done: false,
+      blocks: [{ kind: "tool", id: "t", name: "Read", input: {}, json: "{}", result: "x".repeat(5000) }],
+    };
     saveChat(chat("a", 1, { messages: [big] }), s);
     const saved = loadChats(s)[0].messages[0];
     expect(saved.done).toBe(true);
@@ -59,14 +99,20 @@ describe("guardar y cargar", () => {
   });
   it("borra una conversación y tolera datos corruptos o un almacén que falla", () => {
     const s = memory();
-    saveChat(chat("a", 1), s); saveChat(chat("b", 2), s);
+    saveChat(chat("a", 1), s);
+    saveChat(chat("b", 2), s);
     deleteChat("a", s);
     expect(loadChats(s).map((c) => c.id)).toEqual(["b"]);
     s.setItem("pulso.ai.chats", "{no json");
     expect(loadChats(s)).toEqual([]);
     s.setItem("pulso.ai.chats", JSON.stringify([{ nada: 1 }, chat("ok", 1)]));
     expect(loadChats(s).map((c) => c.id)).toEqual(["ok"]);
-    const roto: Store = { getItem: () => null, setItem: () => { throw new Error("lleno"); } };
+    const roto: Store = {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error("lleno");
+      },
+    };
     expect(() => saveChat(chat("a", 1), roto)).not.toThrow();
   });
 });
@@ -74,7 +120,11 @@ describe("guardar y cargar", () => {
 describe("mergeChats", () => {
   it("conserva la versión más reciente al recuperar cierres en ejecución", () => {
     const merged = mergeChats([chat("a", 10, { title: "viejo" }), chat("b", 5)], [chat("a", 20, { title: "en curso" }), chat("c", 15)]);
-    expect(merged.map((c) => [c.id, c.title])).toEqual([["a", "en curso"], ["c", "c"], ["b", "b"]]);
+    expect(merged.map((c) => [c.id, c.title])).toEqual([
+      ["a", "en curso"],
+      ["c", "c"],
+      ["b", "b"],
+    ]);
   });
 });
 

@@ -51,8 +51,9 @@ export function planMove(issue: Issue, to: Column, progressLabel: string): Step[
   }
   if (issue.state === "closed") steps.push({ op: "open" });
   if (reviewing && to !== "review" && !same(label, REVIEW_LABEL)) steps.push({ op: "removeLabel", label: REVIEW_LABEL });
-  if (to === "doing") { if (!labeled) steps.push({ op: "addLabel", label }); }
-  else if (labeled) steps.push({ op: "removeLabel", label });
+  if (to === "doing") {
+    if (!labeled) steps.push({ op: "addLabel", label });
+  } else if (labeled) steps.push({ op: "removeLabel", label });
   if (to === "review" && !reviewing) steps.push({ op: "addLabel", label: REVIEW_LABEL });
   return steps;
 }
@@ -86,7 +87,8 @@ export function parseLabels(text: string): string[] {
 export const labelsText = (issue: Issue) => issue.labels.map((l) => l.name).join(", ");
 
 /** Etiquetas con las que nace una issue creada en una columna: «En curso» lleva la de progreso. */
-export const labelsForNew = (col: Column, progressLabel: string): string[] => col === "review" ? [REVIEW_LABEL] : (col === "doing" && progressLabel.trim() ? [progressLabel.trim()] : []);
+export const labelsForNew = (col: Column, progressLabel: string): string[] =>
+  col === "review" ? [REVIEW_LABEL] : col === "doing" && progressLabel.trim() ? [progressLabel.trim()] : [];
 
 /** Sustituye la issue con el mismo número o, si es nueva, la pone la primera. */
 export function upsertIssue(list: Issue[], issue: Issue): Issue[] {
@@ -94,7 +96,15 @@ export function upsertIssue(list: Issue[], issue: Issue): Issue[] {
 }
 
 const fingerprint = (i: Issue) =>
-  [i.number, i.state, i.title, i.comments, i.updated_at ?? "", i.labels.map((l) => l.name).join("\u0001"), (i.assignees ?? []).map((a) => a.login).join("\u0001")].join("\u0002");
+  [
+    i.number,
+    i.state,
+    i.title,
+    i.comments,
+    i.updated_at ?? "",
+    i.labels.map((l) => l.name).join("\u0001"),
+    (i.assignees ?? []).map((a) => a.login).join("\u0001"),
+  ].join("\u0002");
 
 /** Dos listas de issues son iguales a efectos del tablero: sirve para no repintar si nada cambió. */
 export function sameIssues(a: Issue[], b: Issue[]): boolean {
@@ -104,7 +114,17 @@ export function sameIssues(a: Issue[], b: Issue[]): boolean {
   return left.every((x, i) => x === right[i]);
 }
 
-export interface RefreshState { now: number; last: number; minGap: number; interval: number; trigger: "focus" | "timer"; hasToken: boolean; visible: boolean; busy: boolean; blocked: boolean }
+export interface RefreshState {
+  now: number;
+  last: number;
+  minGap: number;
+  interval: number;
+  trigger: "focus" | "timer";
+  hasToken: boolean;
+  visible: boolean;
+  busy: boolean;
+  blocked: boolean;
+}
 
 /**
  * ¿Toca recargar el tablero solo? Nunca si hay un diálogo, un arrastre o un cambio en curso, ni con la ventana oculta.
@@ -116,4 +136,60 @@ export function refreshDue(s: RefreshState): boolean {
   const since = s.now - s.last;
   if (s.trigger === "focus") return since >= s.minGap;
   return s.hasToken && since >= s.interval;
+}
+
+/** Definición de una columna personalizada del tablero basada en una etiqueta de GitHub. */
+export interface CustomColumnDef {
+  id: string;
+  title: string;
+  label: string;
+}
+
+/** Parsea «Bloqueado=blocked, QA=qa» o líneas «Título=etiqueta» en columnas personalizadas válidas. */
+export function parseCustomColumns(raw: string): CustomColumnDef[] {
+  const out: CustomColumnDef[] = [];
+  const seen = new Set<string>();
+  for (const part of raw.split(/[\n,]+/)) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const eq = trimmed.indexOf("=");
+    const title = (eq >= 0 ? trimmed.slice(0, eq) : trimmed).trim();
+    const label = (eq >= 0 ? trimmed.slice(eq + 1) : trimmed).trim();
+    const key = label.toLowerCase();
+    if (!title || !label || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ id: `custom:${key}`, title, label });
+  }
+  return out;
+}
+
+/** Ordena las issues de una columna según la lista de números guardada; las nuevas van al final conservando su orden. */
+export function orderColumnIssues(list: readonly Issue[], order: readonly number[]): Issue[] {
+  if (!order.length) return [...list];
+  const rank = new Map<number, number>();
+  order.forEach((n, i) => rank.set(n, i));
+  return [...list].sort((a, b) => {
+    const ra = rank.get(a.number);
+    const rb = rank.get(b.number);
+    if (ra !== undefined && rb !== undefined) return ra - rb;
+    if (ra !== undefined) return -1;
+    if (rb !== undefined) return 1;
+    return 0;
+  });
+}
+
+/** Mueve una issue una posición arriba (`-1`) o abajo (`+1`) dentro del orden de su columna. */
+export function moveInOrder(
+  currentOrder: readonly number[],
+  issueNumber: number,
+  delta: -1 | 1,
+  columnNumbers: readonly number[],
+): number[] {
+  const ordered = [...currentOrder.filter((n) => columnNumbers.includes(n)), ...columnNumbers.filter((n) => !currentOrder.includes(n))];
+  const idx = ordered.indexOf(issueNumber);
+  const next = idx + delta;
+  if (idx < 0 || next < 0 || next >= ordered.length) return ordered;
+  const copy = [...ordered];
+  [copy[idx], copy[next]] = [copy[next], copy[idx]];
+  return copy;
 }

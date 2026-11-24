@@ -57,3 +57,60 @@ jobs:
 
       - name: Pruebas Rust
         run: npm run test:rust
+
+  # Calidad: formato, lints y auditoría de dependencias.
+  # - El formato (Rust y TypeScript) se EXIGE: el proyecto ya está formateado de forma uniforme, así que un PR sin formatear sale en rojo.
+  #   Se arregla con `cargo fmt --manifest-path src-tauri/Cargo.toml` y `npx prettier --write "src/**/*.ts"`.
+  # - Clippy y las auditorías de dependencias solo AVISAN (`continue-on-error`): un fallo se ve en el paso pero el trabajo no se pone en rojo.
+  # Los pasos posteriores corren aunque uno anterior falle (`!cancelled()`), para que un PR vea todos los avisos de una vez.
+  calidad:
+    name: Calidad
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependencias de Tauri (Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
+            libayatana-appindicator3-dev libxdo-dev libssl-dev libdbus-1-dev patchelf
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Instalar dependencias
+        run: npm ci --ignore-scripts
+
+      - name: Formato de Rust
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+
+      - name: Formato de TypeScript
+        if: ${{ !cancelled() }}
+        run: npm run format:check
+
+      - name: Clippy
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets
+
+      - name: Auditoría de npm (producción)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Auditoría de crates de Rust
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit --file src-tauri/Cargo.lock

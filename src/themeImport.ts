@@ -1,18 +1,24 @@
 import { t as tr } from "./i18n";
 import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
 import { allThemes, commit, setTheme, state } from "./settings";
 import { parseJsonc, themeFromVSCode } from "./themes";
 import { quickPick, setStatus, type PickItem } from "./ui";
 import { baseName, dirName, errMsg, norm } from "./util";
 
-interface ThemeRef { label: string; dir: string; rel: string; ui: string; ext: string }
+interface ThemeRef {
+  label: string;
+  dir: string;
+  rel: string;
+  ui: string;
+  ext: string;
+}
 
 function joinPath(dir: string, rel: string): string {
   const parts = dir.split("/");
   for (const seg of norm(rel).split("/")) {
     if (seg === "" || seg === ".") continue;
-    if (seg === "..") parts.pop(); else parts.push(seg);
+    if (seg === "..") parts.pop();
+    else parts.push(seg);
   }
   return parts.join("/");
 }
@@ -23,9 +29,13 @@ async function loadRaw(path: string, depth = 0): Promise<any> {
   if (typeof raw.include === "string" && depth < 4) {
     const base = await loadRaw(joinPath(dirName(path), raw.include), depth + 1);
     return {
-      ...base, ...raw,
+      ...base,
+      ...raw,
       colors: { ...(base.colors ?? {}), ...(raw.colors ?? {}) },
-      tokenColors: [...(Array.isArray(base.tokenColors) ? base.tokenColors : []), ...(Array.isArray(raw.tokenColors) ? raw.tokenColors : [])],
+      tokenColors: [
+        ...(Array.isArray(base.tokenColors) ? base.tokenColors : []),
+        ...(Array.isArray(raw.tokenColors) ? raw.tokenColors : []),
+      ],
     };
   }
   return raw;
@@ -36,7 +46,12 @@ async function addTheme(path: string, label: string, ui?: string) {
     const raw = await loadRaw(path);
     if (!raw.type && ui) raw.type = ui === "vs" ? "light" : "dark";
     const theme = themeFromVSCode(raw, label);
-    const id = "custom-" + theme.label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const id =
+      "custom-" +
+      theme.label
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "");
     state.settings.customThemes[id] = theme;
     setTheme(id);
     setStatus(tr("Tema «{theme}» importado y aplicado", { theme: theme.label }));
@@ -47,7 +62,8 @@ async function addTheme(path: string, label: string, ui?: string) {
 
 /** Importa un archivo .json de tema de VS Code. */
 export async function importFromFile() {
-  const file = await open({ filters: [{ name: tr("Tema de VS Code"), extensions: ["json", "jsonc"] }] });
+  // El diálogo lo abre Rust: la ventana no elige la ruta, solo recibe la que la persona escogió.
+  const file = await invoke<string | null>("pick_theme_file");
   if (typeof file === "string") await addTheme(norm(file), baseName(file).replace(/\.jsonc?$/i, ""));
 }
 
@@ -73,14 +89,19 @@ export function removeImported() {
   quickPick({
     placeholder: tr("Quitar un tema importado…"),
     empty: tr("No hay temas importados"),
-    load: () => Object.entries(state.settings.customThemes).map<PickItem>(([id, t]) => ({
-      label: t.label,
-      run: () => {
-        delete state.settings.customThemes[id];
-        if (state.settings.theme === id) { setTheme("pulso-dark"); } else { commit(); }
-        setStatus(tr("Tema «{theme}» quitado", { theme: t.label }));
-      },
-    })),
+    load: () =>
+      Object.entries(state.settings.customThemes).map<PickItem>(([id, t]) => ({
+        label: t.label,
+        run: () => {
+          delete state.settings.customThemes[id];
+          if (state.settings.theme === id) {
+            setTheme("pulso-dark");
+          } else {
+            commit();
+          }
+          setStatus(tr("Tema «{theme}» quitado", { theme: t.label }));
+        },
+      })),
   });
 }
 

@@ -1,20 +1,15 @@
 import { describe, expect, it } from "vitest";
-import {
-  branchNameForIssue,
-  buildIssuePrompt,
-  buildPrDraft,
-  extractProposedEdits,
-  isSafeRelativeEditPath,
-} from "./issueWorkflowModel";
+import { branchNameForIssue, buildIssuePrompt, buildPrDraft, extractProposedEdits, isSafeRelativeEditPath } from "./issueWorkflowModel";
 
 describe("workflow/issueWorkflowModel", () => {
   it("genera nombres de rama válidos según etiquetas y normaliza acentos", () => {
-    expect(branchNameForIssue({ number: 42, title: "Añadir soporte OAuth / GitHub" }))
-      .toBe("feat/42-anadir-soporte-oauth-github");
-    expect(branchNameForIssue({ number: 7, title: "Arreglar caída al guardar", labels: [{ name: "bug" }] }))
-      .toBe("fix/7-arreglar-caida-al-guardar");
-    expect(branchNameForIssue({ number: 12, title: "Actualizar guía LSP", labels: [{ name: "documentation" }] }))
-      .toBe("docs/12-actualizar-guia-lsp");
+    expect(branchNameForIssue({ number: 42, title: "Añadir soporte OAuth / GitHub" })).toBe("feat/42-anadir-soporte-oauth-github");
+    expect(branchNameForIssue({ number: 7, title: "Arreglar caída al guardar", labels: [{ name: "bug" }] })).toBe(
+      "fix/7-arreglar-caida-al-guardar",
+    );
+    expect(branchNameForIssue({ number: 12, title: "Actualizar guía LSP", labels: [{ name: "documentation" }] })).toBe(
+      "docs/12-actualizar-guia-lsp",
+    );
     expect(branchNameForIssue({ number: 99, title: "!!!" })).toBe("feat/99");
   });
 

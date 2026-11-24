@@ -1,5 +1,8 @@
 /** Historial de navegación (atrás/adelante) entre archivos y posiciones del editor. */
-export interface Loc { path: string; line: number }
+export interface Loc {
+  path: string;
+  line: number;
+}
 
 export interface NavOptions {
   /** Máximo de posiciones recordadas. */
@@ -24,7 +27,9 @@ export function createNav(open: (loc: Loc) => Promise<void>, opts: NavOptions = 
       await open(stack[idx]);
     } finally {
       // Los eventos del editor que provoca la propia apertura llegan un instante después.
-      setTimeout(() => { busy = false; }, 80);
+      setTimeout(() => {
+        busy = false;
+      }, 80);
     }
     emit();
   }
@@ -71,7 +76,9 @@ export function createNav(open: (loc: Loc) => Promise<void>, opts: NavOptions = 
       idx = -1;
       emit();
     },
-    onChange(f: () => void) { subs.add(f); },
+    onChange(f: () => void) {
+      subs.add(f);
+    },
     /** Para pruebas y depuración. */
     snapshot: () => ({ stack: stack.map((l) => ({ ...l })), idx }),
   };

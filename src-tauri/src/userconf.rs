@@ -1,12 +1,12 @@
 //! Lectura de la configuración de terminal que el usuario ya tiene (VS Code, Windows Terminal)
 //! y de las fuentes instaladas, para que la terminal de Pulso se adapte a cada persona.
 use serde::Serialize;
+#[cfg(not(windows))]
+use std::process::Command;
 use std::{
     fs,
     path::{Path, PathBuf},
 };
-#[cfg(not(windows))]
-use std::process::Command;
 
 #[derive(Serialize, Debug, PartialEq)]
 pub struct ConfigFile {
@@ -65,15 +65,31 @@ pub fn find_configs(candidates: &[(&'static str, PathBuf)]) -> Vec<ConfigFile> {
 /// Configuración de VS Code y de Windows Terminal, si existen.
 #[tauri::command]
 pub async fn terminal_config_files() -> Vec<ConfigFile> {
-    tauri::async_runtime::spawn_blocking(|| find_configs(&candidates()))
-        .await
-        .unwrap_or_default()
+    tauri::async_runtime::spawn_blocking(|| find_configs(&candidates())).await.unwrap_or_default()
 }
 
 // ---------- Fuentes instaladas ----------
 const STYLE_WORDS: [&str; 20] = [
-    "Regular", "Bold", "Italic", "Oblique", "Light", "SemiLight", "ExtraLight", "SemiBold", "ExtraBold", "Medium",
-    "Thin", "Black", "Heavy", "Retina", "Book", "Demi", "DemiBold", "UltraLight", "Condensed", "Roman",
+    "Regular",
+    "Bold",
+    "Italic",
+    "Oblique",
+    "Light",
+    "SemiLight",
+    "ExtraLight",
+    "SemiBold",
+    "ExtraBold",
+    "Medium",
+    "Thin",
+    "Black",
+    "Heavy",
+    "Retina",
+    "Book",
+    "Demi",
+    "DemiBold",
+    "UltraLight",
+    "Condensed",
+    "Roman",
 ];
 
 /// "CaskaydiaCove Nerd Font Mono SemiBold Italic" -> "CaskaydiaCove Nerd Font Mono".
@@ -109,10 +125,7 @@ fn query_fonts() -> Vec<String> {
     let mut all: Vec<String> = Vec::new();
     #[cfg(windows)]
     {
-        for key in [
-            r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts",
-            r"HKCU\Software\Microsoft\Windows NT\CurrentVersion\Fonts",
-        ] {
+        for key in [r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts", r"HKCU\Software\Microsoft\Windows NT\CurrentVersion\Fonts"] {
             if let Ok(out) = crate::background_command("reg").args(["query", key]).output() {
                 for f in parse_reg_fonts(&String::from_utf8_lossy(&out.stdout)) {
                     if seen.insert(f.clone()) {
@@ -189,12 +202,7 @@ mod tests {
         fs::write(d.join("a.json"), "{\"a\":1}").unwrap();
         fs::write(d.join("b.json"), "{\"b\":2}").unwrap();
         fs::write(d.join("wt.json"), "\u{feff}{\"w\":3}").unwrap();
-        let cands = vec![
-            ("vscode", d.join("no-existe.json")),
-            ("vscode", d.join("a.json")),
-            ("vscode", d.join("b.json")),
-            ("wt", d.join("wt.json")),
-        ];
+        let cands = vec![("vscode", d.join("no-existe.json")), ("vscode", d.join("a.json")), ("vscode", d.join("b.json")), ("wt", d.join("wt.json"))];
         let found = find_configs(&cands);
         assert_eq!(found.len(), 2);
         assert_eq!(found[0].kind, "vscode");

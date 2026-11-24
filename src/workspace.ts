@@ -4,8 +4,7 @@ import { readJsonStorage, readStorage, removeStorage, writeJsonStorage, writeSto
 export const ws = { root: null as string | null };
 
 /** Ruta relativa a la carpeta abierta. */
-export const rel = (p: string) =>
-  ws.root && p.startsWith(ws.root + "/") ? p.slice(ws.root.length + 1) : p;
+export const rel = (p: string) => (ws.root && p.startsWith(ws.root + "/") ? p.slice(ws.root.length + 1) : p);
 
 const RECENT = "pulso.recent";
 const SESSION = "pulso.session";
@@ -14,7 +13,10 @@ const MAX_PROJECT_LAYOUTS = 20;
 
 const layoutKey = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 
-interface ProjectLayoutEntry { layout: unknown; at: number }
+interface ProjectLayoutEntry {
+  layout: unknown;
+  at: number;
+}
 
 function readProjectLayouts(): Record<string, ProjectLayoutEntry> {
   const raw = readJsonStorage<unknown>(PROJECT_LAYOUTS, {});
@@ -27,7 +29,9 @@ export function saveProjectLayout(root: string, layout: unknown) {
   const key = layoutKey(root);
   const map = readProjectLayouts();
   map[key] = { layout, at: Date.now() };
-  const entries = Object.entries(map).sort((a, b) => (b[1]?.at ?? 0) - (a[1]?.at ?? 0)).slice(0, MAX_PROJECT_LAYOUTS);
+  const entries = Object.entries(map)
+    .sort((a, b) => (b[1]?.at ?? 0) - (a[1]?.at ?? 0))
+    .slice(0, MAX_PROJECT_LAYOUTS);
   writeJsonStorage(PROJECT_LAYOUTS, Object.fromEntries(entries));
 }
 
@@ -35,7 +39,7 @@ export function saveProjectLayout(root: string, layout: unknown) {
 export function loadProjectLayout(root: string): unknown | null {
   if (!root) return null;
   const entry = readProjectLayouts()[layoutKey(root)];
-  return entry ? entry.layout ?? null : null;
+  return entry ? (entry.layout ?? null) : null;
 }
 
 export function getRecent(): string[] {
@@ -49,10 +53,15 @@ export function addRecent(path: string) {
 }
 
 export function removeRecent(path: string) {
-  writeJsonStorage(RECENT, getRecent().filter((p) => p !== path));
+  writeJsonStorage(
+    RECENT,
+    getRecent().filter((p) => p !== path),
+  );
 }
 
-export const saveSession = (data: unknown) => { writeJsonStorage(SESSION, data); };
+export const saveSession = (data: unknown) => {
+  writeJsonStorage(SESSION, data);
+};
 export const clearSession = () => removeStorage(SESSION);
 
 export function loadSession(): { root: string | null; layout: unknown } | null {
@@ -61,7 +70,9 @@ export function loadSession(): { root: string | null; layout: unknown } | null {
 
 const LAST = "pulso.lastRoot";
 export const getLastRoot = (): string | null => readStorage(LAST);
-export const setLastRoot = (p: string) => { writeStorage(LAST, p); };
+export const setLastRoot = (p: string) => {
+  writeStorage(LAST, p);
+};
 export const clearLastRoot = () => removeStorage(LAST);
 
 /**

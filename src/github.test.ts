@@ -14,14 +14,21 @@ const h = vi.hoisted(() => {
   const calls: string[] = [];
   const store = new Map<string, string>();
   const proxyCalls: ProxyReq[] = [];
-  let proxyHandler: (req: ProxyReq) => { status: number; body: string; etag?: string | null; link?: string | null } = () => ({ status: 200, body: "[]" });
+  let proxyHandler: (req: ProxyReq) => { status: number; body: string; etag?: string | null; link?: string | null } = () => ({
+    status: 200,
+    body: "[]",
+  });
   return {
     secrets,
     calls,
     store,
     proxyCalls,
-    get proxyHandler() { return proxyHandler; },
-    set proxyHandler(fn) { proxyHandler = fn; },
+    get proxyHandler() {
+      return proxyHandler;
+    },
+    set proxyHandler(fn) {
+      proxyHandler = fn;
+    },
     failSet: false,
     failGet: false,
     cred: null as null | { username: string; token: string; status?: number },
@@ -66,8 +73,12 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 const local = {
   getItem: (k: string) => h.store.get(k) ?? null,
-  setItem: (k: string, v: string) => { h.store.set(k, v); },
-  removeItem: (k: string) => { h.store.delete(k); },
+  setItem: (k: string, v: string) => {
+    h.store.set(k, v);
+  },
+  removeItem: (k: string) => {
+    h.store.delete(k);
+  },
 };
 
 async function fresh(inTauri = true) {
@@ -189,7 +200,10 @@ describe("fetchIssues y proxy Rust", () => {
     await g.setToken("ghp_t");
     h.proxyHandler = () => ({
       status: 200,
-      body: JSON.stringify([{ number: 1, title: "issue" }, { number: 2, title: "pr", pull_request: {} }]),
+      body: JSON.stringify([
+        { number: 1, title: "issue" },
+        { number: 2, title: "pr", pull_request: {} },
+      ]),
     });
     const issues = await g.fetchIssues("acme", "pulso", "open");
     expect(issues.map((i) => i.number)).toEqual([1]);
@@ -323,7 +337,13 @@ describe("issues: paginación y cambios", () => {
   let statusFor: Record<string, number> = {};
 
   const issue = (n: number, pr = false) => ({
-    number: n, title: `t${n}`, state: "open", html_url: "", user: { login: "u" }, labels: [], comments: 0,
+    number: n,
+    title: `t${n}`,
+    state: "open",
+    html_url: "",
+    user: { login: "u" },
+    labels: [],
+    comments: 0,
     ...(pr ? { pull_request: {} } : {}),
   });
 
@@ -342,7 +362,10 @@ describe("issues: paginación y cambios", () => {
   });
 
   it("junta las páginas hasta recibir una incompleta y descarta las PR", async () => {
-    pages.set("open-1", Array.from({ length: 100 }, (_, i) => issue(i + 1, i === 0)));
+    pages.set(
+      "open-1",
+      Array.from({ length: 100 }, (_, i) => issue(i + 1, i === 0)),
+    );
     pages.set("open-2", [issue(101), issue(102)]);
     const g = await fresh(true);
     const r = await g.fetchAllIssues("a", "b", "open");
@@ -352,7 +375,11 @@ describe("issues: paginación y cambios", () => {
   });
 
   it("se detiene en el máximo y avisa de que hay más", async () => {
-    for (let p = 1; p <= 5; p++) pages.set(`closed-${p}`, Array.from({ length: 100 }, (_, i) => issue(p * 1000 + i)));
+    for (let p = 1; p <= 5; p++)
+      pages.set(
+        `closed-${p}`,
+        Array.from({ length: 100 }, (_, i) => issue(p * 1000 + i)),
+      );
     const g = await fresh(true);
     const r = await g.fetchAllIssues("a", "b", "closed", 200);
     expect(r.issues).toHaveLength(200);

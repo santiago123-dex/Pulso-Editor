@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./github", () => {
-  class GithubError extends Error { constructor(readonly status: number) { super(`error ${status}`); } }
+  class GithubError extends Error {
+    constructor(readonly status: number) {
+      super(`error ${status}`);
+    }
+  }
   const cache = new Map<string, unknown>();
   const githubFetch = async (path: string, opts: { method?: string; body?: unknown; accept?: string; ifNoneMatch?: string } = {}) => {
     const headers: Record<string, string> = { Accept: opts.accept ?? "application/vnd.github+json", Authorization: "Bearer t" };
@@ -33,7 +37,20 @@ vi.mock("./github", () => {
     },
   };
 });
-import { createPull, fileAt, listPulls, mergeBase, pullFiles, pullSources } from "./pulls";
+import {
+  addPullComment,
+  createPull,
+  fileAt,
+  getRepoForkParent,
+  listCheckRuns,
+  listPullComments,
+  listPulls,
+  mergeBase,
+  mergePull,
+  pullFiles,
+  pullSources,
+  reviewPull,
+} from "./pulls";
 
 afterEach(() => vi.unstubAllGlobals());
 const json = (d: unknown, init: ResponseInit = {}) => new Response(JSON.stringify(d), init);
@@ -63,7 +80,10 @@ describe("mergeBase y contenido", () => {
     expect(await mergeBase("o", "r", pr)).toBe("BASE");
   });
   it("pide el contenido en bruto de ese commit, codifica la ruta y trata 404 como archivo inexistente", async () => {
-    const fetch = vi.fn().mockResolvedValueOnce(new Response("hola")).mockResolvedValueOnce(new Response("", { status: 404 }));
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("hola"))
+      .mockResolvedValueOnce(new Response("", { status: 404 }));
     vi.stubGlobal("fetch", fetch);
     expect(await fileAt("o", "r", "abc", "src/mi archivo.ts")).toBe("hola");
     expect(String(fetch.mock.calls[0][0])).toBe("https://api.github.com/repos/o/r/contents/src/mi%20archivo.ts?ref=abc");
@@ -74,18 +94,32 @@ describe("mergeBase y contenido", () => {
 
 describe("pullSources", () => {
   const texts: Record<string, string> = { "MB:old.ts": "viejo", "HEAD:new.ts": "nuevo", "MB:same.ts": "a", "HEAD:same.ts": "b" };
-  const stub = () => vi.stubGlobal("fetch", vi.fn(async (url: string) => {
-    const m = String(url).match(/contents\/(.+)\?ref=(.+)$/);
-    const text = m && texts[`${m[2]}:${decodeURIComponent(m[1])}`];
-    return text === undefined || text === null ? new Response("", { status: 404 }) : new Response(text);
-  }));
+  const stub = () =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const m = String(url).match(/contents\/(.+)\?ref=(.+)$/);
+        const text = m && texts[`${m[2]}:${decodeURIComponent(m[1])}`];
+        return text === undefined || text === null ? new Response("", { status: 404 }) : new Response(text);
+      }),
+    );
   it("compara el ancestro común con la punta de la rama, y los archivos añadidos o eliminados no piden la otra versión", async () => {
     stub();
-    const f = (status: string, filename: string, previous?: string) => ({ filename, status, additions: 0, deletions: 0, previous_filename: previous });
+    const f = (status: string, filename: string, previous?: string) => ({
+      filename,
+      status,
+      additions: 0,
+      deletions: 0,
+      previous_filename: previous,
+    });
     expect(await pullSources("o", "r", pr, "MB", f("modified", "same.ts"))).toEqual({ original: "a", modified: "b", binary: false });
     expect(await pullSources("o", "r", pr, "MB", f("added", "new.ts"))).toEqual({ original: "", modified: "nuevo", binary: false });
     expect(await pullSources("o", "r", pr, "MB", f("removed", "old.ts"))).toEqual({ original: "viejo", modified: "", binary: false });
-    expect(await pullSources("o", "r", pr, "MB", f("renamed", "new.ts", "old.ts"))).toEqual({ original: "viejo", modified: "nuevo", binary: false });
+    expect(await pullSources("o", "r", pr, "MB", f("renamed", "new.ts", "old.ts"))).toEqual({
+      original: "viejo",
+      modified: "nuevo",
+      binary: false,
+    });
   });
   it("detecta archivos binarios", async () => {
     texts["HEAD:img.bin"] = "AB\u0000CD";
@@ -103,9 +137,49 @@ describe("createPull", () => {
     expect(fetch.mock.calls[0][1].method).toBe("POST");
   });
   it("explica los errores de GitHub en español", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ message: "Validation Failed", errors: [{ message: "A pull request already exists for o:f." }] }, { status: 422 })));
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          json({ message: "Validation Failed", errors: [{ message: "A pull request already exists for o:f." }] }, { status: 422 }),
+        ),
+    );
     await expect(createPull("o", "r", { title: "T", head: "f", base: "main", body: "" })).rejects.toThrow(/Ya hay una pull request/);
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("no json", { status: 403 })));
     await expect(createPull("o", "r", { title: "T", head: "f", base: "main", body: "" })).rejects.toThrow(/permiso de escritura/);
+  });
+});
+
+describe("mergePull, reviewPull, comentarios, checks y forks", () => {
+  it("fusiona, revisa, comenta, lista checks y detecta repo padre de un fork", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(json({ merged: true, message: "Pull Request successfully merged" }))
+      .mockResolvedValueOnce(json({ id: 1 }, { status: 200 }))
+      .mockResolvedValueOnce(json([{ id: 10, body: "LGTM", user: { login: "ana" }, created_at: "2026-01-01T00:00:00Z" }]))
+      .mockResolvedValueOnce(json({ id: 11, body: "Gracias", user: { login: "yo" }, created_at: "2026-01-01T00:01:00Z" }, { status: 201 }))
+      .mockResolvedValueOnce(json({ check_runs: [{ id: 1, name: "CI", status: "completed", conclusion: "success" }] }))
+      .mockResolvedValueOnce(json({ fork: true, parent: { owner: { login: "up" }, name: "orig", default_branch: "main" } }));
+    vi.stubGlobal("fetch", fetch);
+
+    const m = await mergePull("o", "r", 7, "squash");
+    expect(m.merged).toBe(true);
+    expect(fetch.mock.calls[0][1].method).toBe("PUT");
+
+    await reviewPull("o", "r", 7, "APPROVE", "Todo bien");
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ event: "APPROVE", body: "Todo bien" });
+
+    const comments = await listPullComments("o", "r", 7);
+    expect(comments).toHaveLength(1);
+
+    const added = await addPullComment("o", "r", 7, "Gracias");
+    expect(added.id).toBe(11);
+
+    const checks = await listCheckRuns("o", "r", "HEAD");
+    expect(checks[0].name).toBe("CI");
+
+    const parent = await getRepoForkParent("o", "r");
+    expect(parent).toEqual({ owner: "up", repo: "orig", defaultBranch: "main" });
   });
 });

@@ -20,7 +20,7 @@ Este documento reúne en un solo lugar la arquitectura completa de **Pulso Edito
 
 ### Identidad visual ([DESIGN.md](../DESIGN.md))
 - Superficies de grafito neutro (`#0e0e0f`, `#111111`, `#151515`, `#191919`, `#232323`), bordes finos (`#2a2a2a`) y un único acento azul (`#5b9cf5`) reservado para foco, estados activos y la acción principal.
-- Tipografía nativa de sistema (`Segoe UI Variable` / `Segoe UI`) para la interfaz y monoespaciada (`Cascadia Code`, `JetBrains Mono`, `Fira Code`, etc.) para código, rutas y metadatos técnicos.
+- Tipografía nativa de sistema (`Segoe UI Variable` / `Segoe UI`) para la interfaz y monoespaciada (`Consolas` de fábrica, como VS Code; también `Cascadia Code`, `JetBrains Mono` y `Fira Code` en Configuración) para código, rutas y metadatos técnicos.
 
 ---
 
@@ -31,13 +31,13 @@ Este documento reúne en un solo lugar la arquitectura completa de **Pulso Edito
 | Archivo | Responsabilidad principal |
 | --- | --- |
 | `main.rs` | Punto de entrada que invoca `pulso_editor_lib::run()`. |
-| `lib.rs` | Registro de comandos Tauri (`invoke_handler`), manejo de salida (`RunEvent::Exit`), lectura/escritura atómica (`write_atomic`), copias de recuperación (`backup_*`), credenciales del sistema (`secret_*` con `keyring`), recorrido de archivos (`walk` con `SKIP_DIRS`), búsqueda (`search_files`) y reemplazo (`replace_in_file`), escaneo de temas de VS Code (`scan_vscode_themes`) y estado Git básico (`git_status`, `git_remote`). En Windows oculta ventanas de consola mediante `background_command` (`creation_flags(0x08000000)`). |
+| `lib.rs` y sus módulos (`workspace.rs`, `files.rs`, `recovery.rs`, `secrets.rs`, `search.rs`, `themes.rs`, `gitinfo.rs`) | Registro de comandos Tauri (`invoke_handler`), manejo de salida (`RunEvent::Exit`), lectura/escritura atómica (`write_atomic`), copias de recuperación (`backup_*`), credenciales del sistema (`secret_*` con `keyring`), recorrido de archivos (`walk` con `SKIP_DIRS`), búsqueda (`search_files`) y reemplazo (`replace_in_file`), escaneo de temas de VS Code (`scan_vscode_themes`) y estado Git básico (`git_status`, `git_remote`). En Windows oculta ventanas de consola mediante `background_command` (`creation_flags(0x08000000)`). |
 | `lsp.rs` | Elige el servidor: TypeScript 7 nativo (`lsp/typescript/tsc --lsp --stdio`) o, si el proyecto instala TypeScript 5 o 6, `typescript-language-server` con `node --require lsp/no-console.cjs cli.mjs --stdio`. Enmarca/desenmarca mensajes JSON-RPC con `Content-Length` (límite de 32 MB por mensaje), elimina prefijos verbatim `\\?\` en Windows (`node_path`), emite eventos `lsp-message` y `lsp-exit` y captura hasta 16 KB de `stderr`. |
 | `term.rs` | Gestiona sesiones PTY (`TermState`), detecta shells en Windows (PowerShell, CMD, Git Bash, WSL), envía salida en `base64` por eventos `term-data` (sin romper caracteres UTF-8 divididos) y cierra todas las terminales al salir. |
 | `userconf.rs` | Lee configuraciones existentes de VS Code y Windows Terminal y enumera fuentes instaladas para adaptar la terminal. |
-| `gitops.rs` | Operaciones completas de Git con el binario `git`: cambios staged/unstaged/conflictos (`git_changes`), `git_stage`, `git_unstage`, `git_commit`, `git_diff_sources`, ramas (`git_branches`, `git_switch`), descartar cambios (`git_discard`, enviando archivos sin seguimiento a la papelera), `git_push`, `git_pull` (`--ff-only`, timeout 120 s), historial (`git_log`, `git_commit_files`, `git_commit_sources`) y `git_blame`. |
+| `gitops/` (`mod.rs`, `changes.rs`, `branches.rs`, `remote.rs`, `history.rs`) | Operaciones completas de Git con el binario `git`: cambios staged/unstaged/conflictos (`git_changes`), `git_stage`, `git_unstage`, `git_commit`, `git_diff_sources`, ramas (`git_branches`, `git_switch`), descartar cambios (`git_discard`, enviando archivos sin seguimiento a la papelera), `git_push`, `git_pull` (`--ff-only`, timeout 120 s), historial (`git_log`, `git_commit_files`, `git_commit_sources`) y `git_blame`. |
 | `githubauth.rs` | Obtiene credenciales HTTPS de `github.com` reutilizando `git credential fill` (Git Credential Manager) y abre enlaces externos seguros (`http`/`https`) mediante `open_external`. |
-| `aichat.rs` | Integración con el CLI oficial de Claude Code (`claude auth status`, `claude -p --output-format stream-json --include-partial-messages`), validando tokens de sesión/modelo (`safe_token`) y limitando herramientas según modo (`read`: `Read,Glob,Grep`; `edit`: `Read,Glob,Grep,Edit,Write,MultiEdit`, sin `Bash`). *(En desarrollo activo.)* |
+| `aichat/` (`mod.rs`, `detect.rs`, `cli.rs`, `codex.rs`, `antigravity.rs`, `args.rs`, `stream.rs`, `images.rs`, `cloud.rs`) | Integración con el CLI oficial de Claude Code (`claude auth status`, `claude -p --output-format stream-json --include-partial-messages`), validando tokens de sesión/modelo (`safe_token`) y limitando herramientas según modo (`read`: `Read,Glob,Grep`; `edit`: `Read,Glob,Grep,Edit,Write,MultiEdit`, sin `Bash`). *(En desarrollo activo.)* |
 | `tests.rs` | Pruebas unitarias del backend (escritura atómica, conflictos, backups, PTY, búsqueda y reemplazo). |
 
 ### 2.2 Frontend TypeScript (`src/`)

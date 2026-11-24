@@ -39,7 +39,9 @@ const openRequests = new WeakMap<Group, number>();
 const pendingOpens = new Map<string, number>();
 
 const listeners = new Set<() => void>();
-export const onGroupsChange = (f: () => void) => { listeners.add(f); };
+export const onGroupsChange = (f: () => void) => {
+  listeners.add(f);
+};
 const notify = () => listeners.forEach((f) => f());
 
 /** El contenido de un grupo vacío lo dibuja main.ts (bienvenida, recientes…). */
@@ -60,8 +62,10 @@ export const FILE_MIME = "application/x-pulso-file";
 const ICON_SPLIT = '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>';
 const ICON_SPLIT_DOWN = '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 12h18"/></svg>';
 const ICON_CLOSE = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
-const ICON_PREVIEW = '<svg viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/></svg>';
-const ICON_PIN = '<svg viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M14 3l7 7-2 1-3 3 .5 4.5-1.5 1.5-4-4-5.5 5.5-1-1L10 14l-4-4 1.5-1.5L12 9l3-3z"/></svg>';
+const ICON_PREVIEW =
+  '<svg viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/></svg>';
+const ICON_PIN =
+  '<svg viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M14 3l7 7-2 1-3 3 .5 4.5-1.5 1.5-4-4-5.5 5.5-1-1L10 14l-4-4 1.5-1.5L12 9l3-3z"/></svg>';
 
 // ---------- Creación y diseño ----------
 function createGroup(at: number): Group {
@@ -78,6 +82,7 @@ function createGroup(at: number): Group {
 
   const editor = monaco.editor.create(code, {
     automaticLayout: true,
+    glyphMargin: true,
     padding: { top: 8 },
     renderLineHighlight: "all",
     smoothScrolling: true,
@@ -98,7 +103,7 @@ function createGroup(at: number): Group {
   let pointer: { x: number; y: number } | null = null;
   let modifierHeld = false;
   const definitionDecoration = editor.createDecorationsCollection();
-  const definitionModifier = (e: MouseEvent) => /Mac/i.test(navigator.platform) ? e.metaKey : e.ctrlKey;
+  const definitionModifier = (e: MouseEvent) => (/Mac/i.test(navigator.platform) ? e.metaKey : e.ctrlKey);
   const clearDefinitionHover = () => {
     hoverGeneration++;
     hoverKey = "";
@@ -107,12 +112,18 @@ function createGroup(at: number): Group {
     definitionDecoration.clear();
   };
   const updateDefinitionHover = () => {
-    if (!pointer || !modifierHeld || !config.probeDefinition) { clearDefinitionHover(); return; }
+    if (!pointer || !modifierHeld || !config.probeDefinition) {
+      clearDefinitionHover();
+      return;
+    }
     const model = editor.getModel();
     const target = editor.getTargetAtClientPoint(pointer.x, pointer.y);
     const position = target?.position;
     const word = position && model?.getWordAtPosition(position);
-    if (!model || target?.type !== monaco.editor.MouseTargetType.CONTENT_TEXT || !position || !word) { clearDefinitionHover(); return; }
+    if (!model || target?.type !== monaco.editor.MouseTargetType.CONTENT_TEXT || !position || !word) {
+      clearDefinitionHover();
+      return;
+    }
     const key = `${model.uri.toString()}:${model.getVersionId()}:${position.lineNumber}:${word.startColumn}`;
     if (key === hoverKey) return;
     clearDefinitionHover();
@@ -121,21 +132,44 @@ function createGroup(at: number): Group {
     code.classList.add("pulso-definition-ready");
     const current = hoverGeneration;
     hoverTimer = window.setTimeout(() => {
-      void config.probeDefinition!(model, position).then((found) => {
-        if (!found || current !== hoverGeneration || editor.getModel() !== model || !modifierHeld) return;
-        definitionDecoration.set([{ range: new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn), options: { inlineClassName: "pulso-definition-link" } }]);
-      }).catch(() => {});
+      void config.probeDefinition!(model, position)
+        .then((found) => {
+          if (!found || current !== hoverGeneration || editor.getModel() !== model || !modifierHeld) return;
+          definitionDecoration.set([
+            {
+              range: new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn),
+              options: { inlineClassName: "pulso-definition-link" },
+            },
+          ]);
+        })
+        .catch(() => {});
     }, 100);
   };
-  code.addEventListener("mousemove", (e) => { pointer = { x: e.clientX, y: e.clientY }; modifierHeld = definitionModifier(e); updateDefinitionHover(); });
-  code.addEventListener("mouseleave", () => { pointer = null; clearDefinitionHover(); });
+  code.addEventListener("mousemove", (e) => {
+    pointer = { x: e.clientX, y: e.clientY };
+    modifierHeld = definitionModifier(e);
+    updateDefinitionHover();
+  });
+  code.addEventListener("mouseleave", () => {
+    pointer = null;
+    clearDefinitionHover();
+  });
   const modifierDown = (e: KeyboardEvent) => {
-    if (e.key === (/Mac/i.test(navigator.platform) ? "Meta" : "Control")) { modifierHeld = true; updateDefinitionHover(); }
+    if (e.key === (/Mac/i.test(navigator.platform) ? "Meta" : "Control")) {
+      modifierHeld = true;
+      updateDefinitionHover();
+    }
   };
   const modifierUp = (e: KeyboardEvent) => {
-    if (e.key === "Control" || e.key === "Meta") { modifierHeld = false; clearDefinitionHover(); }
+    if (e.key === "Control" || e.key === "Meta") {
+      modifierHeld = false;
+      clearDefinitionHover();
+    }
   };
-  const windowBlur = () => { modifierHeld = false; clearDefinitionHover(); };
+  const windowBlur = () => {
+    modifierHeld = false;
+    clearDefinitionHover();
+  };
   window.addEventListener("keydown", modifierDown);
   window.addEventListener("keyup", modifierUp);
   window.addEventListener("blur", windowBlur);
@@ -147,7 +181,11 @@ function createGroup(at: number): Group {
     large = now;
     editor.updateOptions(largeFileOptions(now));
   };
-  editor.onDidChangeModel(() => { navigationGeneration++; clearDefinitionHover(); syncLargeMode(); });
+  editor.onDidChangeModel(() => {
+    navigationGeneration++;
+    clearDefinitionHover();
+    syncLargeMode();
+  });
   editor.onDidChangeModelContent(() => syncLargeMode());
   editor.onDidChangeModelContent(clearDefinitionHover);
   editor.onDidScrollChange(clearDefinitionHover);
@@ -157,42 +195,69 @@ function createGroup(at: number): Group {
     window.removeEventListener("keyup", modifierUp);
     window.removeEventListener("blur", windowBlur);
   });
-  code.addEventListener("mousedown", (e) => {
-    definitionClick = null;
-    if (e.button !== 0 || !definitionModifier(e) || e.altKey || e.shiftKey) return;
-    const target = editor.getTargetAtClientPoint(e.clientX, e.clientY);
-    const position = target?.position;
-    if (target?.type !== monaco.editor.MouseTargetType.CONTENT_TEXT || !position || !editor.getModel()?.getWordAtPosition(position)) return;
-    definitionClick = { position, x: e.clientX, y: e.clientY };
-    navigationGeneration++;
-    e.preventDefault();
-    e.stopPropagation();
-  }, true);
-  code.addEventListener("mouseup", (e) => {
-    const click = definitionClick;
-    definitionClick = null;
-    if (!click || e.button !== 0 || !definitionModifier(e)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (Math.hypot(e.clientX - click.x, e.clientY - click.y) > 5) return;
-    editor.setPosition(click.position);
-    editor.focus();
-    const model = editor.getModel();
-    if (!model) return;
-    const current = navigationGeneration;
-    const version = model.getVersionId();
-    void (async () => {
-      const handled = await config.goToDefinition?.(model, click.position, () => current === navigationGeneration && editor.getModel() === model && model.getVersionId() === version);
-      if (!handled) await editor.getAction("editor.action.revealDefinition")?.run();
-    })().catch((error) => setStatus(t("No se pudo ir a la definición: {error}", { error: String(error) })));
-  }, true);
+  code.addEventListener(
+    "mousedown",
+    (e) => {
+      definitionClick = null;
+      if (e.button !== 0 || !definitionModifier(e) || e.altKey || e.shiftKey) return;
+      const target = editor.getTargetAtClientPoint(e.clientX, e.clientY);
+      const position = target?.position;
+      if (target?.type !== monaco.editor.MouseTargetType.CONTENT_TEXT || !position || !editor.getModel()?.getWordAtPosition(position))
+        return;
+      definitionClick = { position, x: e.clientX, y: e.clientY };
+      navigationGeneration++;
+      e.preventDefault();
+      e.stopPropagation();
+    },
+    true,
+  );
+  code.addEventListener(
+    "mouseup",
+    (e) => {
+      const click = definitionClick;
+      definitionClick = null;
+      if (!click || e.button !== 0 || !definitionModifier(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (Math.hypot(e.clientX - click.x, e.clientY - click.y) > 5) return;
+      editor.setPosition(click.position);
+      editor.focus();
+      const model = editor.getModel();
+      if (!model) return;
+      const current = navigationGeneration;
+      const version = model.getVersionId();
+      void (async () => {
+        const handled = await config.goToDefinition?.(
+          model,
+          click.position,
+          () => current === navigationGeneration && editor.getModel() === model && model.getVersionId() === version,
+        );
+        if (!handled) await editor.getAction("editor.action.revealDefinition")?.run();
+      })().catch((error) => setStatus(t("No se pudo ir a la definición: {error}", { error: String(error) })));
+    },
+    true,
+  );
 
   const g: Group = {
-    id: nextId++, el, tabsEl, crumbsEl, emptyEl, hintEl, editor,
-    paths: [], active: null, pinned: new Set(), views: new Map(), size: 1, sig: "",
+    id: nextId++,
+    el,
+    tabsEl,
+    crumbsEl,
+    emptyEl,
+    hintEl,
+    editor,
+    paths: [],
+    active: null,
+    pinned: new Set(),
+    views: new Map(),
+    size: 1,
+    sig: "",
   };
   editor.onDidFocusEditorText(() => setFocused(g));
-  editor.onDidChangeCursorPosition(() => { navigationGeneration++; notify(); });
+  editor.onDidChangeCursorPosition(() => {
+    navigationGeneration++;
+    notify();
+  });
   el.addEventListener("mousedown", () => setFocused(g), true);
   attachDnD(g, body);
   groups.splice(at, 0, g);
@@ -216,18 +281,24 @@ function makeSash(i: number): HTMLElement {
   const sash = h("div", "sash");
   sash.onmousedown = (e) => {
     e.preventDefault();
-    const a = groups[i - 1], b = groups[i];
+    const a = groups[i - 1],
+      b = groups[i];
     const horiz = direction === "row";
     const start = horiz ? e.clientX : e.clientY;
-    groups.forEach((g) => { g.size = horiz ? g.el.offsetWidth : g.el.offsetHeight; });
-    const sa = a.size, sb = b.size;
+    groups.forEach((g) => {
+      g.size = horiz ? g.el.offsetWidth : g.el.offsetHeight;
+    });
+    const sa = a.size,
+      sb = b.size;
     const min = 140;
     sash.classList.add("dragging");
     const move = (ev: MouseEvent) => {
       const d = Math.max(min - sa, Math.min(sb - min, (horiz ? ev.clientX : ev.clientY) - start));
       a.size = sa + d;
       b.size = sb - d;
-      groups.forEach((g) => { g.el.style.flex = `${g.size} 1 0`; });
+      groups.forEach((g) => {
+        g.el.style.flex = `${g.size} 1 0`;
+      });
     };
     const up = () => {
       sash.classList.remove("dragging");
@@ -286,16 +357,27 @@ function renderTabs(g: Group) {
     if (pinned) {
       close.innerHTML = ICON_PIN;
       close.title = t("Desfijar");
-      close.onclick = (e) => { e.stopPropagation(); togglePin(g, path); };
+      close.onclick = (e) => {
+        e.stopPropagation();
+        togglePin(g, path);
+      };
     } else {
       close.append(h("span", "x", "×"));
       close.title = t("Cerrar");
-      close.onclick = (e) => { e.stopPropagation(); void closeTab(g, path); };
+      close.onclick = (e) => {
+        e.stopPropagation();
+        void closeTab(g, path);
+      };
     }
     tab.append(close);
     tab.onclick = () => activate(g, path);
-    tab.onauxclick = (e) => { if (e.button === 1 && !pinned) void closeTab(g, path); };
-    tab.oncontextmenu = (e) => { e.preventDefault(); showMenu(e.clientX, e.clientY, tabMenu(g, path)); };
+    tab.onauxclick = (e) => {
+      if (e.button === 1 && !pinned) void closeTab(g, path);
+    };
+    tab.oncontextmenu = (e) => {
+      e.preventDefault();
+      showMenu(e.clientX, e.clientY, tabMenu(g, path));
+    };
     tab.ondragstart = (e) => {
       e.dataTransfer?.setData(TAB_MIME, JSON.stringify({ gid: g.id, path }));
       if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
@@ -314,16 +396,23 @@ function renderTabs(g: Group) {
     prev.innerHTML = ICON_PREVIEW;
     prev.title = t("Vista previa (Ctrl+Shift+V)");
     const target = g.active;
-    prev.onclick = () => { void openPreviewFor(target); };
+    prev.onclick = () => {
+      void openPreviewFor(target);
+    };
     actions.append(prev);
   }
-  split.onclick = () => { const n = splitGroup(g.active); n?.editor.focus(); };
+  split.onclick = () => {
+    const n = splitGroup(g.active);
+    n?.editor.focus();
+  };
   actions.append(split);
   if (groups.length > 1) {
     const x = h("button", "icon-btn");
     x.innerHTML = ICON_CLOSE;
     x.title = t("Cerrar grupo");
-    x.onclick = () => { void closeGroup(g); };
+    x.onclick = () => {
+      void closeGroup(g);
+    };
     actions.append(x);
   }
   bar.append(actions);
@@ -344,12 +433,25 @@ function tabMenu(g: Group, path: string): MenuItem[] {
   const i = g.paths.indexOf(path);
   return [
     { label: t("Cerrar"), run: () => void closeTab(g, path) },
-    { label: t("Cerrar las demás"), run: () => void closeMany(g, g.paths.filter((p) => p !== path)) },
+    {
+      label: t("Cerrar las demás"),
+      run: () =>
+        void closeMany(
+          g,
+          g.paths.filter((p) => p !== path),
+        ),
+    },
     { label: t("Cerrar las de la derecha"), disabled: i === g.paths.length - 1, run: () => void closeMany(g, g.paths.slice(i + 1)) },
     { label: t("Cerrar todas"), run: () => void closeMany(g, [...g.paths]) },
     "sep",
     { label: g.pinned.has(path) ? t("Desfijar") : t("Fijar"), run: () => togglePin(g, path) },
-    { label: t("Abrir en un grupo nuevo"), run: () => { const n = splitGroup(path); n?.editor.focus(); } },
+    {
+      label: t("Abrir en un grupo nuevo"),
+      run: () => {
+        const n = splitGroup(path);
+        n?.editor.focus();
+      },
+    },
     "sep",
     { label: t("Copiar ruta"), run: () => void navigator.clipboard.writeText(path) },
     { label: t("Copiar ruta relativa"), run: () => void navigator.clipboard.writeText(rel(path)) },
@@ -371,7 +473,13 @@ export function activate(g: Group, path: string | null) {
   notify();
 }
 
-export interface OpenOpts { line?: number; col?: number; len?: number; group?: Group; focus?: boolean }
+export interface OpenOpts {
+  line?: number;
+  col?: number;
+  len?: number;
+  group?: Group;
+  focus?: boolean;
+}
 
 export async function openFile(path: string, o: OpenOpts = {}): Promise<void> {
   if (isBinaryImageFile(path)) {
@@ -388,11 +496,14 @@ export async function openFile(path: string, o: OpenOpts = {}): Promise<void> {
     path = (await loadDoc(path)).path;
   } catch (e) {
     const msg = String(e);
-    setStatus(t("No se pudo abrir {file}: {error}", { file: baseName(path), error: /utf-?8/i.test(msg) ? t("no es un archivo de texto") : msg }));
+    setStatus(
+      t("No se pudo abrir {file}: {error}", { file: baseName(path), error: /utf-?8/i.test(msg) ? t("no es un archivo de texto") : msg }),
+    );
     return;
   } finally {
     const remaining = (pendingOpens.get(key) ?? 1) - 1;
-    if (remaining) pendingOpens.set(key, remaining); else pendingOpens.delete(key);
+    if (remaining) pendingOpens.set(key, remaining);
+    else pendingOpens.delete(key);
   }
   if (openRequests.get(g) !== request || !groups.includes(g) || ws.root !== root) {
     if (!pendingOpens.has(key) && !inAnyGroup(path)) disposeDoc(path);
@@ -425,9 +536,15 @@ function removeFromGroup(g: Group, path: string) {
   g.paths.splice(idx, 1);
   g.pinned.delete(path);
   g.views.delete(path);
-  if (g.paths.length === 0 && groups.length > 1) { removeGroup(g); return; }
+  if (g.paths.length === 0 && groups.length > 1) {
+    removeGroup(g);
+    return;
+  }
   if (g.active === path) activate(g, g.paths[Math.min(idx, g.paths.length - 1)] ?? null);
-  else { render(g); notify(); }
+  else {
+    render(g);
+    notify();
+  }
 }
 
 export async function closeTab(g: Group, path: string, force = false): Promise<boolean> {
@@ -504,7 +621,11 @@ export function closeActive() {
 
 export function closeOthers() {
   const g = focusedGroup;
-  if (g?.active) return closeMany(g, g.paths.filter((p) => p !== g.active));
+  if (g?.active)
+    return closeMany(
+      g,
+      g.paths.filter((p) => p !== g.active),
+    );
   return Promise.resolve(false);
 }
 
@@ -521,7 +642,8 @@ export function nextTab(step: number) {
 }
 
 export function togglePin(g: Group, path: string) {
-  if (g.pinned.has(path)) g.pinned.delete(path); else g.pinned.add(path);
+  if (g.pinned.has(path)) g.pinned.delete(path);
+  else g.pinned.add(path);
   g.paths = [...g.paths.filter((p) => g.pinned.has(p)), ...g.paths.filter((p) => !g.pinned.has(p))];
   render(g);
   notify();
@@ -530,24 +652,35 @@ export function togglePin(g: Group, path: string) {
 // ---------- Dividir y mover ----------
 /** Crea un grupo a la derecha (o debajo). `path` undefined = archivo activo, null = vacío. */
 export function splitGroup(path?: string | null): Group | null {
-  if (groups.length >= MAX_GROUPS) { setStatus(t("Máximo de grupos de editores alcanzado")); return null; }
+  if (groups.length >= MAX_GROUPS) {
+    setStatus(t("Máximo de grupos de editores alcanzado"));
+    return null;
+  }
   const base = focusedGroup;
   const p = path === undefined ? base.active : path;
   const g = createGroup(groups.indexOf(base) + 1);
-  if (p) { g.paths.push(p); activate(g, p); } else setFocused(g);
+  if (p) {
+    g.paths.push(p);
+    activate(g, p);
+  } else setFocused(g);
   return g;
 }
 
 export function toggleDirection() {
   direction = direction === "row" ? "column" : "row";
-  groups.forEach((g) => { g.size = 1; });
+  groups.forEach((g) => {
+    g.size = 1;
+  });
   layout();
   notify();
 }
 
 export function focusGroup(i: number) {
   const g = groups[i];
-  if (g) { setFocused(g); g.editor.focus(); }
+  if (g) {
+    setFocused(g);
+    g.editor.focus();
+  }
 }
 
 export function moveToNextGroup() {
@@ -555,7 +688,10 @@ export function moveToNextGroup() {
   if (!g.active) return;
   let target = groups[groups.indexOf(g) + 1] ?? groups[groups.indexOf(g) - 1];
   if (!target) target = splitGroup(null) as Group;
-  if (target) { moveTab(g, target, g.active); target.editor.focus(); }
+  if (target) {
+    moveTab(g, target, g.active);
+    target.editor.focus();
+  }
 }
 
 /** Mueve una pestaña a otro grupo (o la reordena dentro del mismo). */
@@ -585,32 +721,51 @@ function attachDnD(g: Group, body: HTMLElement) {
     const r = body.getBoundingClientRect();
     const fx = (e.clientX - r.left) / r.width;
     const fy = (e.clientY - r.top) / r.height;
-    if (direction === "row") { if (fx < 0.25) return "left"; if (fx > 0.75) return "right"; }
-    else { if (fy < 0.25) return "top"; if (fy > 0.75) return "bottom"; }
+    if (direction === "row") {
+      if (fx < 0.25) return "left";
+      if (fx > 0.75) return "right";
+    } else {
+      if (fy < 0.25) return "top";
+      if (fy > 0.75) return "bottom";
+    }
     return "center";
   };
 
-  body.addEventListener("dragover", (e) => {
-    if (!accepts(e)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    g.hintEl.hidden = false;
-    g.hintEl.className = `drop-hint h-${groups.length >= MAX_GROUPS ? "center" : zoneOf(e)}`;
-  }, true);
-  body.addEventListener("dragleave", (e) => {
-    if (!(e.relatedTarget instanceof Node) || !body.contains(e.relatedTarget)) g.hintEl.hidden = true;
-  }, true);
-  body.addEventListener("drop", (e) => {
-    if (!accepts(e)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    g.hintEl.hidden = true;
-    let zone = zoneOf(e);
-    if (groups.length >= MAX_GROUPS) zone = "center";
-    void handleDrop(e, g, zone, null);
-  }, true);
+  body.addEventListener(
+    "dragover",
+    (e) => {
+      if (!accepts(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      g.hintEl.hidden = false;
+      g.hintEl.className = `drop-hint h-${groups.length >= MAX_GROUPS ? "center" : zoneOf(e)}`;
+    },
+    true,
+  );
+  body.addEventListener(
+    "dragleave",
+    (e) => {
+      if (!(e.relatedTarget instanceof Node) || !body.contains(e.relatedTarget)) g.hintEl.hidden = true;
+    },
+    true,
+  );
+  body.addEventListener(
+    "drop",
+    (e) => {
+      if (!accepts(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      g.hintEl.hidden = true;
+      let zone = zoneOf(e);
+      if (groups.length >= MAX_GROUPS) zone = "center";
+      void handleDrop(e, g, zone, null);
+    },
+    true,
+  );
 
-  g.tabsEl.addEventListener("dragover", (e) => { if (accepts(e)) e.preventDefault(); });
+  g.tabsEl.addEventListener("dragover", (e) => {
+    if (accepts(e)) e.preventDefault();
+  });
   g.tabsEl.addEventListener("drop", (e) => {
     if (!accepts(e)) return;
     e.preventDefault();
@@ -619,7 +774,7 @@ function attachDnD(g: Group, body: HTMLElement) {
     if (tab) {
       const r = tab.getBoundingClientRect();
       const next = tab.nextElementSibling as HTMLElement | null;
-      before = e.clientX < r.left + r.width / 2 ? tab.dataset.path ?? null : next?.dataset.path ?? null;
+      before = e.clientX < r.left + r.width / 2 ? (tab.dataset.path ?? null) : (next?.dataset.path ?? null);
     }
     void handleDrop(e, g, "center", before);
   });
@@ -660,7 +815,10 @@ export function renamePaths(oldP: string, newP: string) {
       g.paths[i] = np;
       if (g.pinned.delete(p)) g.pinned.add(np);
       g.views.delete(p);
-      if (g.active === p) { g.active = np; g.editor.setModel(nd.model); }
+      if (g.active === p) {
+        g.active = np;
+        g.editor.setModel(nd.model);
+      }
     }
     disposeDoc(p);
   }
@@ -705,7 +863,9 @@ export function rerenderGroups() {
 }
 
 export function rerenderEmpty() {
-  groups.forEach((g) => { if (!g.paths.length) render(g); });
+  groups.forEach((g) => {
+    if (!g.paths.length) render(g);
+  });
 }
 
 export interface Layout {
@@ -728,12 +888,15 @@ export async function restore(data: Layout | null | undefined) {
   while (groups.length < Math.min(data.groups.length, MAX_GROUPS)) createGroup(groups.length);
   layout();
   for (let i = 0; i < groups.length && i < data.groups.length; i++) {
-    const g = groups[i], s = data.groups[i];
+    const g = groups[i],
+      s = data.groups[i];
     for (const p of s.paths) {
       try {
         const d = await loadDoc(p);
         if (!g.paths.includes(d.path)) g.paths.push(d.path);
-      } catch { /* el archivo ya no existe */ }
+      } catch {
+        /* el archivo ya no existe */
+      }
     }
     for (const p of s.pinned) {
       const canonical = g.paths.find((path) => fileKey(path) === fileKey(p));
@@ -748,6 +911,10 @@ export async function restore(data: Layout | null | undefined) {
 
 onDocsChange(() => {
   let changed = false;
-  for (const g of groups) if (dirtySig(g) !== g.sig) { renderTabs(g); changed = true; }
+  for (const g of groups)
+    if (dirtySig(g) !== g.sig) {
+      renderTabs(g);
+      changed = true;
+    }
   if (changed) notify();
 });

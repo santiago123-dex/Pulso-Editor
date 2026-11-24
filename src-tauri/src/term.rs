@@ -28,9 +28,7 @@ impl Session {
     }
 
     pub fn resize(&self, cols: u16, rows: u16) -> Result<(), String> {
-        self.master
-            .resize(PtySize { rows: rows.max(1), cols: cols.max(1), pixel_width: 0, pixel_height: 0 })
-            .map_err(|e| e.to_string())
+        self.master.resize(PtySize { rows: rows.max(1), cols: cols.max(1), pixel_width: 0, pixel_height: 0 }).map_err(|e| e.to_string())
     }
 
     pub fn kill(&mut self) {
@@ -49,9 +47,7 @@ pub fn spawn_session(
     on_data: impl Fn(Vec<u8>) + Send + 'static,
     on_exit: impl FnOnce(i32) + Send + 'static,
 ) -> Result<Session, String> {
-    let pair = native_pty_system()
-        .openpty(PtySize { rows: rows.max(1), cols: cols.max(1), pixel_width: 0, pixel_height: 0 })
-        .map_err(|e| e.to_string())?;
+    let pair = native_pty_system().openpty(PtySize { rows: rows.max(1), cols: cols.max(1), pixel_width: 0, pixel_height: 0 }).map_err(|e| e.to_string())?;
 
     let mut cmd = CommandBuilder::new(shell);
     cmd.args(args);
@@ -105,12 +101,7 @@ fn find_in_path(name: &str) -> Option<PathBuf> {
 }
 
 fn shell(id: &str, label: &str, path: PathBuf, args: &[&str]) -> ShellInfo {
-    ShellInfo {
-        id: id.to_string(),
-        label: label.to_string(),
-        path: path.to_string_lossy().into_owned(),
-        args: args.iter().map(|a| a.to_string()).collect(),
-    }
+    ShellInfo { id: id.to_string(), label: label.to_string(), path: path.to_string_lossy().into_owned(), args: args.iter().map(|a| a.to_string()).collect() }
 }
 
 /// Shells instalados, el recomendado primero.
@@ -168,17 +159,9 @@ pub async fn term_shells() -> Result<Vec<ShellInfo>, String> {
 }
 
 /// Resuelve la shell solicitada estrictamente contra la lista detectada del sistema (allowlist).
-pub fn resolve_allowed_shell(
-    available: &[ShellInfo],
-    shell_id: Option<&str>,
-    legacy_path: Option<&str>,
-) -> Result<ShellInfo, String> {
+pub fn resolve_allowed_shell(available: &[ShellInfo], shell_id: Option<&str>, legacy_path: Option<&str>) -> Result<ShellInfo, String> {
     if let Some(id) = shell_id.map(str::trim).filter(|s| !s.is_empty()) {
-        return available
-            .iter()
-            .find(|s| s.id == id)
-            .cloned()
-            .ok_or_else(|| trf("Shell no permitida o no disponible: «{id}»", &[("id", &id)]));
+        return available.iter().find(|s| s.id == id).cloned().ok_or_else(|| trf("Shell no permitida o no disponible: «{id}»", &[("id", &id)]));
     }
     if let Some(path) = legacy_path.map(str::trim).filter(|s| !s.is_empty()) {
         return available
@@ -187,10 +170,7 @@ pub fn resolve_allowed_shell(
             .cloned()
             .ok_or_else(|| tr("La shell solicitada no está en la lista de shells autorizadas").into());
     }
-    available
-        .first()
-        .cloned()
-        .ok_or_else(|| tr("No se encontró ninguna shell instalada").into())
+    available.first().cloned().ok_or_else(|| tr("No se encontró ninguna shell instalada").into())
 }
 
 // ---------- Comandos de Tauri ----------
@@ -399,9 +379,7 @@ mod tests {
 
     #[test]
     fn allowlist_rejects_arbitrary_executables() {
-        let avail = vec![
-            ShellInfo { id: "bash".into(), label: "bash".into(), path: "/bin/bash".into(), args: vec!["-l".into()] },
-        ];
+        let avail = vec![ShellInfo { id: "bash".into(), label: "bash".into(), path: "/bin/bash".into(), args: vec!["-l".into()] }];
         assert_eq!(resolve_allowed_shell(&avail, Some("bash"), None).unwrap().path, "/bin/bash");
         assert!(resolve_allowed_shell(&avail, Some("evil"), None).is_err());
         assert!(resolve_allowed_shell(&avail, None, Some("/usr/bin/python3")).is_err());
@@ -416,8 +394,20 @@ mod tests {
     fn start(shell: &str, args: &[String], cwd: Option<&str>) -> (Session, mpsc::Receiver<Msg>) {
         let (tx, rx) = mpsc::channel();
         let tx2 = tx.clone();
-        let s = spawn_session(shell, args, cwd, 80, 24, move |b| { let _ = tx.send(Msg::Data(b)); }, move |c| { let _ = tx2.send(Msg::Exit(c)); })
-            .expect("el shell debe iniciar");
+        let s = spawn_session(
+            shell,
+            args,
+            cwd,
+            80,
+            24,
+            move |b| {
+                let _ = tx.send(Msg::Data(b));
+            },
+            move |c| {
+                let _ = tx2.send(Msg::Exit(c));
+            },
+        )
+        .expect("el shell debe iniciar");
         (s, rx)
     }
 
@@ -436,8 +426,14 @@ mod tests {
         let mut code = None;
         while Instant::now() < end {
             match rx.recv_timeout(Duration::from_millis(200)) {
-                Ok(Msg::Data(b)) => { answer_cursor_query(s, &b); out.extend(b); }
-                Ok(Msg::Exit(c)) => { code = Some(c); break; }
+                Ok(Msg::Data(b)) => {
+                    answer_cursor_query(s, &b);
+                    out.extend(b);
+                }
+                Ok(Msg::Exit(c)) => {
+                    code = Some(c);
+                    break;
+                }
                 Err(_) => {}
             }
         }
@@ -533,7 +529,10 @@ mod tests {
     #[test]
     fn utf8_output_is_preserved_byte_for_byte() {
         #[cfg(windows)]
-        let (sh, args) = ("powershell.exe", vec!["-NoProfile".to_string(), "-Command".to_string(), "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Write-Output 'ñandú-ü-é'".to_string()]);
+        let (sh, args) = (
+            "powershell.exe",
+            vec!["-NoProfile".to_string(), "-Command".to_string(), "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Write-Output 'ñandú-ü-é'".to_string()],
+        );
         #[cfg(not(windows))]
         let (sh, args) = ("sh", vec!["-c".to_string(), "printf 'ñandú-ü-é'".to_string()]);
         let (mut s, rx) = start(sh, &args, None);
@@ -574,8 +573,21 @@ mod tests {
         }
     }
 
+    /// Ctrl+C solo llega a la consola nueva si quien lanza las pruebas tiene una consola real: desde una herramienta
+    /// automatizada fallan sin que haya un error en Pulso. `PULSO_SKIP_CTRL_C=1` las salta en esos entornos.
+    fn skip_ctrl_c() -> bool {
+        let skip = std::env::var_os("PULSO_SKIP_CTRL_C").is_some_and(|v| v != "0");
+        if skip {
+            eprintln!("(se salta: PULSO_SKIP_CTRL_C)");
+        }
+        skip
+    }
+
     #[test]
     fn ctrl_c_interrupts_a_running_command_in_shell() {
+        if skip_ctrl_c() {
+            return;
+        }
         let (sh, args) = interactive();
         let (mut s, rx) = start(sh, &args, None);
         let mut log = String::new();
@@ -599,6 +611,9 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn ctrl_c_interrupts_powershell_command() {
+        if skip_ctrl_c() {
+            return;
+        }
         let (mut s, rx) = start("powershell.exe", &["-NoLogo".into()], None);
         let mut log = String::new();
         drain_and_answer(&mut s, &rx, 1800, &mut log);

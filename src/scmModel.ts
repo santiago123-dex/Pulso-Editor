@@ -1,8 +1,18 @@
 import { t } from "./i18n";
-export interface Change { path: string; status: string; orig: string | null }
+export interface Change {
+  path: string;
+  status: string;
+  orig: string | null;
+}
 export interface Changes {
-  top: string; branch: string; ahead: number; behind: number; has_head: boolean;
-  staged: Change[]; unstaged: Change[]; conflicted: Change[];
+  top: string;
+  branch: string;
+  ahead: number;
+  behind: number;
+  has_head: boolean;
+  staged: Change[];
+  unstaged: Change[];
+  conflicted: Change[];
 }
 
 /** El botón de confirmar solo vale con algo preparado y un mensaje escrito. */
@@ -14,10 +24,20 @@ export const changeCount = (c: Changes | null) => (c ? c.staged.length + c.unsta
 /** Rutas que se envían a git: un renombrado necesita también el nombre anterior para prepararse o quitarse entero. */
 export const pathsOf = (list: Change[]) => list.flatMap((c) => (c.orig ? [c.path, c.orig] : [c.path]));
 
-export interface Branch { name: string; current: boolean; remote: boolean; upstream: string | null }
+export interface Branch {
+  name: string;
+  current: boolean;
+  remote: boolean;
+  upstream: string | null;
+}
 
 /** Última línea con contenido de la salida de git: es la que resume el resultado de un push o un pull. */
-export const lastLine = (text: string) => text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).pop() ?? "";
+export const lastLine = (text: string) =>
+  text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .pop() ?? "";
 
 /** Texto de confirmación al descartar: deja claro qué se pierde y qué va a la papelera. */
 export function discardMessage(items: Change[]): string {
@@ -26,7 +46,12 @@ export function discardMessage(items: Change[]): string {
   const shown = items.slice(0, 8).map((c) => `  ${c.path}`);
   if (items.length > 8) shown.push("  " + t("… y {count} más", { count: items.length - 8 }));
   const parts: string[] = [];
-  if (tracked.length) parts.push(t("{count} archivo(s) volverán a su última versión preparada o confirmada: los cambios actuales se pierden.", { count: tracked.length }));
+  if (tracked.length)
+    parts.push(
+      t("{count} archivo(s) volverán a su última versión preparada o confirmada: los cambios actuales se pierden.", {
+        count: tracked.length,
+      }),
+    );
   if (fresh.length) parts.push(t("{count} archivo(s) nuevos sin seguimiento irán a la papelera de reciclaje.", { count: fresh.length }));
   return `${parts.join("\n")}\n\n${shown.join("\n")}\n\n${t("Pulso no puede deshacer esto.")}`;
 }

@@ -1,0 +1,129 @@
+/* ---------- Vista del depurador (DAP) y decoraciones del editor ---------- */
+#view-debug { display: flex; flex-direction: column; }
+#view-debug[hidden] { display: none; }
+
+.dbg-toolbar {
+  display: flex; align-items: center; gap: 6px; padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.dbg-toolbar select {
+  flex: 1; min-width: 0; height: 26px; padding: 0 8px;
+  background: var(--editor); color: var(--fg); border: 1px solid var(--border); border-radius: 6px;
+  font-size: 12px;
+}
+.dbg-controls {
+  display: flex; align-items: center; gap: 4px; padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent) 6%, var(--sidebar));
+}
+.dbg-controls[hidden] { display: none; }
+.dbg-status {
+  margin-left: auto; font: 600 10.5px var(--mono); padding: 2px 7px; border-radius: 999px;
+  background: var(--hover); color: var(--muted);
+}
+.dbg-status.running { color: #4ec98b; background: color-mix(in srgb, #4ec98b 16%, transparent); }
+.dbg-status.paused { color: #f5b942; background: color-mix(in srgb, #f5b942 18%, transparent); }
+
+.dbg-trust {
+  margin: 8px 10px 4px; padding: 10px; border-radius: 8px;
+  border: 1px solid color-mix(in srgb, #f5b942 40%, var(--border));
+  background: color-mix(in srgb, #f5b942 10%, var(--editor));
+  font-size: 12px; display: flex; flex-direction: column; gap: 8px;
+}
+.dbg-trust[hidden] { display: none; }
+
+.dbg-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+
+.dbg-section { border-bottom: 1px solid var(--border); }
+.dbg-section-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 10px; font-size: 11px; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--muted);
+}
+.dbg-list { padding: 2px 6px 8px; display: flex; flex-direction: column; gap: 2px; }
+.dbg-empty { padding: 4px 8px; font-size: 11.5px; color: var(--muted); }
+
+.dbg-row {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 4px 6px; border: 0; border-radius: 5px; background: transparent;
+  color: var(--fg); font-size: 12px; text-align: left; cursor: pointer;
+}
+.dbg-row:hover { background: var(--hover); }
+.dbg-row.active { background: var(--selected); }
+.dbg-row .dbg-meta { margin-left: auto; font: 11px var(--mono); color: var(--muted); }
+.dbg-row .dbg-del {
+  margin-left: 4px; border: 0; background: transparent; color: var(--muted);
+  cursor: pointer; border-radius: 4px; padding: 0 4px;
+}
+.dbg-row .dbg-del:hover { color: #ff8a8a; background: color-mix(in srgb, #f0616d 18%, transparent); }
+
+.dbg-scope { font-size: 11px; font-weight: 600; color: var(--accent); padding: 4px 6px 2px; }
+.dbg-var {
+  display: flex; align-items: baseline; gap: 6px; padding: 2px 6px;
+  font: 11.5px var(--mono); border-radius: 4px;
+}
+.dbg-var:hover { background: var(--hover); }
+.dbg-var-name { color: var(--accent); }
+.dbg-var-val { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbg-var-children { padding-left: 14px; display: flex; flex-direction: column; gap: 1px; }
+
+.dbg-console {
+  max-height: 180px; overflow-y: auto; padding: 6px 10px;
+  font: 11.5px/1.45 var(--mono); background: var(--editor);
+  border-top: 1px solid var(--border);
+}
+.dbg-console-line { white-space: pre-wrap; word-break: break-word; }
+.dbg-console-line.stderr, .dbg-console-line.error { color: #ff8a8a; }
+.dbg-console-line.eval { color: #7dd3fc; }
+.dbg-console-line.info { color: var(--muted); }
+.dbg-eval-row {
+  display: flex; align-items: center; gap: 6px; padding: 6px 8px;
+  border-top: 1px solid var(--border); background: var(--sidebar);
+}
+.dbg-eval-row input {
+  flex: 1; min-width: 0; height: 24px; padding: 0 8px;
+  background: var(--editor); color: var(--fg); border: 1px solid var(--border); border-radius: 5px;
+  font: 11.5px var(--mono); outline: none;
+}
+.dbg-eval-row input:focus { border-color: var(--accent); }
+
+/* Decoraciones en el margen de Monaco */
+.pulso-bp-glyph {
+  background: #ef4444;
+  width: 9px !important;
+  height: 9px !important;
+  margin-left: 5px;
+  margin-top: 5px;
+  border-radius: 50%;
+  box-shadow: 0 0 6px color-mix(in srgb, #ef4444 65%, transparent);
+}
+.pulso-debug-glyph {
+  background: #f5b942;
+  width: 10px !important;
+  height: 10px !important;
+  margin-left: 4px;
+  margin-top: 4px;
+  clip-path: polygon(0 15%, 100% 50%, 0 85%);
+}
+.pulso-debug-line {
+  background: color-mix(in srgb, #f5b942 20%, transparent);
+}
+
+/* Accesibilidad: foco visible, textos largos y modo de alto contraste */
+#view-debug button:focus-visible,
+#view-debug select:focus-visible,
+#view-debug input:focus-visible,
+#view-debug [tabindex="0"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.dbg-controls { flex-wrap: wrap; }
+.dbg-row > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (forced-colors: active) {
+  .dbg-status, .dbg-trust, .dbg-section { border: 1px solid ButtonText; }
+  .dbg-row.active { background: Highlight; color: HighlightText; }
+  .pulso-bp-glyph { background: Highlight; forced-color-adjust: none; }
+  .pulso-debug-glyph { background: Highlight; forced-color-adjust: none; }
+  .pulso-debug-line { outline: 1px solid Highlight; }
+}

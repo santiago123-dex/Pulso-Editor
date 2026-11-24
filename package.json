@@ -1,7 +1,7 @@
 {
   "name": "pulso-editor",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -17,7 +17,8 @@
     "e2e": "node scripts/e2e.mjs",
     "test:lsp": "node scripts/lsp-smoke.mjs",
     "test:lsp:ui": "node scripts/lsp-ui-e2e.mjs",
-    "perf": "node scripts/perf.mjs"
+    "perf": "node scripts/perf.mjs",
+    "format:check": "prettier --check \"src/**/*.ts\""
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -31,6 +32,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
+    "prettier": "^3.10.1",
     "vite": "^6.0.0",
     "vitest": "^5.1.0"
   }

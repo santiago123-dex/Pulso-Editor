@@ -1,15 +1,23 @@
 import { t } from "./i18n";
 /** Edición de texto según el protocolo LSP, sin Monaco: posiciones línea/carácter en unidades UTF-16. */
-export interface LspPosition { line: number; character: number }
-export interface LspEdit { range: { start: LspPosition; end: LspPosition }; newText: string }
+export interface LspPosition {
+  line: number;
+  character: number;
+}
+export interface LspEdit {
+  range: { start: LspPosition; end: LspPosition };
+  newText: string;
+}
 
 /** Desplazamiento de cada línea (soporta \n, \r\n y \r). */
 function lineStarts(text: string): number[] {
   const starts = [0];
   for (let i = 0; i < text.length; i++) {
     const c = text.charCodeAt(i);
-    if (c === 13) { if (text.charCodeAt(i + 1) === 10) i++; starts.push(i + 1); }
-    else if (c === 10) starts.push(i + 1);
+    if (c === 13) {
+      if (text.charCodeAt(i + 1) === 10) i++;
+      starts.push(i + 1);
+    } else if (c === 10) starts.push(i + 1);
   }
   return starts;
 }
@@ -25,7 +33,12 @@ function offsetOf(starts: number[], text: string, p: LspPosition): number {
 /** Aplica las ediciones al texto. Lanza si se solapan o se salen del archivo, para no escribir algo incoherente. */
 export function applyTextEdits(text: string, edits: readonly LspEdit[]): string {
   const starts = lineStarts(text);
-  const spans = edits.map((e, order) => ({ s: offsetOf(starts, text, e.range.start), e: offsetOf(starts, text, e.range.end), text: e.newText, order }));
+  const spans = edits.map((e, order) => ({
+    s: offsetOf(starts, text, e.range.start),
+    e: offsetOf(starts, text, e.range.end),
+    text: e.newText,
+    order,
+  }));
   for (const sp of spans) if (sp.e < sp.s) throw new Error(t("Edición con el final antes del principio"));
   spans.sort((a, b) => a.s - b.s || a.e - b.e || a.order - b.order);
   for (let i = 1; i < spans.length; i++) {
@@ -33,7 +46,10 @@ export function applyTextEdits(text: string, edits: readonly LspEdit[]): string 
   }
   let out = "";
   let at = 0;
-  for (const sp of spans) { out += text.slice(at, sp.s) + sp.text; at = sp.e; }
+  for (const sp of spans) {
+    out += text.slice(at, sp.s) + sp.text;
+    at = sp.e;
+  }
   return out + text.slice(at);
 }
 

@@ -12,12 +12,14 @@ export interface Command {
 }
 
 export const commands: Command[] = [];
-export const register = (...c: Command[]) => { commands.push(...c); };
+export const register = (...c: Command[]) => {
+  commands.push(...c);
+};
 
 /** Atajo vigente de un comando (el personalizado tiene prioridad; "" = ninguno). */
 export function keyOf(c: Command): string {
   const o = state.settings.keybindings;
-  return c.id in o ? o[c.id] : c.key ?? "";
+  return c.id in o ? o[c.id] : (c.key ?? "");
 }
 
 /** Convierte un evento de teclado a "Ctrl+Shift+P". Devuelve "" si solo es un modificador. */
@@ -57,27 +59,39 @@ export function allowedInTerminal(cmd: Command, key: string): boolean {
 }
 
 export function initKeys() {
-  window.addEventListener("keydown", (e) => {
-    if (capture) {
+  window.addEventListener(
+    "keydown",
+    (e) => {
+      if (capture) {
+        e.preventDefault();
+        e.stopPropagation();
+        const done = capture;
+        if (e.key === "Escape") {
+          capture = null;
+          done(null);
+          return;
+        }
+        if (e.key === "Backspace" || e.key === "Delete") {
+          capture = null;
+          done("");
+          return;
+        }
+        const k = eventKey(e);
+        if (!k || !(/^(Ctrl|Alt)/.test(k) || /^F\d+$/.test(k))) return;
+        capture = null;
+        done(k);
+        return;
+      }
+      if (overlayOpen()) return;
+      const k = eventKey(e);
+      if (!k) return;
+      const cmd = commands.find((c) => keyOf(c) === k);
+      if (!cmd) return;
+      if (inTerminal() && !allowedInTerminal(cmd, k)) return;
       e.preventDefault();
       e.stopPropagation();
-      const done = capture;
-      if (e.key === "Escape") { capture = null; done(null); return; }
-      if (e.key === "Backspace" || e.key === "Delete") { capture = null; done(""); return; }
-      const k = eventKey(e);
-      if (!k || !(/^(Ctrl|Alt)/.test(k) || /^F\d+$/.test(k))) return;
-      capture = null;
-      done(k);
-      return;
-    }
-    if (overlayOpen()) return;
-    const k = eventKey(e);
-    if (!k) return;
-    const cmd = commands.find((c) => keyOf(c) === k);
-    if (!cmd) return;
-    if (inTerminal() && !allowedInTerminal(cmd, k)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    void cmd.run();
-  }, true);
+      void cmd.run();
+    },
+    true,
+  );
 }

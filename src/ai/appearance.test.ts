@@ -11,7 +11,10 @@ function fakeStyle() {
   return {
     map,
     setProperty: (k: string, v: string) => map.set(k, v),
-    removeProperty: (k: string) => { map.delete(k); return ""; },
+    removeProperty: (k: string) => {
+      map.delete(k);
+      return "";
+    },
   } as unknown as CSSStyleDeclaration & { map: Map<string, string> };
 }
 

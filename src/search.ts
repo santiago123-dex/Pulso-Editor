@@ -9,7 +9,13 @@ import { setStatus, showDialog } from "./ui";
 import { $, baseName, dirName, h, inp } from "./util";
 import { rel, ws } from "./workspace";
 
-interface Match { path: string; line: number; col: number; len: number; text: string }
+interface Match {
+  path: string;
+  line: number;
+  col: number;
+  len: number;
+  text: string;
+}
 
 let seq = 0;
 let timer = 0;
@@ -43,8 +49,17 @@ async function run() {
   const o = opts();
   const summary = $("search-summary");
   const box = $("search-results");
-  if (!ws.root) { summary.textContent = t("Abre una carpeta para buscar."); box.replaceChildren(); return; }
-  if (!o.query) { summary.textContent = ""; box.replaceChildren(); results = new Map(); return; }
+  if (!ws.root) {
+    summary.textContent = t("Abre una carpeta para buscar.");
+    box.replaceChildren();
+    return;
+  }
+  if (!o.query) {
+    summary.textContent = "";
+    box.replaceChildren();
+    results = new Map();
+    return;
+  }
   summary.textContent = t("Buscando…");
   try {
     const found = await invoke<Match[]>("search_files", {
@@ -53,7 +68,10 @@ async function run() {
       caseSensitive: o.caseSensitive,
       useRegex: o.useRegex,
       wholeWord: o.wholeWord,
-      include: inp("sinc").value.split(",").map((s) => s.trim()).filter(Boolean),
+      include: inp("sinc")
+        .value.split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
       // Los documentos con cambios sin guardar se buscan tal como están en pantalla.
       unsaved: Object.fromEntries(dirtyDocs().map((d) => [d.path, d.model.getValue()])),
     });
@@ -62,11 +80,13 @@ async function run() {
     truncated = found.length >= 5000;
     for (const m of found) {
       const list = results.get(m.path);
-      if (list) list.push(m); else results.set(m.path, [m]);
+      if (list) list.push(m);
+      else results.set(m.path, [m]);
     }
     const files = results.size;
     summary.textContent = found.length
-      ? t("{count} resultado(s) en {files} archivo(s)", { count: found.length, files }) + (found.length >= 5000 ? " " + t("(se muestran los primeros 5000)") : "")
+      ? t("{count} resultado(s) en {files} archivo(s)", { count: found.length, files }) +
+        (found.length >= 5000 ? " " + t("(se muestran los primeros 5000)") : "")
       : t("Sin resultados");
     paint();
   } catch (e) {
@@ -92,10 +112,14 @@ function paint() {
     const rep = h("button", "icon-btn sfile-rep");
     rep.title = t("Reemplazar en este archivo");
     rep.innerHTML = '<svg viewBox="0 0 24 24"><path d="M4 7h12l-3-3M20 17H8l3 3"/></svg>';
-    rep.onclick = (e) => { e.stopPropagation(); void replaceIn([path]); };
+    rep.onclick = (e) => {
+      e.stopPropagation();
+      void replaceIn([path]);
+    };
     head.append(rep);
     head.onclick = () => {
-      if (collapsed.has(path)) collapsed.delete(path); else collapsed.add(path);
+      if (collapsed.has(path)) collapsed.delete(path);
+      else collapsed.add(path);
       paint();
     };
     box.append(head);
@@ -121,7 +145,10 @@ async function replaceIn(paths: string[]) {
   const o = opts();
   if (!o.query || !paths.length) return;
   const replacement = inp("sr").value;
-  const dirty = paths.filter((p) => { const d = docs.get(p); return d && isDirty(d); });
+  const dirty = paths.filter((p) => {
+    const d = docs.get(p);
+    return d && isDirty(d);
+  });
   const total = paths.reduce((n, p) => n + (results.get(p)?.length ?? 0), 0);
   const MAX_LIST = 12;
   const lines = paths.slice(0, MAX_LIST).map((p) => {
@@ -133,7 +160,8 @@ async function replaceIn(paths: string[]) {
   const diskOnly = paths.length > dirty.length;
   const r = await showDialog({
     title: t("Reemplazar"),
-    message: `«${o.query}» → «${replacement}»\n\n${t("{total} coincidencia(s) en {files} archivo(s):", { total, files: paths.length })}\n${lines.join("\n")}` +
+    message:
+      `«${o.query}» → «${replacement}»\n\n${t("{total} coincidencia(s) en {files} archivo(s):", { total, files: paths.length })}\n${lines.join("\n")}` +
       (dirty.length ? t("\n\nLos archivos abiertos sin guardar se editarán en el editor (puedes deshacer con Ctrl+Z).") : "") +
       (diskOnly ? t("\nLos demás archivos se modifican en disco y esa parte no se puede deshacer desde Pulso.") : ""),
     buttons: [
@@ -142,7 +170,8 @@ async function replaceIn(paths: string[]) {
     ],
   });
   if (r !== "ok") return;
-  let changed = 0, done = 0;
+  let changed = 0,
+    done = 0;
   const failed: string[] = [];
   for (const path of paths) {
     const open = docs.get(path);
@@ -165,9 +194,13 @@ async function replaceIn(paths: string[]) {
     }
     try {
       changed += await invoke<number>("replace_in_file", {
-        path, query: o.query, replacement,
-        caseSensitive: o.caseSensitive, useRegex: o.useRegex, wholeWord: o.wholeWord,
-        expected: truncated ? null : results.get(path)?.length ?? null,
+        path,
+        query: o.query,
+        replacement,
+        caseSensitive: o.caseSensitive,
+        useRegex: o.useRegex,
+        wholeWord: o.wholeWord,
+        expected: truncated ? null : (results.get(path)?.length ?? null),
       });
       done++;
       if (docs.has(path)) await reloadDoc(path);
@@ -179,7 +212,14 @@ async function replaceIn(paths: string[]) {
   if (failed.length) {
     await showDialog({
       title: t("Reemplazo incompleto"),
-      message: t("{changed} coincidencia(s) reemplazadas en {done} archivo(s).", { changed, done }) + "\n\n" + t("No se modificaron:") + "\n" + failed.join("\n") + "\n\n" + t("La búsqueda se actualizó; revisa y repite si hace falta."),
+      message:
+        t("{changed} coincidencia(s) reemplazadas en {done} archivo(s).", { changed, done }) +
+        "\n\n" +
+        t("No se modificaron:") +
+        "\n" +
+        failed.join("\n") +
+        "\n\n" +
+        t("La búsqueda se actualizó; revisa y repite si hace falta."),
       buttons: [{ label: t("Entendido"), value: "ok" }],
     });
   } else {
@@ -189,15 +229,24 @@ async function replaceIn(paths: string[]) {
 
 export function initSearch() {
   inp("sq").oninput = () => schedule();
-  inp("sq").onkeydown = (e) => { if (e.key === "Enter") schedule(0); };
+  inp("sq").onkeydown = (e) => {
+    if (e.key === "Enter") schedule(0);
+  };
   inp("sinc").oninput = () => schedule();
   for (const id of ["sq-case", "sq-word", "sq-re"]) {
-    $(id).onclick = () => { $(id).classList.toggle("on"); schedule(0); };
+    $(id).onclick = () => {
+      $(id).classList.toggle("on");
+      schedule(0);
+    };
   }
   $("sr-all").onclick = () => void replaceIn(Array.from(results.keys()));
-  inp("sr").onkeydown = (e) => { if (e.key === "Enter") void replaceIn(Array.from(results.keys())); };
+  inp("sr").onkeydown = (e) => {
+    if (e.key === "Enter") void replaceIn(Array.from(results.keys()));
+  };
   $("search-clear").onclick = () => {
-    inp("sq").value = ""; inp("sr").value = ""; inp("sinc").value = "";
+    inp("sq").value = "";
+    inp("sr").value = "";
+    inp("sinc").value = "";
     results = new Map();
     $("search-results").replaceChildren();
     $("search-summary").textContent = "";

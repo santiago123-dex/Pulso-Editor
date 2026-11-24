@@ -1,15 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({ settings: { keybindings: {} as Record<string, string> }, overlay: false }));
-vi.mock("./settings", () => ({ state: { get settings() { return h.settings; } } }));
+vi.mock("./settings", () => ({
+  state: {
+    get settings() {
+      return h.settings;
+    },
+  },
+}));
 vi.mock("./ui", () => ({ overlayOpen: () => h.overlay }));
 
 import { allowedInTerminal, eventKey, keyOf, type Command } from "./commands";
 
-const ev = (o: Partial<KeyboardEvent>) => ({ key: "", code: "", ctrlKey: false, shiftKey: false, altKey: false, metaKey: false, ...o }) as KeyboardEvent;
+const ev = (o: Partial<KeyboardEvent>) =>
+  ({ key: "", code: "", ctrlKey: false, shiftKey: false, altKey: false, metaKey: false, ...o }) as KeyboardEvent;
 const cmd = (id: string, key?: string): Command => ({ id, label: id, key, run: () => {} });
 
-beforeEach(() => { h.settings.keybindings = {}; });
+beforeEach(() => {
+  h.settings.keybindings = {};
+});
 
 describe("eventKey", () => {
   it("combina modificadores en orden fijo y pone la letra en mayúscula", () => {
