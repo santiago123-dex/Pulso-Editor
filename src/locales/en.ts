@@ -1140,6 +1140,7 @@ export const en: Record<string, string> = {
   "IA: Memoria del agente en este proyecto…": "AI: Agent memory for this project…",
   "Guardó una nota en la memoria": "Saved a note to memory",
   "Un gancho bloqueó una herramienta": "A hook blocked a tool",
+  "Pasos del subagente": "Subagent steps",
   "Usó {tool} de {server}": "Used {tool} from {server}",
   "Usó una herramienta MCP": "Used an MCP tool",
   "{who} quiere usar una herramienta de un servidor MCP": "{who} wants to use a tool from an MCP server",
