@@ -169,7 +169,7 @@ Dividir por responsabilidad facilita revisar y evita que las ramas choquen. **Ha
 | `src-tauri/src/aichat.rs` | 1561 | detección de proveedores, sesiones, comandos de Tauri |
 | `src-tauri/src/bin/pulso.rs` | 1295 | enrutado, trabajo de ventana, terminal |
 | `src-tauri/src/gitops.rs` | 1222 | estado, diferencias, ramas, remoto |
-| `src-tauri/src/lib.rs` | 1191 | comandos agrupados por módulo, `run()` mínimo |
+| `src-tauri/src/lib.rs` | 1352 | **Hecho:** `lib.rs` queda en unas 280 líneas (módulos, `run()` y el registro de comandos); el resto está en `workspace.rs`, `files.rs`, `recovery.rs`, `secrets.rs`, `search.rs`, `themes.rs` y `gitinfo.rs` |
 
 - [ ] Sin cambiar comportamiento: las pruebas existentes deben pasar sin tocarlas.
 - [ ] Después, **un PR solo de formato** con `cargo fmt` y Prettier.

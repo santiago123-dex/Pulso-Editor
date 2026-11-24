@@ -4,6 +4,9 @@ Todos los cambios notables en Pulso Editor se documentan en este archivo.
 
 ## [Sin publicar]
 
+### Interno
+- `lib.rs` (1352 líneas) se divide: carpeta de trabajo, archivos, copias de recuperación, credenciales, búsqueda, temas y estado de Git pasan a su propio módulo, y `lib.rs` queda con el registro de comandos y `run()`. Sin cambios de comportamiento.
+
 ### Corregido
 - **El panel «Ver uso y límites» del selector de modelos ya no se abre solo ni se queda abierto.** Se abría al pasar el cursor y, al pulsar para cerrarlo, se volvía a abrir porque el botón se redibujaba bajo el cursor. Ahora solo se abre y se cierra con un clic.
 
