@@ -15,6 +15,10 @@ describe("aprobación de comandos", () => {
       kind: "ask",
       req: { id: "p2", tool: "web", detail: "https://x.test", risky: false, agent: "" },
     });
+    expect(parsePermissionEvent({ type: "pulso_permission", id: "p3", tool: "mcp", detail: "docs → buscar\n{}" })).toEqual({
+      kind: "ask",
+      req: { id: "p3", tool: "mcp", detail: "docs → buscar\n{}", risky: false, agent: "" },
+    });
     expect(parsePermissionEvent({ type: "pulso_permission_resolved", id: "p1" })).toEqual({ kind: "resolved", id: "p1" });
     for (const other of [null, 5, "x", {}, { type: "assistant" }, { type: "pulso_permission" }, { type: "pulso_permission", id: 3, detail: "x" }, { type: "pulso_permission", id: "a" }]) {
       expect(parsePermissionEvent(other)).toBeNull();
@@ -42,6 +46,7 @@ describe("aprobación de comandos", () => {
     expect(names(req())).toEqual(["once", "always", "all", "deny"]);
     expect(names(req({ risky: true }))).toEqual(["once", "deny"]);
     expect(names(req({ tool: "web", detail: "https://x.test" }))).toEqual(["once", "all", "deny"]);
+    expect(names(req({ tool: "mcp", detail: "docs → buscar" }))).toEqual(["once", "all", "deny"]);
     // Ante un comando de riesgo, la opción destacada es denegar (no la que lo ejecuta).
     expect(decisionOptions(req({ risky: true })).find((o) => o.primary)?.decision).toBe("deny");
     expect(decisionOptions(req()).find((o) => o.primary)?.decision).toBe("once");

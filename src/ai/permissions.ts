@@ -1,5 +1,5 @@
 /**
- * Aprobación de comandos y de páginas web del agente propio. El agente se detiene y manda una pregunta (`pulso_permission`);
+ * Aprobación de comandos, páginas web y herramientas MCP del agente propio. El agente se detiene y manda una pregunta (`pulso_permission`);
  * aquí se guarda hasta que la persona responde, se pinta como una tarjeta en la conversación y se devuelve la respuesta a Rust.
  * Los comandos de riesgo solo se pueden permitir una vez: no hay «siempre» ni «todo» para ellos.
  */
@@ -11,7 +11,7 @@ import { ws } from "../workspace";
 
 export interface PermissionRequest {
   id: string;
-  tool: "command" | "web";
+  tool: "command" | "web" | "mcp";
   /** El comando completo o la dirección. */
   detail: string;
   risky: boolean;
@@ -29,7 +29,7 @@ export function parsePermissionEvent(raw: unknown): { kind: "ask"; req: Permissi
   if (e.type !== "pulso_permission" || typeof e.id !== "string" || typeof e.detail !== "string") return null;
   return {
     kind: "ask",
-    req: { id: e.id, tool: e.tool === "web" ? "web" : "command", detail: e.detail, risky: e.risky === true, agent: typeof e.agent === "string" ? e.agent : "" },
+    req: { id: e.id, tool: e.tool === "web" ? "web" : e.tool === "mcp" ? "mcp" : "command", detail: e.detail, risky: e.risky === true, agent: typeof e.agent === "string" ? e.agent : "" },
   };
 }
 
@@ -67,6 +67,7 @@ export function decisionOptions(req: PermissionRequest): { decision: Decision; l
 function title(req: PermissionRequest): string {
   const who = req.agent ? tr("El subagente {agent}", { agent: req.agent }) : tr("El agente");
   if (req.tool === "web") return tr("{who} quiere leer una página web", { who });
+  if (req.tool === "mcp") return tr("{who} quiere usar una herramienta de un servidor MCP", { who });
   return req.risky ? tr("{who} quiere ejecutar un comando peligroso", { who }) : tr("{who} quiere ejecutar un comando", { who });
 }
 

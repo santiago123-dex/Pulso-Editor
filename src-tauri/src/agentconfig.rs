@@ -70,6 +70,8 @@ pub struct Config {
     pub memory_store: Option<crate::agentmem::MemoryStore>,
     /// Ganchos antes y después de cada herramienta (los del proyecto solo con confianza).
     pub hooks: crate::agenthooks::Hooks,
+    /// Servidores MCP configurados (los del proyecto solo con confianza). Se arrancan al empezar cada conversación.
+    pub mcp: crate::agentmcp::McpConfig,
 }
 
 // ---------- Cabecera de los archivos Markdown ----------
@@ -398,7 +400,7 @@ fn load_file_commands(root: &Path, home: Option<&Path>) -> Vec<Command> {
 impl Default for Config {
     /// Sin archivos de configuración quedan los subagentes integrados (`explore` y `general`).
     fn default() -> Self {
-        Config { instructions: Vec::new(), skills: Vec::new(), agents: builtin_agents(), commands: builtin_commands(), memory: Vec::new(), memory_store: None, hooks: Default::default() }
+        Config { instructions: Vec::new(), skills: Vec::new(), agents: builtin_agents(), commands: builtin_commands(), memory: Vec::new(), memory_store: None, hooks: Default::default(), mcp: Default::default() }
     }
 }
 
@@ -408,7 +410,7 @@ impl Config {
     }
 
     pub fn load_with_home(root: &Path, home: Option<&Path>) -> Config {
-        Config { instructions: load_instructions(root, home), skills: load_skills(root, home), agents: load_agents(root, home), commands: load_commands(root, home), memory: Vec::new(), memory_store: None, hooks: crate::agenthooks::Hooks::load(root, home) }
+        Config { instructions: load_instructions(root, home), skills: load_skills(root, home), agents: load_agents(root, home), commands: load_commands(root, home), memory: Vec::new(), memory_store: None, hooks: crate::agenthooks::Hooks::load(root, home), mcp: crate::agentmcp::McpConfig::load(root, home) }
     }
 
     /// Deja solo lo de la carpeta personal y lo integrado: lo que viene del proyecto (AGENTS.md, skills, subagentes y
@@ -425,6 +427,7 @@ impl Config {
         self.memory.clear();
         self.memory_store = None;
         self.hooks = self.hooks.without_project();
+        self.mcp = self.mcp.without_project();
         self.instructions.retain(|i| i.user);
         self.skills.retain(|s| s.user);
         self.agents.retain(|a| a.user || a.builtin);
