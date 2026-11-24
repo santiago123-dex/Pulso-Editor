@@ -10,6 +10,8 @@ Todos los cambios notables en Pulso Editor se documentan en este archivo.
 - Al abrir un proyecto que trae `AGENTS.md`, skills, subagentes o comandos y en el que todavía no se confía, la barra de estado avisa de que no se cargan y de cómo confiar («IA: Confiar en este proyecto…»).
 - Dos pruebas fijan que la búsqueda y el reemplazo no atraviesan enlaces simbólicos que salen de la carpeta abierta.
 ### Corregido
+- Si el depurador termina de golpe, el mensaje ahora sugiere comprobar que `debugpy` esté instalado (`pip install debugpy`) cuando se depura Python.
+- `PRIVACY.md` corrige el nombre del historial del chat (`ai-chats.json`) y documenta las carpetas aprobadas y de confianza, la memoria y los permisos del agente, los ganchos y las claves de los proveedores.
 - **Fusionar y revisar pull requests y ver sus comprobaciones funciona de verdad.** El panel nuevo las pedía, pero la lista de permitidos de GitHub (`githubpolicy.rs`) las rechazaba. Ahora se permiten solo `PUT pulls/N/merge`, `POST pulls/N/reviews` y `GET commits/SHA/check-runs`, y el cuerpo de las dos primeras se acota: solo los campos que usa el panel y valores conocidos (`merge_method` ∈ merge, squash, rebase; `event` ∈ COMMENT, APPROVE, REQUEST_CHANGES).
 
 ### Interno

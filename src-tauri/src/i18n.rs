@@ -392,7 +392,7 @@ const EN: &[(&str, &str)] = &[
     ("No se pudo localizar el archivo de carpetas de confianza.", "Could not locate the trusted folders file."),
     ("Mensaje DAP sin cabecera Content-Length.", "DAP message missing Content-Length header."),
     ("Mensaje DAP demasiado grande.", "DAP message is too large."),
-    ("La sesión de depuración terminó inesperadamente.", "The debug session ended unexpectedly."),
+    ("La sesión de depuración terminó inesperadamente. Si depuras Python, comprueba que debugpy esté instalado (`pip install debugpy`).", "The debug session ended unexpectedly. If you are debugging Python, check that debugpy is installed (`pip install debugpy`)."),
     ("El depurador no respondió a «{command}» a tiempo.", "The debugger did not respond to \"{command}\" in time."),
     ("No hay ninguna sesión de depuración activa.", "There is no active debug session."),
     ("No se pudo iniciar el adaptador de depuración ({program}): {e}", "Could not start the debug adapter ({program}): {e}"),
