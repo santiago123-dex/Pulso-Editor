@@ -1,7 +1,6 @@
 //! Configuración de lanzamiento del depurador (`.pulso/launch.json` y respaldo `.vscode/launch.json`),
 //! expansión de variables, detección de adaptadores DAP y comprobación de confianza de carpeta.
 use crate::i18n::{tr, trf};
-use crate::termui::{add_trusted, broad_dir_reason, is_trusted, trusted_list};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -306,45 +305,6 @@ pub fn resolve_adapter(cfg: &LaunchConfig, workspace: &Path) -> Result<(String, 
             &[("kind", &other)],
         )),
     }
-}
-
-// ---------- Confianza de carpeta (comparte `trusted-folders.json` con la CLI) ----------
-
-fn home_dir() -> Option<PathBuf> {
-    std::env::var_os("USERPROFILE")
-        .or_else(|| std::env::var_os("HOME"))
-        .map(PathBuf::from)
-}
-
-fn trust_file() -> Option<PathBuf> {
-    let base = std::env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .or_else(|| home_dir().map(|h| h.join(".config")))?;
-    Some(base.join("dev.pulso.editor").join("trusted-folders.json"))
-}
-
-pub fn is_workspace_trusted(root: &Path) -> bool {
-    if broad_dir_reason(root, home_dir().as_deref()).is_some() {
-        return false;
-    }
-    let Some(f) = trust_file() else { return false };
-    let text = fs::read_to_string(&f).unwrap_or_default();
-    is_trusted(&trusted_list(&text), root)
-}
-
-pub fn trust_workspace_folder(root: &Path) -> Result<(), String> {
-    if let Some(why) = broad_dir_reason(root, home_dir().as_deref()) {
-        return Err(trf(
-            "No se puede confiar en esta carpeta para depurar porque {why}.",
-            &[("why", &why)],
-        ));
-    }
-    let f = trust_file().ok_or_else(|| tr("No se pudo localizar el archivo de carpetas de confianza.").to_string())?;
-    if let Some(parent) = f.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let prev = fs::read_to_string(&f).unwrap_or_default();
-    fs::write(&f, add_trusted(&prev, root)).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

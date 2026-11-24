@@ -20,7 +20,7 @@ pub(super) fn trust_file(app: &AppHandle) -> Option<PathBuf> {
 }
 
 /// ¿Confió la persona en este proyecto? Es la misma lista que usa la terminal (`pulso`); confiar en una carpeta incluye sus subcarpetas.
-pub(super) fn project_trusted(app: &AppHandle, dir: &Path) -> bool {
+pub(crate) fn project_trusted(app: &AppHandle, dir: &Path) -> bool {
     let Some(file) = trust_file(app) else { return false };
     let text = std::fs::read_to_string(file).unwrap_or_default();
     let dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
