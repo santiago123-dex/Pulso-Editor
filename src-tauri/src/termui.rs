@@ -146,10 +146,10 @@ pub fn tool_badge(tool: &str, color: bool) -> String {
     format!("  {} {} {}", paint(color, RULE, "├─"), paint(color, tone, icon), paint(color, SLATE, tool))
 }
 
-/// Ancho visual aproximado en columnas de consola (trata emojis y símbolos anchos como 2 columnas).
+/// Ancho visual aproximado en columnas de consola (trata emojis y CJK como 2 columnas, pero símbolos geométricos como ✦ en 1).
 pub fn char_width(c: char) -> usize {
     let cp = c as u32;
-    if matches!(cp, 0x26A0..=0x26FF | 0x2700..=0x27BF | 0x1F300..=0x1FAFF | 0x2E80..=0x9FFF | 0xF900..=0xFAFF | 0xFF01..=0xFF60) {
+    if matches!(cp, 0x26A0..=0x26A1 | 0x1F300..=0x1FAFF | 0x2E80..=0x9FFF | 0xF900..=0xFAFF | 0xFF01..=0xFF60) {
         2
     } else {
         1

@@ -802,6 +802,12 @@ fn read_composer(chat: &mut Chat, history: &[String], fresh_screen: bool) -> Pro
             Key::ShiftTab => {
                 chat.settings.edit = !chat.settings.edit;
                 ctrl_c_armed = false;
+                if fresh_screen && chat.color {
+                    print!("\x1b[?2026h\x1b[2J\x1b[H");
+                    print_header(chat);
+                    print!("\x1b[?2026l");
+                    drawn = false;
+                }
             }
             Key::Tab => {
                 if !matches.is_empty() {
@@ -1212,7 +1218,6 @@ fn repl(settings: Settings) {
         if line.is_empty() {
             continue;
         }
-        fresh_screen = false;
         if history.last().map(|s| s.as_str()) != Some(line.as_str()) {
             history.push(line.clone());
             save_history(&history);
@@ -1222,6 +1227,14 @@ fn repl(settings: Settings) {
             let (name, arg) = cmd.split_once(' ').map(|(a, b)| (a, b.trim())).unwrap_or((cmd, ""));
             let note = |icon: &str, tone: &str, m: &str| {
                 println!("  {} {}", paint(color, tone, icon), paint(color, SLATE, m));
+            };
+            let refresh_header_if_fresh = |chat: &Chat, is_fresh: bool| {
+                if is_fresh && color {
+                    print!("\x1b[?2026h\x1b[2J\x1b[H");
+                    print_header(chat);
+                    print!("\x1b[?2026l");
+                    let _ = std::io::stdout().flush();
+                }
             };
             match name {
                 "exit" | "quit" | "salir" => {
@@ -1236,6 +1249,7 @@ fn repl(settings: Settings) {
                     fresh_screen = true;
                 }
                 "help" | "ayuda" => {
+                    fresh_screen = false;
                     println!();
                     for l in tr(HELP).lines() {
                         println!("  {}", paint(color, SLATE, l));
@@ -1243,20 +1257,31 @@ fn repl(settings: Settings) {
                 }
                 "new" | "nuevo" => {
                     chat.session = None;
-                    note("✦", CYAN, tr("Conversación nueva iniciada."));
+                    turns = 0;
+                    if color {
+                        print!("\x1b[?2026h\x1b[2J\x1b[H");
+                        print_header(&chat);
+                        print!("\x1b[?2026l");
+                    }
+                    fresh_screen = true;
+                    note("✦", VIOLET, tr("Conversación nueva iniciada."));
                 }
                 "edit" => {
                     chat.settings.edit = true;
-                    note("⚡", AMBER, tr("Modo edición activado para esta carpeta."));
+                    refresh_header_if_fresh(&chat, fresh_screen);
+                    note("◆", AMBER, tr("Modo edición activado para esta carpeta."));
                 }
                 "read" => {
                     chat.settings.edit = false;
+                    refresh_header_if_fresh(&chat, fresh_screen);
                     note("●", CYAN, tr("Modo solo lectura activado."));
                 }
                 "doctor" => {
+                    fresh_screen = false;
                     run_doctor(color);
                 }
                 "status" | "estado" => {
+                    fresh_screen = false;
                     let dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
                     let branch = git_branch(&dir).unwrap_or_else(|| "—".into());
                     let model_lbl = chat.settings.model.as_deref().unwrap_or("predeterminado");
@@ -1276,6 +1301,7 @@ fn repl(settings: Settings) {
                     if arg.is_empty() {
                         note("▸", AMBER, "Usa: /plan <descripción de la tarea>");
                     } else {
+                        fresh_screen = false;
                         let prev_edit = chat.settings.edit;
                         chat.settings.edit = false;
                         note("◈", VIOLET, "Modo plan (solo lectura forzada para este turno)…");
@@ -1291,9 +1317,11 @@ fn repl(settings: Settings) {
                     let arg_low = arg.to_ascii_lowercase();
                     if arg_low == "default" || arg_low == "reset" || arg_low == "predeterminado" {
                         chat.settings.model = None;
+                        refresh_header_if_fresh(&chat, fresh_screen);
                         note("◈", CYAN, tr("Modelo restablecido al predeterminado del proveedor."));
                     } else if !arg.is_empty() && arg_low != "refresh" && arg_low != "list" {
                         chat.settings.model = Some(arg.to_string());
+                        refresh_header_if_fresh(&chat, fresh_screen);
                         note("◈", CYAN, &format!("Modelo: {arg}"));
                     } else {
                         if arg_low == "refresh" {
@@ -1336,9 +1364,11 @@ fn repl(settings: Settings) {
                             let chosen = &items[idx];
                             if chosen.value.is_empty() {
                                 chat.settings.model = None;
+                                refresh_header_if_fresh(&chat, fresh_screen);
                                 note("◈", CYAN, "Modelo: predeterminado");
                             } else {
                                 chat.settings.model = Some(chosen.value.clone());
+                                refresh_header_if_fresh(&chat, fresh_screen);
                                 note("◈", CYAN, &format!("Modelo: {} ({})", chosen.label, chosen.value));
                             }
                         }
@@ -1348,9 +1378,11 @@ fn repl(settings: Settings) {
                     let arg_low = arg.to_ascii_lowercase();
                     if arg_low == "normal" || arg_low == "default" || arg_low == "reset" {
                         chat.settings.effort = None;
+                        refresh_header_if_fresh(&chat, fresh_screen);
                         note("◐", CYAN, "Esfuerzo: normal");
                     } else if !arg.is_empty() {
                         chat.settings.effort = Some(arg.to_string());
+                        refresh_header_if_fresh(&chat, fresh_screen);
                         note("◐", CYAN, &format!("Esfuerzo: {arg}"));
                     } else {
                         let levels = [
@@ -1379,6 +1411,7 @@ fn repl(settings: Settings) {
                         if let Some(idx) = pick_option("◐ Nivel de esfuerzo", &items, initial, color) {
                             let chosen = &items[idx];
                             chat.settings.effort = (!chosen.value.is_empty()).then(|| chosen.value.clone());
+                            refresh_header_if_fresh(&chat, fresh_screen);
                             note("◐", CYAN, &format!("Esfuerzo: {}", chosen.label));
                         }
                     }
@@ -1410,7 +1443,7 @@ fn repl(settings: Settings) {
                                 } else if tool.logged_in {
                                     if tool.plan.is_empty() { "✓ listo".into() } else { format!("✓ {}", tool.plan) }
                                 } else {
-                                    "⚠ sin sesión".into()
+                                    "! sin sesión".into()
                                 };
                                 let note_str = if !tool.installed {
                                     "CLI no encontrada en PATH".into()
@@ -1436,6 +1469,7 @@ fn repl(settings: Settings) {
                             chat.settings.provider = p.clone();
                             chat.settings.model = None;
                             chat.session = None;
+                            refresh_header_if_fresh(&chat, fresh_screen);
                             note("✦", provider_color(&p), &trf("Proveedor cambiado a {provider} (conversación nueva).", &[("provider", &provider_label(&p))]));
                         }
                     } else {
@@ -1444,6 +1478,7 @@ fn repl(settings: Settings) {
                                 chat.settings.provider = p.into();
                                 chat.settings.model = None;
                                 chat.session = None;
+                                refresh_header_if_fresh(&chat, fresh_screen);
                                 note("✦", provider_color(p), &trf("Proveedor cambiado a {provider} (conversación nueva).", &[("provider", &provider_label(p))]));
                             }
                             None => note("▸", AMBER, "Usa: /provider (selector) o /provider claude | codex | antigravity"),
@@ -1455,6 +1490,7 @@ fn repl(settings: Settings) {
             continue;
         }
 
+        fresh_screen = false;
         let bar_col = if chat.settings.edit { AMBER } else { VIOLET };
         println!("\n  {} {} {}", paint(color, bar_col, "┃"), paint(color, &format!("1;{bar_col}"), "❯"), paint(color, BRIGHT, &line));
         turns += 1;
