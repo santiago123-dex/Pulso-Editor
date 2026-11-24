@@ -78,7 +78,7 @@ pub async fn ai_detect_all(app: AppHandle) -> Result<AllAiTools, String> {
         let t_claude = thread::spawn(detect_claude);
         let t_codex = thread::spawn(detect_codex);
         let t_agy = thread::spawn(detect_antigravity);
-        let t_local = thread::spawn(crate::localai::detect);
+        let t_local = thread::spawn(crate::ollama::detect);
         AllAiTools {
             claude: t_claude.join().unwrap_or_default(),
             codex: t_codex.join().unwrap_or_default(),
@@ -217,7 +217,7 @@ pub async fn ai_send(
     effort: Option<String>,
     mode: String,
     provider: Option<String>,
-    history: Option<Vec<crate::localai::HistoryMsg>>,
+    history: Option<Vec<crate::agent::HistoryMsg>>,
     images: Option<Vec<String>>,
 ) -> Result<(), String> {
     if !safe_token(&id) { return Err(tr("Identificador de conversación no válido").into()); }
@@ -242,7 +242,7 @@ pub async fn ai_send(
         return start_cloud(app, &state, id, cwd, prompt, model, history.unwrap_or_default(), image_paths, mode).await;
     }
     if provider.as_deref() == Some("local") {
-        return start_local(app, &state, id, cwd, prompt, model, history.unwrap_or_default(), image_paths, mode);
+        return start_local(app, &state, id, cwd, prompt, model, history.unwrap_or_default(), image_paths, mode).await;
     }
 
     let opts = ChatOptions { session, model, effort, mode };

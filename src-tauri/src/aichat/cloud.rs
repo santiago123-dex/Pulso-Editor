@@ -41,7 +41,7 @@ pub(super) async fn start_cloud(
     cwd: String,
     prompt: String,
     model: Option<String>,
-    history: Vec<crate::localai::HistoryMsg>,
+    history: Vec<crate::agent::HistoryMsg>,
     images: Vec<String>,
     mode: String,
 ) -> Result<(), String> {
@@ -54,13 +54,8 @@ pub(super) async fn start_cloud(
         let entry = provider.models.iter().find(|m| m.id == model_id).ok_or_else(|| tr("El modelo elegido ya no está en el catálogo.").to_string())?;
         let key = crate::catalog::get_key(provider).ok_or_else(|| trf("Falta la clave de {provider}.", &[("provider", &provider.name)]))?;
         let cloud = crate::agent::CloudModel::from_catalog(provider, entry, key);
-        // Instrucciones del proyecto, skills, subagentes y comandos (se leen de archivos).
-        let trusted = project_trusted(&app, Path::new(&cwd_for_config));
-        let cwd_for_memory = cwd_for_config.clone();
-        let config = tauri::async_runtime::spawn_blocking(move || crate::agentconfig::Config::load(Path::new(&cwd_for_config))).await.map_err(|e| e.to_string())?;
-        // Sin confianza, lo del proyecto no llega al modelo: solo lo personal y los subagentes integrados.
-        let config = if trusted { config.with_memory(crate::agentmem::memory_store(&app, Path::new(&cwd_for_memory))) } else { config.without_project() };
-        Ok::<_, String>((cloud, Arc::new(config), crate::agent::catalog_resolver(list.clone())))
+        let config = load_config(&app, &cwd_for_config).await?;
+        Ok::<_, String>((cloud, config, crate::agent::catalog_resolver(list.clone())))
     }
     .await;
     let (cloud, config, resolver) = match prepared {
@@ -70,6 +65,64 @@ pub(super) async fn start_cloud(
             return Err(e);
         }
     };
+    spawn_agent(app, state, id, cwd, prompt, history, images, mode, cloud, config, resolver)
+}
+
+/// Agente con un modelo local de Ollama: el mismo motor y las mismas herramientas, permisos y configuración que con un modelo de la nube.
+pub(super) async fn start_local(
+    app: AppHandle,
+    state: &AiState,
+    id: String,
+    cwd: String,
+    prompt: String,
+    model: Option<String>,
+    history: Vec<crate::agent::HistoryMsg>,
+    images: Vec<String>,
+    mode: String,
+) -> Result<(), String> {
+    let prepared = async {
+        let wanted = model.map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).ok_or_else(|| tr("Elige un modelo de Ollama para conversar.").to_string())?;
+        let local = crate::ollama::cloud_model(&crate::ollama::base_url(), &wanted).await?;
+        let config = load_config(&app, &cwd).await?;
+        Ok::<_, String>((local, config))
+    }
+    .await;
+    let (local, config) = match prepared {
+        Ok(c) => c,
+        Err(e) => {
+            release_slot(state, &id);
+            return Err(e);
+        }
+    };
+    // Un subagente que pida otro modelo no lo encuentra: con Ollama todos usan el mismo modelo local.
+    let resolver: crate::agent::ModelResolver = Arc::new(|_| None);
+    spawn_agent(app, state, id, cwd, prompt, history, images, mode, local, config, resolver)
+}
+
+/// Instrucciones del proyecto, skills, subagentes, comandos, memoria y ganchos, según la confianza de la persona en la carpeta.
+async fn load_config(app: &AppHandle, cwd: &str) -> Result<Arc<crate::agentconfig::Config>, String> {
+    let trusted = project_trusted(app, Path::new(cwd));
+    let for_load = cwd.to_string();
+    let config = tauri::async_runtime::spawn_blocking(move || crate::agentconfig::Config::load(Path::new(&for_load))).await.map_err(|e| e.to_string())?;
+    // Sin confianza, lo del proyecto no llega al modelo: solo lo personal y los subagentes integrados.
+    Ok(Arc::new(if trusted { config.with_memory(crate::agentmem::memory_store(app, Path::new(cwd))) } else { config.without_project() }))
+}
+
+/// Registra la conversación, prepara los permisos y lanza el motor del agente en segundo plano.
+#[allow(clippy::too_many_arguments)]
+fn spawn_agent(
+    app: AppHandle,
+    state: &AiState,
+    id: String,
+    cwd: String,
+    prompt: String,
+    history: Vec<crate::agent::HistoryMsg>,
+    images: Vec<String>,
+    mode: String,
+    cloud: crate::agent::CloudModel,
+    config: Arc<crate::agentconfig::Config>,
+    resolver: crate::agent::ModelResolver,
+) -> Result<(), String> {
     let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
     state.running.lock().map_err(|e| e.to_string())?.insert(id.clone(), AiSlot::Local(cancel.clone()));
     let (emitter, id_line) = (app.clone(), id.clone());

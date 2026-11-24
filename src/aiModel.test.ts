@@ -386,7 +386,7 @@ describe("turnos seguidos del asistente", () => {
 });
 
 describe("agente local (Ollama)", () => {
-  // Misma secuencia que emite src-tauri/src/localai.rs: una vuelta con herramienta y otra con la respuesta.
+  // Misma secuencia que emite el agente (src-tauri/src/agent.rs): una vuelta con herramienta y otra con la respuesta.
   it("el panel entiende los eventos del agente local", () => {
     const normalize = createProviderNormalizer("local");
     const events: AiEvent[] = [

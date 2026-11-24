@@ -18,5 +18,5 @@ Pulso Editor es un editor local. No incluye telemetría, analítica ni servidore
 - **Proveedores de IA:**
   - **Claude Code, Codex (ChatGPT) y Antigravity:** Pulso ejecuta las herramientas oficiales instaladas en tu equipo con tu propia sesión; nunca lee ni almacena tus credenciales. El texto del mensaje, el contexto que adjuntes y las imágenes que subas se envían al proveedor que elijas según su política de privacidad.
   - **Agente propio (OpenAI, Anthropic, Google, Groq y otros):** con tu propia clave, Pulso envía directamente al proveedor que elijas el mensaje, los archivos que el agente lea y el resultado de sus herramientas. No pasa por servidores de Pulso. El catálogo de proveedores y modelos se descarga de `models.dev`, sin enviar datos tuyos.
-  - **Ollama (modelo local):** toda la conversación, herramientas de lectura e imágenes permanecen en `127.0.0.1` en tu propio equipo.
+  - **Ollama (modelo local):** la conversación, lo que el agente lea y las imágenes permanecen en `127.0.0.1` en tu propio equipo. Como el agente es el mismo que con la nube, si le dejas usar herramientas que salen del equipo (leer páginas web, comandos, servidores MCP), esas sí pueden hacerlo, y siempre con tu aprobación.
 - **Actualizaciones:** al comprobar actualizaciones, Pulso consulta `latest.json` en GitHub Releases.
