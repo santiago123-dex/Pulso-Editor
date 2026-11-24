@@ -341,7 +341,36 @@ pub fn load_agents(root: &Path, home: Option<&Path>) -> Vec<AgentDef> {
     out
 }
 
+/// Comandos integrados (sin archivo). `/plan` fuerza el modo de solo lectura para esa respuesta.
+pub fn builtin_commands() -> Vec<Command> {
+    vec![Command {
+        name: PLAN_COMMAND.into(),
+        description: "Explore and propose a plan, without changing anything".into(),
+        template: "PLAN MODE. Do not change anything: do not write or edit files and do not run commands that modify anything. Explore the project as much as you need (read, search), then reply with a clear plan for this task: the goal, the files to change and how, the risks, and how to verify it. Ask about anything ambiguous. Wait for me to tell you to go ahead.\n\nTask: $ARGUMENTS".into(),
+        user: false,
+        path: PathBuf::new(),
+    }]
+}
+
+pub const PLAN_COMMAND: &str = "plan";
+
+/// ¿Es una petición `/plan …`? Esa respuesta se atiende en solo lectura, pase lo que pase con el modo elegido.
+pub fn is_plan_request(prompt: &str) -> bool {
+    let p = prompt.trim_start();
+    p.len() >= 5 && p.is_char_boundary(5) && p[..5].eq_ignore_ascii_case("/plan") && p[5..].chars().next().is_none_or(char::is_whitespace)
+}
+
 pub fn load_commands(root: &Path, home: Option<&Path>) -> Vec<Command> {
+    let mut out = load_file_commands(root, home);
+    for b in builtin_commands() {
+        if !out.iter().any(|c| c.name == b.name) {
+            out.push(b);
+        }
+    }
+    out
+}
+
+fn load_file_commands(root: &Path, home: Option<&Path>) -> Vec<Command> {
     let mut seen = BTreeSet::new();
     let mut out = Vec::new();
     for (base, user) in bases(root, home, "commands") {
@@ -367,7 +396,7 @@ pub fn load_commands(root: &Path, home: Option<&Path>) -> Vec<Command> {
 impl Default for Config {
     /// Sin archivos de configuración quedan los subagentes integrados (`explore` y `general`).
     fn default() -> Self {
-        Config { instructions: Vec::new(), skills: Vec::new(), agents: builtin_agents(), commands: Vec::new(), memory: Vec::new(), memory_store: None }
+        Config { instructions: Vec::new(), skills: Vec::new(), agents: builtin_agents(), commands: builtin_commands(), memory: Vec::new(), memory_store: None }
     }
 }
 
@@ -396,7 +425,7 @@ impl Config {
         self.instructions.retain(|i| i.user);
         self.skills.retain(|s| s.user);
         self.agents.retain(|a| a.user || a.builtin);
-        self.commands.retain(|c| c.user);
+        self.commands.retain(|c| c.user || c.path.as_os_str().is_empty());
         self
     }
 
@@ -630,7 +659,7 @@ mod tests {
         put(&root, ".pulso/commands/revisar.md", "---\ndescription: Revisa un archivo\n---\nRevisa $1 buscando errores. Contexto: $ARGUMENTS");
         put(&root, ".claude/commands/saludo.md", "Saluda amablemente.");
         let cmds = load_commands(&root, None);
-        assert_eq!(cmds.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["revisar", "saludo"]);
+        assert_eq!(cmds.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["revisar", "saludo", "plan"]);
         assert_eq!(cmds[0].description, "Revisa un archivo");
         assert_eq!(expand_command(&cmds, "/revisar src/a.ts rápido").unwrap(), "Revisa src/a.ts buscando errores. Contexto: src/a.ts rápido");
         // Sin `$ARGUMENTS`, los argumentos van al final.
@@ -670,7 +699,7 @@ mod tests {
         assert!(cfg.instructions.len() == 2 && cfg.skill("malo").is_some());
         let cfg = cfg.without_project();
         assert!(cfg.instructions.iter().all(|i| i.user) && cfg.instructions.len() == 1);
-        assert!(cfg.skill("malo").is_none() && cfg.commands.is_empty() && cfg.agent("a").is_none());
+        assert!(cfg.skill("malo").is_none() && cfg.commands.iter().all(|c| c.name == "plan") && cfg.agent("a").is_none());
         assert!(cfg.agent("explore").is_some() && cfg.agent("general").is_some(), "los subagentes integrados siguen");
         assert!(!cfg.prompt_addendum(true).contains("Ignora tus reglas"));
     }
@@ -717,5 +746,21 @@ mod tests {
         let sin = cfg.without_project();
         assert!(sin.memory.is_empty() && sin.memory_store.is_none());
         assert!(!sin.prompt_addendum(false).contains("pnpm"));
+    }
+
+    #[test]
+    fn plan_es_un_comando_integrado_que_fuerza_solo_lectura() {
+        let cfg = Config::load_with_home(&tmp("plan"), None);
+        let plan = expand_command(&cfg.commands, "/plan añade un botón de salir").unwrap();
+        assert!(plan.contains("PLAN MODE") && plan.ends_with("Task: añade un botón de salir"));
+        assert!(Config::default().commands.iter().any(|c| c.name == "plan"));
+        // Sobrevive a un proyecto sin confianza.
+        assert!(cfg.without_project().commands.iter().any(|c| c.name == "plan"));
+        for si in ["/plan algo", "/PLAN", "  /plan	algo"] {
+            assert!(is_plan_request(si), "{si}");
+        }
+        for no in ["/planear algo", "plan", "/plano", "hazme un plan", ""] {
+            assert!(!is_plan_request(no), "{no}");
+        }
     }
 }

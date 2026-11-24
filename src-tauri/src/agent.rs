@@ -427,7 +427,8 @@ pub async fn run(
     resolver: ModelResolver,
     perms: Arc<Permissions>,
 ) -> Result<(), String> {
-    let mode = Mode::parse(&mode);
+    // `/plan …` se atiende siempre en solo lectura: el agente explora y propone, no toca nada.
+    let mode = if agentconfig::is_plan_request(&prompt) { Mode::Read } else { Mode::parse(&mode) };
     let started = Instant::now();
     let send = |v: Value| emit(v.to_string());
     send(json!({ "type": "system", "subtype": "init", "session_id": conversation, "model": model.model }));
