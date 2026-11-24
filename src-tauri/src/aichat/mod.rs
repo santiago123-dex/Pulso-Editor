@@ -378,7 +378,7 @@ pub async fn agent_config(app: AppHandle, guard: State<'_, crate::fsguard::Works
         out.push(ConfigEntry { kind: "agent".into(), name: a.name.clone(), description: a.description.clone(), path: a.path.as_deref().map(p).unwrap_or_default(), user: a.user, blocked: !trusted && !a.user && !a.builtin });
     }
     for c in &cfg.commands {
-        out.push(ConfigEntry { kind: "command".into(), name: format!("/{}", c.name), description: c.description.clone(), path: p(&c.path), user: c.user, blocked: !trusted && !c.user });
+        out.push(ConfigEntry { kind: "command".into(), name: format!("/{}", c.name), description: c.description.clone(), path: p(&c.path), user: c.user, blocked: !trusted && !c.user && !c.path.as_os_str().is_empty() });
     }
     Ok(out)
 }
