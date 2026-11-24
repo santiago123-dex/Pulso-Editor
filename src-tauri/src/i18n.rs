@@ -418,7 +418,15 @@ mod tests {
     use super::*;
 
     const SOURCES: &[(&str, &str)] = &[
-        ("aichat.rs", include_str!("aichat.rs")),
+        ("aichat/mod.rs", include_str!("aichat/mod.rs")),
+        ("aichat/antigravity.rs", include_str!("aichat/antigravity.rs")),
+        ("aichat/args.rs", include_str!("aichat/args.rs")),
+        ("aichat/cli.rs", include_str!("aichat/cli.rs")),
+        ("aichat/cloud.rs", include_str!("aichat/cloud.rs")),
+        ("aichat/codex.rs", include_str!("aichat/codex.rs")),
+        ("aichat/detect.rs", include_str!("aichat/detect.rs")),
+        ("aichat/images.rs", include_str!("aichat/images.rs")),
+        ("aichat/stream.rs", include_str!("aichat/stream.rs")),
         ("agent.rs", include_str!("agent.rs")),
         ("agentconfig.rs", include_str!("agentconfig.rs")),
         ("agentmem.rs", include_str!("agentmem.rs")),

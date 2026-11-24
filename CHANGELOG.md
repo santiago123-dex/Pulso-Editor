@@ -5,6 +5,9 @@ Todos los cambios notables en Pulso Editor se documentan en este archivo.
 ## [Sin publicar]
 
 ### Interno
+- `aichat.rs` (1750 líneas) se divide en `aichat/`: detección de herramientas, programas externos, Codex, Antigravity, argumentos, salida en streaming, imágenes y agente en la nube, con las pruebas en su propio archivo. Sin cambios de comportamiento.
+### Seguridad
+- **Depurador:** la confianza en la carpeta se concede con un diálogo nativo (ya no con un comando que pudiera llamar la propia ventana) y `dap_launch` lee la configuración de los archivos del proyecto en lugar de aceptarla desde la ventana, así que una ventana comprometida no puede lanzar un programa o un adaptador cualquiera.
 - `gitops.rs` (1258 líneas) se divide en `gitops/`: cambios, ramas, remoto e historial, con las pruebas en su propio archivo. Sin cambios de comportamiento.
 
 ### Corregido
