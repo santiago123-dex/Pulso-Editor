@@ -655,6 +655,12 @@ mod tests {
         c.initialize(&cancel).unwrap();
         to_server.close();
         from_server.close();
+        // El cliente se entera de que se cerró en otro hilo: se espera a que lo note (si no, la llamada podría llegar antes).
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !c.closed.load(Ordering::SeqCst) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(c.closed.load(Ordering::SeqCst));
         assert!(c.call_tool("echo", &json!({}), &cancel).is_err());
     }
 
