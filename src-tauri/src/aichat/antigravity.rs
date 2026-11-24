@@ -46,7 +46,7 @@ pub fn parse_agy_usage_json(text: &str) -> Option<AntigravityUsage> {
     (!groups.is_empty()).then_some(AntigravityUsage { groups })
 }
 
-pub(super) fn detect_antigravity() -> AiTool {
+pub fn detect_antigravity() -> AiTool {
     let (program, prefix) = resolve_cli("agy", "PULSO_AGY_BIN", None);
     let version = match capture_vec(&program, &with_prefix(&prefix, &["--version"]), 12) {
         Ok(v) if !v.trim().is_empty() => v.trim().to_string(),
