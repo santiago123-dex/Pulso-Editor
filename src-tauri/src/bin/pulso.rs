@@ -243,7 +243,7 @@ impl Chat {
             session: self.session.clone(),
             model: self.settings.model.clone(),
             effort: self.settings.effort.clone(),
-            mode: if self.settings.edit { "edit" } else { "read" }.into(),
+            mode: if self.settings.edit { "full" } else { "read" }.into(),
         };
         match self.settings.provider.as_str() {
             "codex" => {
@@ -641,7 +641,7 @@ fn draw_composer(
         .as_deref()
         .map(|m| format!(" · {m}"))
         .unwrap_or_default();
-    let mode_tag = if chat.settings.edit { "◆ edición" } else { "● solo lectura" };
+    let mode_tag = if chat.settings.edit { "◆ agente" } else { "● solo lectura" };
     let mode_col = if chat.settings.edit { AMBER } else { CYAN };
 
     let left_plain_full = format!("  {mode_tag} · ✦ {p_lbl}{model_suffix}");
@@ -1266,7 +1266,7 @@ fn repl(settings: Settings) {
                     fresh_screen = true;
                     note("✦", VIOLET, tr("Conversación nueva iniciada."));
                 }
-                "edit" => {
+                "edit" | "agent" | "agente" => {
                     chat.settings.edit = true;
                     refresh_header_if_fresh(&chat, fresh_screen);
                     note("◆", AMBER, tr("Modo edición activado para esta carpeta."));

@@ -19,6 +19,8 @@ pub const SLATE: &str = "38;2;212;212;216";
 pub const DIM: &str = "38;2;138;138;146";
 pub const RULE: &str = "38;2;58;58;66";
 pub const BG_SEL: &str = "48;2;43;29;74";
+pub const BG_CODE: &str = "48;2;20;20;27";
+pub const BG_INLINE: &str = "48;2;32;32;42";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SlashCmd {
@@ -460,7 +462,7 @@ pub fn paint(on: bool, code: &str, text: &str) -> String {
     if on { format!("\x1b[{code}m{text}\x1b[0m") } else { text.to_string() }
 }
 
-/// Aplica **negrita** y `código` dentro de una línea de texto.
+/// Aplica **negrita** y `código` (estilo píldora oscura OpenCode) dentro de una línea de texto.
 fn inline(line: &str, color: bool) -> String {
     let chars: Vec<char> = line.chars().collect();
     let mut out = String::new();
@@ -469,7 +471,11 @@ fn inline(line: &str, color: bool) -> String {
         if chars[i] == '`' {
             if let Some(end) = chars[i + 1..].iter().position(|c| *c == '`') {
                 let code: String = chars[i + 1..i + 1 + end].iter().collect();
-                out.push_str(&paint(color, AMBER, &code));
+                if color {
+                    out.push_str(&paint(true, &format!("{BG_INLINE};{LAVENDER}"), &format!(" {code} ")));
+                } else {
+                    out.push_str(&code);
+                }
                 i += end + 2;
                 continue;
             }
@@ -479,7 +485,7 @@ fn inline(line: &str, color: bool) -> String {
             if let Some(end) = rest.find("**") {
                 if end > 0 {
                     let bold = &rest[..end];
-                    out.push_str(&paint(color, "1", bold));
+                    out.push_str(&paint(color, BRIGHT, bold));
                     i += 2 + bold.chars().count() + 2;
                     continue;
                 }
@@ -491,28 +497,164 @@ fn inline(line: &str, color: bool) -> String {
     out
 }
 
-/// Da formato a una línea de la respuesta (markdown sencillo). `in_code` recuerda si va dentro de un bloque de código.
+fn is_keyword(w: &str) -> bool {
+    matches!(
+        w,
+        "fn" | "pub" | "let" | "mut" | "const" | "struct" | "enum" | "impl" | "trait" | "match"
+            | "if" | "else" | "for" | "while" | "loop" | "return" | "use" | "mod" | "async"
+            | "await" | "import" | "export" | "from" | "function" | "class" | "interface" | "type"
+            | "def" | "try" | "catch" | "throw" | "new" | "true" | "false" | "null" | "None"
+            | "Some" | "Ok" | "Err" | "self" | "Self" | "this" | "var" | "in" | "of" | "as"
+            | "where" | "static" | "ref" | "move" | "break" | "continue" | "default" | "case"
+            | "switch" | "extends" | "implements" | "private" | "public" | "readonly" | "void"
+    )
+}
+
+/// Resaltado de sintaxis ligero estilo OpenCode para bloques de código en la terminal.
+fn highlight_code_line(line: &str) -> String {
+    let trimmed = line.trim_start();
+    // Líneas de diff (+ / - / @@).
+    if trimmed.starts_with("@@") && trimmed.contains("@@") {
+        return format!("\x1b[{BG_CODE};{VIOLET}m{line}\x1b[0m");
+    }
+    if line.starts_with('+') && !line.starts_with("+++") {
+        return format!("\x1b[{BG_CODE};{MINT}m{line}\x1b[0m");
+    }
+    if line.starts_with('-') && !line.starts_with("---") {
+        return format!("\x1b[{BG_CODE};{ROSE}m{line}\x1b[0m");
+    }
+    // Comentarios de línea completa (`//` o `#` sin `#!`/`#[`).
+    if trimmed.starts_with("//") || (trimmed.starts_with('#') && !trimmed.starts_with("#[") && !trimmed.starts_with("#!")) {
+        return format!("\x1b[{BG_CODE};3;{DIM}m{line}\x1b[0m");
+    }
+
+    let chars: Vec<char> = line.chars().collect();
+    let mut out = String::with_capacity(line.len() * 2);
+    out.push_str(&format!("\x1b[{BG_CODE};{SLATE}m"));
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        // Comentario al final de la línea (`//`).
+        if c == '/' && chars.get(i + 1) == Some(&'/') {
+            let rest: String = chars[i..].iter().collect();
+            out.push_str(&format!("\x1b[{BG_CODE};3;{DIM}m{rest}"));
+            break;
+        }
+        // Cadenas (`"..."`, `'...'`, `` `...` ``).
+        if matches!(c, '"' | '\'' | '`') {
+            let quote = c;
+            let start = i;
+            i += 1;
+            while i < chars.len() {
+                if chars[i] == '\\' && i + 1 < chars.len() {
+                    i += 2;
+                    continue;
+                }
+                if chars[i] == quote {
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            let s: String = chars[start..i].iter().collect();
+            out.push_str(&format!("\x1b[{BG_CODE};{MINT}m{s}\x1b[{BG_CODE};{SLATE}m"));
+            continue;
+        }
+        // Números.
+        if c.is_ascii_digit() && (i == 0 || !chars[i - 1].is_alphanumeric() && chars[i - 1] != '_') {
+            let start = i;
+            while i < chars.len() && (chars[i].is_ascii_alphanumeric() || matches!(chars[i], '.' | '_')) {
+                i += 1;
+            }
+            let num: String = chars[start..i].iter().collect();
+            out.push_str(&format!("\x1b[{BG_CODE};{AMBER}m{num}\x1b[{BG_CODE};{SLATE}m"));
+            continue;
+        }
+        // Identificadores: palabras clave, tipos (PascalCase) o macros (`foo!`).
+        if c.is_ascii_alphabetic() || c == '_' {
+            let start = i;
+            while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
+                i += 1;
+            }
+            let is_macro = chars.get(i) == Some(&'!');
+            if is_macro {
+                i += 1;
+            }
+            let word: String = chars[start..i].iter().collect();
+            let next_is_call = chars.get(i) == Some(&'(');
+            if is_keyword(&word) {
+                out.push_str(&format!("\x1b[{BG_CODE};{LAVENDER}m{word}\x1b[{BG_CODE};{SLATE}m"));
+            } else if is_macro || next_is_call || word.chars().next().is_some_and(|ch| ch.is_ascii_uppercase()) {
+                out.push_str(&format!("\x1b[{BG_CODE};{CYAN}m{word}\x1b[{BG_CODE};{SLATE}m"));
+            } else {
+                out.push_str(&word);
+            }
+            continue;
+        }
+        out.push(c);
+        i += 1;
+    }
+    out.push_str("\x1b[0m");
+    out
+}
+
+/// Da formato a una línea de la respuesta (markdown estilo OpenCode). `in_code` recuerda si va dentro de un bloque de código.
 pub fn render_line(line: &str, in_code: &mut bool, color: bool) -> String {
     let t = line.trim_end();
     if let Some(lang) = t.trim_start().strip_prefix("```") {
         *in_code = !*in_code;
-        let text = if *in_code { format!("╭─ {}", lang.trim()).trim_end().to_string() } else { "╰─".to_string() };
-        return paint(color, "2", &text);
+        let lang = lang.trim();
+        if !color {
+            return if *in_code { format!("╭─ {lang}").trim_end().to_string() } else { "╰─".to_string() };
+        }
+        if *in_code {
+            let tag = if lang.is_empty() { "code" } else { lang };
+            let bar = "─".repeat(48usize.saturating_sub(tag.chars().count()));
+            return format!(
+                "{} {} {}",
+                paint(true, INDIGO, "╭─"),
+                paint(true, &format!("1;{LAVENDER}"), tag),
+                paint(true, RULE, &bar),
+            );
+        } else {
+            return format!(
+                "{}{}",
+                paint(true, INDIGO, "╰"),
+                paint(true, RULE, &"─".repeat(51)),
+            );
+        }
     }
     if *in_code {
-        return format!("{} {}", paint(color, "2", "│"), t);
+        if !color {
+            return format!("│ {t}");
+        }
+        let bar = paint(true, INDIGO, "▎");
+        let highlighted = highlight_code_line(t);
+        return format!("{bar}\x1b[{BG_CODE}m \x1b[0m{highlighted}\x1b[{BG_CODE}m \x1b[0m");
     }
     let trimmed = t.trim_start();
     let indent = &t[..t.len() - trimmed.len()];
     let hashes = trimmed.chars().take_while(|c| *c == '#').count();
     if (1..=6).contains(&hashes) && trimmed[hashes..].starts_with(' ') {
-        return paint(color, &format!("1;{ACCENT}"), trimmed[hashes..].trim());
+        let heading = trimmed[hashes..].trim();
+        if !color {
+            return heading.to_string();
+        }
+        return match hashes {
+            1 => format!("{} {}", paint(true, VIOLET, "◈"), paint(true, BRIGHT, heading)),
+            2 => paint(true, &format!("1;{LAVENDER}"), heading),
+            _ => paint(true, &format!("1;{CYAN}"), heading),
+        };
     }
     if let Some(r) = trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* ")) {
-        return format!("{indent}{} {}", paint(color, ACCENT, "•"), inline(r, color));
+        return format!("{indent}{} {}", paint(color, VIOLET, "•"), inline(r, color));
     }
     if let Some(r) = trimmed.strip_prefix("> ") {
-        return format!("{} {}", paint(color, "2", "▎"), paint(color, "3", &inline(r, false)));
+        return format!("{} {}", paint(color, INDIGO, "▎"), paint(color, &format!("3;{SLATE}"), &inline(r, false)));
+    }
+    // Separadores horizontales (`---`, `***`).
+    if color && (trimmed == "---" || trimmed == "***" || trimmed == "___") {
+        return paint(true, RULE, &"─".repeat(48));
     }
     inline(t, color)
 }
