@@ -12,10 +12,24 @@ pub struct Settings {
     pub edit: bool,
     /// Confiar en la carpeta actual sin preguntar (para scripts).
     pub trust: bool,
+    /// Emitir eventos en formato NDJSON (`pulso -p "..." --json`).
+    pub json: bool,
+    /// Carpeta de trabajo explícita (`--cwd` / `-C`).
+    pub cwd: Option<String>,
 }
 
 impl Default for Settings {
-    fn default() -> Self { Settings { provider: "claude".into(), model: None, effort: None, edit: false, trust: false } }
+    fn default() -> Self {
+        Settings {
+            provider: "claude".into(),
+            model: None,
+            effort: None,
+            edit: false,
+            trust: false,
+            json: false,
+            cwd: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -26,6 +40,8 @@ pub enum Action {
     Repl(Settings),
     /// Una sola pregunta y salir (`pulso -p "texto"`).
     Ask(Settings, String),
+    /// Diagnóstico del entorno y proveedores instalados (`pulso doctor`).
+    Doctor(Option<String>),
     Help,
     Version,
     Error(String),
@@ -52,12 +68,14 @@ fn take(args: &[String], i: &mut usize, name: &str) -> Result<String, String> {
 pub fn route(args: &[String]) -> Action {
     let mut s = Settings::default();
     let mut ask: Option<String> = None;
+    let mut doctor = false;
     let mut i = 0;
     while i < args.len() {
         let a = args[i].as_str();
         match a {
             "-h" | "--help" | "help" => return Action::Help,
             "-v" | "--version" => return Action::Version,
+            "doctor" if i == 0 => { doctor = true; }
             "ai" | "chat" if i == 0 => {}
             "--provider" | "--ia" => match take(args, &mut i, a) {
                 Ok(v) => match normalize_provider(&v) {
@@ -68,12 +86,17 @@ pub fn route(args: &[String]) -> Action {
             },
             "--model" | "-m" => match take(args, &mut i, a) { Ok(v) => s.model = Some(v), Err(e) => return Action::Error(e) },
             "--effort" => match take(args, &mut i, a) { Ok(v) => s.effort = Some(v), Err(e) => return Action::Error(e) },
+            "--cwd" | "-C" => match take(args, &mut i, a) { Ok(v) => s.cwd = Some(v), Err(e) => return Action::Error(e) },
             "--edit" => s.edit = true,
             "--trust" => s.trust = true,
+            "--json" => s.json = true,
             "-p" | "--print" => match take(args, &mut i, a) { Ok(v) => ask = Some(v), Err(e) => return Action::Error(e) },
             _ => return Action::Gui,
         }
         i += 1;
+    }
+    if doctor {
+        return Action::Doctor(s.cwd);
     }
     match ask { Some(q) => Action::Ask(s, q), None => Action::Repl(s) }
 }
@@ -82,19 +105,22 @@ pub const HELP: &str = "\
 Pulso Editor
 
   pulso                       Asistente de IA en esta terminal (carpeta actual)
-  pulso -p \"pregunta\"         Una sola pregunta y salir
+  pulso -p \"pregunta\"         Una sola pregunta y salir (admite entrada por pipe/stdin)
+  pulso doctor                Comprobar proveedores instalados, sesiones y entorno
   pulso .  |  pulso archivo   Abrir la carpeta o el archivo en la ventana de Pulso
   pulso -g archivo:línea:col  Abrir en una línea
 
 Opciones del asistente:
   --provider claude|codex|antigravity   (por defecto claude)
   --model <modelo>   --effort low|medium|high|xhigh|max
-  --edit (permite editar archivos)   --trust (confiar en la carpeta sin preguntar)
+  --cwd <carpeta>    -C <carpeta>       Ejecutar sobre otra carpeta sin hacer cd
+  --edit (permite editar archivos)      --trust (confiar en la carpeta sin preguntar)
+  --json (emitir eventos NDJSON en modo -p)
 
 El asistente solo trabaja en carpetas de proyecto: la primera vez en cada una pide confianza, y no
 abre la raíz de una unidad, tu carpeta personal, Escritorio, Documentos, Descargas ni carpetas del sistema.
 
-Dentro del asistente: /help, /provider <nombre>, /model <modelo>, /effort <nivel>, /edit, /read, /new, /exit
+Dentro del asistente: /provider, /model, /effort, /edit, /read, /doctor, /new, /clear, /help, /exit
 ";
 
 // ---------- Salida en streaming ----------
@@ -266,8 +292,15 @@ mod tests {
         assert_eq!(route(&a(&["src/main.ts", "x.ts"])), Action::Gui);
         assert_eq!(route(&a(&["ai"])), Action::Repl(Settings::default()));
         assert_eq!(route(&a(&["--help"])), Action::Help);
-        match route(&a(&["--provider", "agy", "--model", "m", "--edit", "-p", "hola"])) {
-            Action::Ask(s, q) => { assert_eq!((s.provider.as_str(), s.model.as_deref(), s.edit, q.as_str()), ("antigravity", Some("m"), true, "hola")); }
+        assert_eq!(route(&a(&["doctor"])), Action::Doctor(None));
+        assert_eq!(route(&a(&["doctor", "--cwd", "C:/proj"])), Action::Doctor(Some("C:/proj".into())));
+        match route(&a(&["--provider", "agy", "--model", "m", "--edit", "--json", "-C", "sub", "-p", "hola"])) {
+            Action::Ask(s, q) => {
+                assert_eq!(
+                    (s.provider.as_str(), s.model.as_deref(), s.edit, s.json, s.cwd.as_deref(), q.as_str()),
+                    ("antigravity", Some("m"), true, true, Some("sub"), "hola")
+                );
+            }
             other => panic!("{other:?}"),
         }
         assert!(matches!(route(&a(&["--provider", "nadie"])), Action::Error(_)));
