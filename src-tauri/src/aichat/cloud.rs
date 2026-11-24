@@ -150,3 +150,31 @@ fn spawn_agent(
     });
     Ok(())
 }
+
+/// Qué servidores MCP hay configurados y cómo están: para la pantalla «IA: Servidores MCP…».
+#[derive(Serialize)]
+pub struct McpStatus {
+    pub servers: Vec<crate::agentmcp::ServerStatus>,
+    /// Dónde se escriben los servidores personales y los del proyecto (puede que el archivo todavía no exista).
+    pub personal_file: String,
+    pub project_file: String,
+}
+
+/// Arranca un momento cada servidor MCP configurado para saber si funciona y qué herramientas ofrece, y lo cierra. Los del proyecto solo
+/// se arrancan si la persona confía en él (igual que en una conversación).
+#[tauri::command]
+pub async fn agent_mcp_status(app: AppHandle, guard: State<'_, crate::fsguard::WorkspaceGuard>, cwd: String) -> Result<McpStatus, String> {
+    let dir = guard.ensure_dir(&cwd)?;
+    let trusted = project_trusted(&app, &dir);
+    let home = user_home();
+    let personal_file = home.as_ref().map(|h| h.join(".pulso").join("mcp.json").to_string_lossy().replace('\\', "/")).unwrap_or_default();
+    let project_file = dir.join(".pulso").join("mcp.json").to_string_lossy().replace('\\', "/");
+    let (root, home_for_load) = (PathBuf::from(&cwd), home.clone());
+    let servers = tauri::async_runtime::spawn_blocking(move || {
+        let config = crate::agentmcp::McpConfig::load(&root, home_for_load.as_deref());
+        crate::agentmcp::probe(&config, &root, trusted, &Arc::new(std::sync::atomic::AtomicBool::new(false)))
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(McpStatus { servers, personal_file, project_file })
+}

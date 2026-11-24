@@ -330,6 +330,78 @@ fn spawn_server(def: &ServerDef, root: &Path) -> Result<McpClient, String> {
     Ok(McpClient::from_streams(stdout, stdin, Some(pid), Some(child)))
 }
 
+/// Arranca un servidor, hace el saludo y le pide sus herramientas. El error ya trae el nombre del servidor.
+fn connect(def: &ServerDef, root: &Path, cancel: &AtomicBool) -> Result<(McpClient, Vec<Value>), String> {
+    let client = spawn_server(def, root)?;
+    match client.initialize(cancel).and_then(|_| client.list_tools(cancel)) {
+        Ok(list) => Ok((client, list)),
+        Err(e) => Err(trf("El servidor MCP «{name}» no arrancó: {e}", &[("name", &def.name), ("e", &e)])),
+    }
+}
+
+// ---------- Estado, para la pantalla de servidores ----------
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct ToolInfo {
+    pub name: String,
+    pub description: String,
+}
+
+/// Cómo está un servidor configurado. `state`: `ok` (arrancó), `error` (no arrancó) o `blocked` (es del proyecto y todavía no se confía en él:
+/// no se arranca).
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct ServerStatus {
+    pub name: String,
+    /// El programa y sus argumentos, como se escribieron (sin las variables de entorno, que pueden llevar claves).
+    pub command: String,
+    pub project: bool,
+    pub state: &'static str,
+    pub error: String,
+    pub tools: Vec<ToolInfo>,
+}
+
+fn command_line(def: &ServerDef) -> String {
+    std::iter::once(def.command.as_str()).chain(def.args.iter().map(String::as_str)).collect::<Vec<_>>().join(" ").chars().take(300).collect()
+}
+
+fn status_of(def: &ServerDef, state: &'static str, error: String, tools: Vec<ToolInfo>) -> ServerStatus {
+    ServerStatus { name: def.name.clone(), command: command_line(def), project: def.project, state, error, tools }
+}
+
+/// Arranca cada servidor (en paralelo), le pide sus herramientas y lo cierra. Los del proyecto solo se arrancan con `trusted`; sin
+/// confianza salen como `blocked`, sin ejecutar nada. Devuelve un estado por servidor, en el orden de la configuración.
+pub fn probe(config: &McpConfig, root: &Path, trusted: bool, cancel: &Arc<AtomicBool>) -> Vec<ServerStatus> {
+    let handles: Vec<_> = config
+        .servers
+        .iter()
+        .cloned()
+        .map(|def| {
+            let (root, cancel) = (root.to_path_buf(), Arc::clone(cancel));
+            std::thread::spawn(move || {
+                if def.project && !trusted {
+                    return status_of(&def, "blocked", String::new(), vec![]);
+                }
+                match connect(&def, &root, &cancel) {
+                    Ok((client, list)) => {
+                        let tools = list
+                            .iter()
+                            .filter_map(|t| Some(ToolInfo { name: t["name"].as_str().filter(|n| !n.is_empty())?.to_string(), description: t["description"].as_str().unwrap_or("").chars().take(300).collect() }))
+                            .collect();
+                        drop(client);
+                        status_of(&def, "ok", String::new(), tools)
+                    }
+                    Err(e) => status_of(&def, "error", e, vec![]),
+                }
+            })
+        })
+        .collect();
+    handles
+        .into_iter()
+        .zip(&config.servers)
+        .map(|(h, def)| h.join().unwrap_or_else(|_| status_of(def, "error", tr("Un servidor MCP falló al arrancar.").to_string(), vec![])))
+        .collect()
+}
+
 // ---------- Herramientas ofrecidas al modelo ----------
 
 pub struct McpTool {
@@ -373,12 +445,8 @@ impl McpTools {
             .map(|def| {
                 let (root, cancel) = (root.to_path_buf(), Arc::clone(cancel));
                 std::thread::spawn(move || -> Result<(String, Arc<McpClient>, Vec<Value>), String> {
-                    let client = spawn_server(&def, &root)?;
-                    let listed = client.initialize(&cancel).and_then(|_| client.list_tools(&cancel));
-                    match listed {
-                        Ok(list) => Ok((def.name, Arc::new(client), list)),
-                        Err(e) => Err(trf("El servidor MCP «{name}» no arrancó: {e}", &[("name", &def.name), ("e", &e)])),
-                    }
+                    let (client, list) = connect(&def, &root, &cancel)?;
+                    Ok((def.name, Arc::new(client), list))
                 })
             })
             .collect();
@@ -703,6 +771,44 @@ rl.on('line', (l) => {
         let (text, is_error) = t.call(&json!({ "a": 2, "b": 3 }), &cancel).unwrap();
         assert_eq!((text.as_str(), is_error), ("5", false));
         drop(tools);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// El sondeo de la pantalla de servidores: uno que funciona, uno que no existe y uno del proyecto sin confianza, que **no se ejecuta**
+    /// (necesita `node`; si no está, la prueba no hace nada).
+    #[test]
+    fn probe_reports_each_server_and_never_runs_an_untrusted_project_one() {
+        if std::process::Command::new("node").arg("--version").output().is_err() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("pulso-mcp-probe-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let marker = dir.join("se-ejecuto.txt");
+        // Si este servidor llegara a arrancar, dejaría un archivo.
+        std::fs::write(dir.join("peligroso.js"), "require('fs').writeFileSync('se-ejecuto.txt', 'x'); setTimeout(() => {}, 60000);").unwrap();
+        std::fs::write(
+            dir.join("server.js"),
+            "const rl = require('readline').createInterface({ input: process.stdin });\nrl.on('line', (l) => { const m = JSON.parse(l); if (m.id === undefined) return;\n  const send = (r) => console.log(JSON.stringify({ jsonrpc: '2.0', id: m.id, ...r }));\n  if (m.method === 'initialize') send({ result: { protocolVersion: '2025-06-18', capabilities: {}, serverInfo: { name: 'n', version: '1' } } });\n  else if (m.method === 'tools/list') send({ result: { tools: [{ name: 'suma', description: 'Suma dos números' }, { name: 'resta' }] } }); });",
+        )
+        .unwrap();
+        let def = |name: &str, command: &str, args: &[&str], project: bool| ServerDef { name: name.into(), command: command.into(), args: args.iter().map(|a| a.to_string()).collect(), env: vec![("TOKEN".into(), "secreto".into())], project };
+        let config = McpConfig {
+            servers: vec![def("js", "node", &["server.js"], false), def("roto", "programa-que-no-existe-pulso", &[], false), def("ajeno", "node", &["peligroso.js"], true)],
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let s = probe(&config, &dir, false, &cancel);
+        assert_eq!(s.iter().map(|x| (x.name.as_str(), x.state)).collect::<Vec<_>>(), vec![("js", "ok"), ("roto", "error"), ("ajeno", "blocked")]);
+        assert_eq!(s[0].tools.iter().map(|t| (t.name.as_str(), t.description.as_str())).collect::<Vec<_>>(), vec![("suma", "Suma dos números"), ("resta", "")]);
+        assert!(s[1].error.contains("roto"), "{}", s[1].error);
+        assert!(s[2].tools.is_empty() && s[2].project);
+        // Las variables de entorno (pueden llevar claves) no salen en el estado.
+        assert!(!format!("{s:?}").contains("secreto"));
+        assert_eq!(s[0].command, "node server.js");
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(!marker.exists(), "un servidor del proyecto sin confianza no debe ejecutarse");
+        // Con confianza sí se arranca (y se cierra al terminar el sondeo).
+        let trusted = probe(&McpConfig { servers: vec![def("ajeno", "node", &["server.js"], true)] }, &dir, true, &cancel);
+        assert_eq!(trusted[0].state, "ok");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
