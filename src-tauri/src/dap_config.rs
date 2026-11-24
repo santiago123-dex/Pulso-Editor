@@ -284,6 +284,10 @@ pub fn default_launch_template() -> &'static str {
 "#
 }
 
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from)
+}
+
 fn find_in_path(names: &[&str]) -> Option<PathBuf> {
     let path_var = std::env::var_os("PATH")?;
     for dir in std::env::split_paths(&path_var) {
