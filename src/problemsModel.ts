@@ -23,7 +23,11 @@ export function severityOf(markerSeverity: number): Severity | null {
   return null;
 }
 
-export interface Counts { error: number; warning: number; info: number }
+export interface Counts {
+  error: number;
+  warning: number;
+  info: number;
+}
 
 export function countProblems(list: readonly Problem[]): Counts {
   const c: Counts = { error: 0, warning: 0, info: 0 };
@@ -33,7 +37,11 @@ export function countProblems(list: readonly Problem[]): Counts {
 
 const RANK: Record<Severity, number> = { error: 0, warning: 1, info: 2 };
 
-export interface FileProblems { path: string; items: Problem[]; counts: Counts }
+export interface FileProblems {
+  path: string;
+  items: Problem[];
+  counts: Counts;
+}
 
 /**
  * Agrupa por archivo. Los archivos con más errores van primero; dentro de cada uno, por línea.
@@ -44,7 +52,8 @@ export function groupProblems(list: readonly Problem[], onlyErrors = false): Fil
   for (const p of list) {
     if (onlyErrors && p.severity !== "error") continue;
     const arr = by.get(p.path);
-    if (arr) arr.push(p); else by.set(p.path, [p]);
+    if (arr) arr.push(p);
+    else by.set(p.path, [p]);
   }
   const out: FileProblems[] = [];
   for (const [path, items] of by) {

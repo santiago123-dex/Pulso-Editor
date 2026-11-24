@@ -91,11 +91,7 @@ fn read_bounded_line(reader: &mut impl BufRead, max: usize) -> Result<Option<Str
     loop {
         let available = reader.fill_buf().map_err(|e| e.to_string())?;
         if available.is_empty() {
-            return if total == 0 {
-                Ok(None)
-            } else {
-                Ok(Some(String::from_utf8_lossy(&buf).into_owned()))
-            };
+            return if total == 0 { Ok(None) } else { Ok(Some(String::from_utf8_lossy(&buf).into_owned())) };
         }
         if let Some(pos) = available.iter().position(|&b| b == b'\n') {
             let take = pos + 1;
@@ -165,15 +161,9 @@ const NATIVE_EXE: &str = if cfg!(windows) { "tsc.exe" } else { "tsc" };
 fn native_server_path(app: &AppHandle) -> Option<PathBuf> {
     let packaged = app.path().resource_dir().ok().map(|p| p.join("lsp/typescript").join(NATIVE_EXE));
     let development = native_platform().map(|platform| {
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../node_modules/@typescript")
-            .join(format!("typescript-{platform}"))
-            .join("lib")
-            .join(NATIVE_EXE)
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../node_modules/@typescript").join(format!("typescript-{platform}")).join("lib").join(NATIVE_EXE)
     });
-    packaged
-        .filter(|p| p.is_file())
-        .or_else(|| development.filter(|p| p.is_file()))
+    packaged.filter(|p| p.is_file()).or_else(|| development.filter(|p| p.is_file()))
 }
 
 /// TypeScript instalado en el proyecto (en su `node_modules` o en el de una carpeta superior, como
@@ -197,19 +187,14 @@ fn wants_compat(project: Option<&(u32, PathBuf)>) -> bool {
 fn server_path(app: &AppHandle) -> Option<PathBuf> {
     let relative = Path::new("lsp/node_modules/typescript-language-server/lib/cli.mjs");
     let packaged = app.path().resource_dir().ok().map(|p| p.join(relative));
-    let development = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../node_modules/typescript-language-server/lib/cli.mjs");
-    packaged
-        .filter(|p| p.is_file())
-        .or_else(|| development.is_file().then_some(development))
+    let development = Path::new(env!("CARGO_MANIFEST_DIR")).join("../node_modules/typescript-language-server/lib/cli.mjs");
+    packaged.filter(|p| p.is_file()).or_else(|| development.is_file().then_some(development))
 }
 
 fn preload_path(app: &AppHandle) -> Option<PathBuf> {
     let packaged = app.path().resource_dir().ok().map(|p| p.join("lsp/no-console.cjs"));
     let development = Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/lsp-no-console.cjs");
-    packaged
-        .filter(|p| p.is_file())
-        .or_else(|| development.is_file().then_some(development))
+    packaged.filter(|p| p.is_file()).or_else(|| development.is_file().then_some(development))
 }
 
 /// Node no resuelve correctamente rutas verbatim de Windows (`\\?\C:\...`) en `--require`.
@@ -245,9 +230,7 @@ pub struct Started {
 
 /// Límite de memoria en MiB para los servidores de TypeScript (configurable con `PULSO_LSP_MAX_MB`).
 pub fn lsp_memory_limit_mb(raw: Option<&str>) -> u32 {
-    raw.and_then(|s| s.trim().parse::<u32>().ok())
-        .map(|n| n.clamp(256, 8192))
-        .unwrap_or(1536)
+    raw.and_then(|s| s.trim().parse::<u32>().ok()).map(|n| n.clamp(256, 8192)).unwrap_or(1536)
 }
 
 fn spawn_native(app: &AppHandle, root: &str) -> Result<Child, String> {
@@ -261,27 +244,16 @@ fn spawn_native(app: &AppHandle, root: &str) -> Result<Child, String> {
 
 fn spawn_compat(app: &AppHandle, root: &str) -> Result<Child, String> {
     let script = node_path(server_path(app).ok_or(tr("No se encontró el servidor de TypeScript de Pulso"))?);
-    let preload = node_path(
-        preload_path(app).ok_or(tr("No se encontró la configuración del servidor de lenguaje"))?,
-    );
+    let preload = node_path(preload_path(app).ok_or(tr("No se encontró la configuración del servidor de lenguaje"))?);
     let node = crate::aichat::node_program(Path::new(root));
     let mut command = crate::background_command(&node);
     let limit = lsp_memory_limit_mb(std::env::var("PULSO_LSP_MAX_MB").ok().as_deref());
-    command
-        .arg(format!("--max-old-space-size={limit}"))
-        .arg("--require")
-        .arg(preload)
-        .arg(script)
-        .arg("--stdio");
+    command.arg(format!("--max-old-space-size={limit}")).arg("--require").arg(preload).arg(script).arg("--stdio");
     spawn_piped(command, root).map_err(|e| e.to_string())
 }
 
 fn spawn_piped(mut command: std::process::Command, root: &str) -> std::io::Result<Child> {
-    command
-        .current_dir(root)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    command.current_dir(root).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     crate::procguard::configure_child(&mut command);
     command.spawn()
 }
@@ -314,7 +286,9 @@ fn spawn_first_available(candidates: &[(String, &[&str])], root: &str) -> Result
         cmd.args(*args);
         match spawn_piped(cmd, root) {
             Ok(child) => return Ok(child),
-            Err(e) => { last_err = e.to_string(); }
+            Err(e) => {
+                last_err = e.to_string();
+            }
         }
     }
     Err(last_err)
@@ -352,36 +326,26 @@ fn spawn_language_server(app: &AppHandle, root: &str, server_key: &str) -> Resul
             for p in extra_bin_candidates("pylsp", &[".local/bin"]) {
                 candidates.push((p, &[]));
             }
-            let child = spawn_first_available(&candidates, root).map_err(|_| {
-                tr("No se encontró un servidor LSP de Python. Instala pyright (`npm i -g pyright` o `pip install pyright`).").to_string()
-            })?;
+            let child = spawn_first_available(&candidates, root)
+                .map_err(|_| tr("No se encontró un servidor LSP de Python. Instala pyright (`npm i -g pyright` o `pip install pyright`).").to_string())?;
             Ok((child, "external", None, None))
         }
         "rust" => {
-            let candidates: Vec<(String, &[&str])> = extra_bin_candidates("rust-analyzer", &[".cargo/bin"])
-                .into_iter()
-                .map(|p| (p, &[][..]))
-                .collect();
-            let child = spawn_first_available(&candidates, root).map_err(|_| {
-                tr("No se encontró rust-analyzer. Instálalo con `rustup component add rust-analyzer`.").to_string()
-            })?;
+            let candidates: Vec<(String, &[&str])> = extra_bin_candidates("rust-analyzer", &[".cargo/bin"]).into_iter().map(|p| (p, &[][..])).collect();
+            let child = spawn_first_available(&candidates, root)
+                .map_err(|_| tr("No se encontró rust-analyzer. Instálalo con `rustup component add rust-analyzer`.").to_string())?;
             Ok((child, "external", None, None))
         }
         "go" => {
-            let candidates: Vec<(String, &[&str])> = extra_bin_candidates("gopls", &["go/bin"])
-                .into_iter()
-                .map(|p| (p, &[][..]))
-                .collect();
-            let child = spawn_first_available(&candidates, root).map_err(|_| {
-                tr("No se encontró gopls. Instálalo con `go install golang.org/x/tools/gopls@latest`.").to_string()
-            })?;
+            let candidates: Vec<(String, &[&str])> = extra_bin_candidates("gopls", &["go/bin"]).into_iter().map(|p| (p, &[][..])).collect();
+            let child = spawn_first_available(&candidates, root)
+                .map_err(|_| tr("No se encontró gopls. Instálalo con `go install golang.org/x/tools/gopls@latest`.").to_string())?;
             Ok((child, "external", None, None))
         }
         "cpp" => {
             let candidates: Vec<(String, &[&str])> = vec![("clangd".to_string(), &[][..])];
-            let child = spawn_first_available(&candidates, root).map_err(|_| {
-                tr("No se encontró clangd. Instala LLVM/clangd para activar la inteligencia de C y C++.").to_string()
-            })?;
+            let child = spawn_first_available(&candidates, root)
+                .map_err(|_| tr("No se encontró clangd. Instala LLVM/clangd para activar la inteligencia de C y C++.").to_string())?;
             Ok((child, "external", None, None))
         }
         _ => Err(tr("Servidor de lenguaje no soportado").into()),
@@ -409,17 +373,11 @@ pub async fn lsp_start(
         let (mut child, mode, tsserver, notice) = spawn_language_server(&app, &root, &server_key)?;
         crate::procguard::attach_job(&child);
         let pid = child.id();
-        let stdin = Arc::new(Mutex::new(
-            child.stdin.take().ok_or(tr("No se pudo abrir la entrada del servidor"))?,
-        ));
+        let stdin = Arc::new(Mutex::new(child.stdin.take().ok_or(tr("No se pudo abrir la entrada del servidor"))?));
         let stdout = child.stdout.take().ok_or(tr("No se pudo abrir la salida del servidor"))?;
         let stderr = child.stderr.take().ok_or(tr("No se pudo leer el error del servidor"))?;
         let id = state.next.fetch_add(1, Ordering::SeqCst) + 1;
-        state
-            .servers
-            .lock()
-            .map_err(|e| e.to_string())?
-            .insert((label.clone(), server_key), Server { id, pid, child, stdin });
+        state.servers.lock().map_err(|e| e.to_string())?.insert((label.clone(), server_key), Server { id, pid, child, stdin });
 
         let app_ev = app.clone();
         let label_ev = label.clone();
@@ -458,29 +416,18 @@ pub async fn lsp_start(
 }
 
 #[tauri::command]
-pub async fn lsp_send(
-    window: tauri::WebviewWindow,
-    state: State<'_, LspState>,
-    id: u64,
-    message: serde_json::Value,
-) -> Result<(), String> {
+pub async fn lsp_send(window: tauri::WebviewWindow, state: State<'_, LspState>, id: u64, message: serde_json::Value) -> Result<(), String> {
     let label = window.label().to_string();
     let bytes = serde_json::to_vec(&message).map_err(|e| e.to_string())?;
     let stdin = {
         let guard = state.servers.lock().map_err(|e| e.to_string())?;
-        let server = guard
-            .iter()
-            .find(|((l, _), s)| l == &label && s.id == id)
-            .map(|(_, s)| s)
-            .ok_or(tr("El servidor LSP ya no está activo"))?;
+        let server = guard.iter().find(|((l, _), s)| l == &label && s.id == id).map(|(_, s)| s).ok_or(tr("El servidor LSP ya no está activo"))?;
         Arc::clone(&server.stdin)
     };
     tauri::async_runtime::spawn_blocking(move || {
         let mut pipe = stdin.lock().map_err(|e| e.to_string())?;
         write!(pipe, "Content-Length: {}\r\n\r\n", bytes.len()).map_err(|e| e.to_string())?;
-        pipe.write_all(&bytes)
-            .and_then(|_| pipe.flush())
-            .map_err(|e| e.to_string())
+        pipe.write_all(&bytes).and_then(|_| pipe.flush()).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -507,18 +454,9 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn node_paths_remove_windows_verbatim_prefixes() {
-        assert_eq!(
-            node_path(PathBuf::from(r"\\?\C:\Pulso Editor\server.js")),
-            PathBuf::from(r"C:\Pulso Editor\server.js")
-        );
-        assert_eq!(
-            node_path(PathBuf::from(r"\\?\UNC\server\share\server.js")),
-            PathBuf::from(r"\\server\share\server.js")
-        );
-        assert_eq!(
-            node_path(PathBuf::from(r"C:\app\server.js")),
-            PathBuf::from(r"C:\app\server.js")
-        );
+        assert_eq!(node_path(PathBuf::from(r"\\?\C:\Pulso Editor\server.js")), PathBuf::from(r"C:\Pulso Editor\server.js"));
+        assert_eq!(node_path(PathBuf::from(r"\\?\UNC\server\share\server.js")), PathBuf::from(r"\\server\share\server.js"));
+        assert_eq!(node_path(PathBuf::from(r"C:\app\server.js")), PathBuf::from(r"C:\app\server.js"));
     }
     #[test]
     fn chooses_compat_only_for_projects_with_typescript_before_7() {
@@ -549,11 +487,7 @@ mod tests {
     #[test]
     fn native_server_exists_for_this_platform_in_development() {
         let platform = native_platform().expect("plataforma con TypeScript nativo");
-        let exe = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../node_modules/@typescript")
-            .join(format!("typescript-{platform}"))
-            .join("lib")
-            .join(NATIVE_EXE);
+        let exe = Path::new(env!("CARGO_MANIFEST_DIR")).join("../node_modules/@typescript").join(format!("typescript-{platform}")).join("lib").join(NATIVE_EXE);
         assert!(exe.is_file(), "falta {} (npm install)", exe.display());
     }
 
@@ -561,13 +495,7 @@ mod tests {
     fn reads_utf8_and_multiple_frames() {
         let first = "{\"text\":\"ñ😀\"}";
         let second = "{\"id\":2}";
-        let frames = format!(
-            "Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}",
-            first.len(),
-            first,
-            second.len(),
-            second
-        );
+        let frames = format!("Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}", first.len(), first, second.len(), second);
         let mut reader = BufReader::new(frames.as_bytes());
         assert_eq!(read_message(&mut reader).unwrap().unwrap()["text"], "ñ😀");
         assert_eq!(read_message(&mut reader).unwrap().unwrap()["id"], 2);

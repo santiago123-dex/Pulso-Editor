@@ -45,8 +45,13 @@ pub(crate) async fn set_workspace_root(
                 let (yes, no) = (tr("Abrir").to_string(), tr("Cancelar").to_string());
                 let handle = app.clone();
                 let ok = tauri::async_runtime::spawn_blocking(move || {
-                    handle.dialog().message(msg).title("Pulso Editor").kind(MessageDialogKind::Warning)
-                        .buttons(MessageDialogButtons::OkCancelCustom(yes, no)).blocking_show()
+                    handle
+                        .dialog()
+                        .message(msg)
+                        .title("Pulso Editor")
+                        .kind(MessageDialogKind::Warning)
+                        .buttons(MessageDialogButtons::OkCancelCustom(yes, no))
+                        .blocking_show()
                 })
                 .await
                 .map_err(|e| e.to_string())?;
@@ -67,9 +72,7 @@ pub(crate) async fn set_workspace_root(
 pub(crate) async fn pick_workspace_folder(app: tauri::AppHandle, guard: tauri::State<'_, fsguard::WorkspaceGuard>) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
     let handle = app.clone();
-    let picked = tauri::async_runtime::spawn_blocking(move || handle.dialog().file().blocking_pick_folder())
-        .await
-        .map_err(|e| e.to_string())?;
+    let picked = tauri::async_runtime::spawn_blocking(move || handle.dialog().file().blocking_pick_folder()).await.map_err(|e| e.to_string())?;
     let Some(dir) = picked else { return Ok(None) };
     let path = dir.into_path().map_err(|e| e.to_string())?;
     let canon = approve_folder(&app, &guard, &path.to_string_lossy())?;
@@ -132,24 +135,30 @@ pub(crate) fn cli_startup_targets(app: tauri::AppHandle, guard: tauri::State<'_,
 /// Añade la carpeta del programa (donde está `pulso.exe`) al PATH del usuario, para escribir `pulso .` en cualquier terminal.
 #[tauri::command]
 pub(crate) async fn install_cli_command() -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(install_cli_command_sync)
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(install_cli_command_sync).await.map_err(|e| e.to_string())?
 }
 
 pub(crate) fn install_cli_command_sync() -> Result<String, String> {
     #[cfg(not(windows))]
-    { return Ok(tr("En Linux y macOS el paquete ya instala el comando `pulso` en el PATH; no hace falta hacer nada más.").into()); }
+    {
+        return Ok(tr("En Linux y macOS el paquete ya instala el comando `pulso` en el PATH; no hace falta hacer nada más.").into());
+    }
     #[cfg(windows)]
     {
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
         let dir = exe.parent().ok_or(tr("No se encontró la carpeta del programa"))?.to_path_buf();
-        if !dir.join("pulso.exe").exists() { return Err(tr("No se encontró pulso.exe junto a Pulso Editor (¿es una compilación de desarrollo?).").into()); }
+        if !dir.join("pulso.exe").exists() {
+            return Err(tr("No se encontró pulso.exe junto a Pulso Editor (¿es una compilación de desarrollo?).").into());
+        }
         let _ = std::fs::remove_file(dir.join("pulso.cmd"));
         let script = "$d = $args[0]; $p = [Environment]::GetEnvironmentVariable('Path','User'); $parts = @(); if ($p) { $parts = $p -split ';' | Where-Object { $_ }; }; if ($parts -notcontains $d) { [Environment]::SetEnvironmentVariable('Path', (($parts + $d) -join ';'), 'User'); 'added' } else { 'present' }";
-        let out = background_command("powershell").args(["-NoProfile", "-NonInteractive", "-Command", script, &dir.to_string_lossy()])
-            .output().map_err(|e| e.to_string())?;
-        if !out.status.success() { return Err(String::from_utf8_lossy(&out.stderr).trim().to_string()); }
+        let out = background_command("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", script, &dir.to_string_lossy()])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !out.status.success() {
+            return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+        }
         Ok(trf("Listo: `pulso` quedó disponible en {dir}. Abre una terminal nueva para usarlo.", &[("dir", &dir.display())]))
     }
 }

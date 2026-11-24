@@ -6,12 +6,23 @@ import { t } from "./i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { parseJsonc, terminalTheme, type Theme } from "./themes";
 
-export interface ShellInfo { id: string; label: string; path: string; args: string[] }
+export interface ShellInfo {
+  id: string;
+  label: string;
+  path: string;
+  args: string[];
+}
 export type Scheme = Record<string, string>;
 
 const ANSI = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"] as const;
-const COLOR_KEYS = ["background", "foreground", "cursor", "selectionBackground",
-  ...ANSI, ...ANSI.map((c) => "bright" + c[0].toUpperCase() + c.slice(1))] as const;
+const COLOR_KEYS = [
+  "background",
+  "foreground",
+  "cursor",
+  "selectionBackground",
+  ...ANSI,
+  ...ANSI.map((c) => "bright" + c[0].toUpperCase() + c.slice(1)),
+] as const;
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -19,25 +30,160 @@ const HEX = /^#[0-9a-f]{6}$/i;
 const S = (bg: string, fg: string, c: string[]): Scheme => {
   const names = [...ANSI, ...ANSI.map((a) => "bright" + a[0].toUpperCase() + a.slice(1))];
   const s: Scheme = { background: bg, foreground: fg, cursor: fg, cursorAccent: bg, selectionBackground: fg + "40" };
-  names.forEach((n, i) => { s[n] = c[i]; });
+  names.forEach((n, i) => {
+    s[n] = c[i];
+  });
   return s;
 };
 
 export const BUILTIN_SCHEMES: Record<string, { label: string; colors: Scheme }> = {
-  campbell: { label: "Campbell (Windows)", colors: S("#0c0c0c", "#cccccc",
-    ["#0c0c0c", "#c50f1f", "#13a10e", "#c19c00", "#0037da", "#881798", "#3a96dd", "#cccccc", "#767676", "#e74856", "#16c60c", "#f9f1a5", "#3b78ff", "#b4009e", "#61d6d6", "#f2f2f2"]) },
-  "one-half-dark": { label: "One Half Dark", colors: S("#282c34", "#dcdfe4",
-    ["#282c34", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#dcdfe4", "#5a6374", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#dcdfe4"]) },
-  "one-half-light": { label: "One Half Light", colors: S("#fafafa", "#383a42",
-    ["#383a42", "#e45649", "#50a14f", "#c18301", "#0184bc", "#a626a4", "#0997b3", "#fafafa", "#4f525d", "#df6c75", "#98c379", "#e4c07a", "#61afef", "#c577dd", "#56b5c1", "#ffffff"]) },
-  "solarized-dark": { label: "Solarized Dark", colors: S("#002b36", "#839496",
-    ["#002b36", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5", "#073642", "#cb4b16", "#586e75", "#657b83", "#839496", "#6c71c4", "#93a1a1", "#fdf6e3"]) },
-  "tango-dark": { label: "Tango Dark", colors: S("#000000", "#d3d7cf",
-    ["#000000", "#cc0000", "#4e9a06", "#c4a000", "#3465a4", "#75507b", "#06989a", "#d3d7cf", "#555753", "#ef2929", "#8ae234", "#fce94f", "#729fcf", "#ad7fa8", "#34e2e2", "#eeeeec"]) },
-  vintage: { label: "Vintage", colors: S("#000000", "#c0c0c0",
-    ["#000000", "#800000", "#008000", "#808000", "#000080", "#800080", "#008080", "#c0c0c0", "#808080", "#ff0000", "#00ff00", "#ffff00", "#0000ff", "#ff00ff", "#00ffff", "#ffffff"]) },
-  "vscode-dark": { label: "VS Code Dark+", colors: S("#1e1e1e", "#cccccc",
-    ["#000000", "#cd3131", "#0dbc79", "#e5e510", "#2472c8", "#bc3fbc", "#11a8cd", "#e5e5e5", "#666666", "#f14c4c", "#23d18b", "#f5f543", "#3b8eea", "#d670d6", "#29b8db", "#e5e5e5"]) },
+  campbell: {
+    label: "Campbell (Windows)",
+    colors: S("#0c0c0c", "#cccccc", [
+      "#0c0c0c",
+      "#c50f1f",
+      "#13a10e",
+      "#c19c00",
+      "#0037da",
+      "#881798",
+      "#3a96dd",
+      "#cccccc",
+      "#767676",
+      "#e74856",
+      "#16c60c",
+      "#f9f1a5",
+      "#3b78ff",
+      "#b4009e",
+      "#61d6d6",
+      "#f2f2f2",
+    ]),
+  },
+  "one-half-dark": {
+    label: "One Half Dark",
+    colors: S("#282c34", "#dcdfe4", [
+      "#282c34",
+      "#e06c75",
+      "#98c379",
+      "#e5c07b",
+      "#61afef",
+      "#c678dd",
+      "#56b6c2",
+      "#dcdfe4",
+      "#5a6374",
+      "#e06c75",
+      "#98c379",
+      "#e5c07b",
+      "#61afef",
+      "#c678dd",
+      "#56b6c2",
+      "#dcdfe4",
+    ]),
+  },
+  "one-half-light": {
+    label: "One Half Light",
+    colors: S("#fafafa", "#383a42", [
+      "#383a42",
+      "#e45649",
+      "#50a14f",
+      "#c18301",
+      "#0184bc",
+      "#a626a4",
+      "#0997b3",
+      "#fafafa",
+      "#4f525d",
+      "#df6c75",
+      "#98c379",
+      "#e4c07a",
+      "#61afef",
+      "#c577dd",
+      "#56b5c1",
+      "#ffffff",
+    ]),
+  },
+  "solarized-dark": {
+    label: "Solarized Dark",
+    colors: S("#002b36", "#839496", [
+      "#002b36",
+      "#dc322f",
+      "#859900",
+      "#b58900",
+      "#268bd2",
+      "#d33682",
+      "#2aa198",
+      "#eee8d5",
+      "#073642",
+      "#cb4b16",
+      "#586e75",
+      "#657b83",
+      "#839496",
+      "#6c71c4",
+      "#93a1a1",
+      "#fdf6e3",
+    ]),
+  },
+  "tango-dark": {
+    label: "Tango Dark",
+    colors: S("#000000", "#d3d7cf", [
+      "#000000",
+      "#cc0000",
+      "#4e9a06",
+      "#c4a000",
+      "#3465a4",
+      "#75507b",
+      "#06989a",
+      "#d3d7cf",
+      "#555753",
+      "#ef2929",
+      "#8ae234",
+      "#fce94f",
+      "#729fcf",
+      "#ad7fa8",
+      "#34e2e2",
+      "#eeeeec",
+    ]),
+  },
+  vintage: {
+    label: "Vintage",
+    colors: S("#000000", "#c0c0c0", [
+      "#000000",
+      "#800000",
+      "#008000",
+      "#808000",
+      "#000080",
+      "#800080",
+      "#008080",
+      "#c0c0c0",
+      "#808080",
+      "#ff0000",
+      "#00ff00",
+      "#ffff00",
+      "#0000ff",
+      "#ff00ff",
+      "#00ffff",
+      "#ffffff",
+    ]),
+  },
+  "vscode-dark": {
+    label: "VS Code Dark+",
+    colors: S("#1e1e1e", "#cccccc", [
+      "#000000",
+      "#cd3131",
+      "#0dbc79",
+      "#e5e510",
+      "#2472c8",
+      "#bc3fbc",
+      "#11a8cd",
+      "#e5e5e5",
+      "#666666",
+      "#f14c4c",
+      "#23d18b",
+      "#f5f543",
+      "#3b8eea",
+      "#d670d6",
+      "#29b8db",
+      "#e5e5e5",
+    ]),
+  },
 };
 
 /** Convierte un esquema de Windows Terminal (purple, cursorColor…) a los nombres de xterm. */
@@ -54,11 +200,20 @@ export function schemeFromWt(raw: Record<string, unknown>): Scheme | null {
 }
 
 // ---------- Lectura de VS Code ----------
-export interface VsPrefs { font?: string; size?: number; cursor?: "block" | "bar" | "underline"; profile?: string }
+export interface VsPrefs {
+  font?: string;
+  size?: number;
+  cursor?: "block" | "bar" | "underline";
+  profile?: string;
+}
 
 export function parseVsCodeSettings(text: string): VsPrefs {
   let s: Record<string, unknown>;
-  try { s = parseJsonc(text); } catch { return {}; }
+  try {
+    s = parseJsonc(text);
+  } catch {
+    return {};
+  }
   const str = (k: string) => (typeof s[k] === "string" && (s[k] as string).trim() ? (s[k] as string).trim() : undefined);
   const num = (k: string) => (typeof s[k] === "number" && (s[k] as number) > 0 ? (s[k] as number) : undefined);
   const cursor = str("terminal.integrated.cursorStyle");
@@ -72,11 +227,21 @@ export function parseVsCodeSettings(text: string): VsPrefs {
 }
 
 // ---------- Lectura de Windows Terminal ----------
-export interface WtPrefs { font?: string; size?: number; schemeName?: string; scheme?: Scheme; profile?: string }
+export interface WtPrefs {
+  font?: string;
+  size?: number;
+  schemeName?: string;
+  scheme?: Scheme;
+  profile?: string;
+}
 
 export function parseWtSettings(text: string): WtPrefs {
   let s: any;
-  try { s = parseJsonc(text); } catch { return {}; }
+  try {
+    s = parseJsonc(text);
+  } catch {
+    return {};
+  }
   const profiles = s?.profiles;
   const list: any[] = Array.isArray(profiles?.list) ? profiles.list : Array.isArray(profiles) ? profiles : [];
   const defaults = (!Array.isArray(profiles) && profiles?.defaults) || {};
@@ -146,15 +311,25 @@ export function detectPrefs(): Promise<Detected> {
     cached = (async () => {
       let files: { kind: string; text: string }[] = [];
       let fonts: string[] = [];
-      try { files = await invoke("terminal_config_files"); } catch { /* sin archivos */ }
-      try { fonts = await invoke("installed_fonts"); } catch { /* sin lista */ }
+      try {
+        files = await invoke("terminal_config_files");
+      } catch {
+        /* sin archivos */
+      }
+      try {
+        fonts = await invoke("installed_fonts");
+      } catch {
+        /* sin lista */
+      }
       return buildDetected(files, fonts);
     })();
   }
   return cached;
 }
 
-export const resetDetected = () => { cached = null; };
+export const resetDetected = () => {
+  cached = null;
+};
 
 /** True si hay algo útil que ofrecer al usuario (fuente, esquema propio o shell). */
 export function hasAnythingToAdapt(d: Detected, shells: ShellInfo[]): boolean {
@@ -175,7 +350,8 @@ export function resolveScheme(setting: string, det: Detected | null, editorTheme
 /** Lista para elegir en Configuración. */
 export function schemeOptions(det: Detected | null): { value: string; label: string }[] {
   const opts = [{ value: "", label: t("Igual que el tema del editor") }];
-  if (det?.wt?.scheme) opts.push({ value: "wt", label: t("El de Windows Terminal ({scheme})", { scheme: det.wt.schemeName ?? t("actual") }) });
+  if (det?.wt?.scheme)
+    opts.push({ value: "wt", label: t("El de Windows Terminal ({scheme})", { scheme: det.wt.schemeName ?? t("actual") }) });
   for (const [id, s] of Object.entries(BUILTIN_SCHEMES)) opts.push({ value: "builtin:" + id, label: s.label });
   return opts;
 }

@@ -4,23 +4,41 @@ import { t } from "./i18n";
 import { $, h } from "./util";
 
 /** Entrada de un menú: un comando registrado, una acción propia o un separador. */
-export type MenuEntry =
-  | { cmd: string; label: string }
-  | { label: string; run: () => void | Promise<void>; hint?: string }
-  | "sep";
+export type MenuEntry = { cmd: string; label: string } | { label: string; run: () => void | Promise<void>; hint?: string } | "sep";
 
-export interface MenuDef { label: string; items: MenuEntry[] }
+export interface MenuDef {
+  label: string;
+  items: MenuEntry[];
+}
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 
-interface Resolved { label: string; hint?: string; run: () => void; disabled?: boolean }
+interface Resolved {
+  label: string;
+  hint?: string;
+  run: () => void;
+  disabled?: boolean;
+}
 
 function resolve(e: Exclude<MenuEntry, "sep">): Resolved {
   if ("cmd" in e) {
     const c = commands.find((x) => x.id === e.cmd);
-    return { label: e.label, hint: c ? keyOf(c) : "", run: () => { void c?.run(); }, disabled: !c };
+    return {
+      label: e.label,
+      hint: c ? keyOf(c) : "",
+      run: () => {
+        void c?.run();
+      },
+      disabled: !c,
+    };
   }
-  return { label: e.label, hint: e.hint, run: () => { void e.run(); } };
+  return {
+    label: e.label,
+    hint: e.hint,
+    run: () => {
+      void e.run();
+    },
+  };
 }
 
 /** Nombre del proyecto que se muestra en el centro de la barra. */
@@ -53,18 +71,15 @@ export function beat() {
   beatTimer = window.setTimeout(() => tb.classList.remove("beat"), 1100);
 }
 
-export function initTitlebar(opts: {
-  menus: MenuDef[];
-  onTitleClick: () => void;
-  onBack: () => void;
-  onForward: () => void;
-}) {
+export function initTitlebar(opts: { menus: MenuDef[]; onTitleClick: () => void; onBack: () => void; onForward: () => void }) {
   // ---------- Menú de hamburguesa: categorías a la izquierda, opciones a la derecha ----------
   const burger = $("tb-burger");
   let panel: HTMLElement | null = null;
   let teardown = () => {};
 
-  const closePanel = () => { teardown(); };
+  const closePanel = () => {
+    teardown();
+  };
 
   const openPanel = () => {
     closePanel();
@@ -78,12 +93,19 @@ export function initTitlebar(opts: {
       rows.forEach((r, j) => r.classList.toggle("on", j === i));
       fly.replaceChildren();
       for (const e of opts.menus[i].items) {
-        if (e === "sep") { fly.append(h("div", "ctx-sep")); continue; }
+        if (e === "sep") {
+          fly.append(h("div", "ctx-sep"));
+          continue;
+        }
         const it = resolve(e);
         const row = h("div", "ctx-item" + (it.disabled ? " disabled" : ""));
         row.append(h("span", "", it.label));
         if (it.hint) row.append(h("kbd", "", it.hint));
-        if (!it.disabled) row.onclick = () => { closePanel(); it.run(); };
+        if (!it.disabled)
+          row.onclick = () => {
+            closePanel();
+            it.run();
+          };
         fly.append(row);
       }
     };
@@ -108,7 +130,9 @@ export function initTitlebar(opts: {
     const onDown = (e: MouseEvent) => {
       if (!root.contains(e.target as Node) && !burger.contains(e.target as Node)) closePanel();
     };
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closePanel(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closePanel();
+    };
     document.addEventListener("mousedown", onDown, true);
     document.addEventListener("keydown", onKey, true);
     window.addEventListener("blur", closePanel);
@@ -123,7 +147,10 @@ export function initTitlebar(opts: {
     };
   };
 
-  burger.onclick = () => { if (panel) closePanel(); else openPanel(); };
+  burger.onclick = () => {
+    if (panel) closePanel();
+    else openPanel();
+  };
 
   // ---------- Nombre del proyecto y navegación ----------
   $("tb-title").onclick = opts.onTitleClick;
@@ -134,14 +161,19 @@ export function initTitlebar(opts: {
 
   // ---------- Controles de ventana ----------
   const controls = $("win-controls");
-  if (!inTauri) { controls.hidden = true; return; }
+  if (!inTauri) {
+    controls.hidden = true;
+    return;
+  }
   const win = getCurrentWindow();
   const syncMax = async () => {
     try {
       const max = await win.isMaximized();
       $("win-max").classList.toggle("restored", max);
       $("win-max").title = max ? t("Restaurar") : t("Maximizar");
-    } catch { /* sin permiso o sin ventana */ }
+    } catch {
+      /* sin permiso o sin ventana */
+    }
   };
   $("win-min").onclick = () => void win.minimize();
   $("win-max").onclick = () => void win.toggleMaximize().then(syncMax);

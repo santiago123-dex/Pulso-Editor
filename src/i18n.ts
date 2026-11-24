@@ -28,7 +28,9 @@ let current: Lang = resolveLang(savedSetting(), globalThis.navigator?.languages 
 
 export const lang = (): Lang => current;
 /** Solo para pruebas. */
-export function setLangForTests(l: Lang) { current = l; }
+export function setLangForTests(l: Lang) {
+  current = l;
+}
 
 /** Rellena «{nombre}» con los valores dados. */
 export function fill(text: string, params?: Record<string, string | number>): string {
@@ -38,7 +40,7 @@ export function fill(text: string, params?: Record<string, string | number>): st
 
 /** Traduce un texto de la interfaz. Los valores variables van como «{nombre}» en el texto y en `params`. */
 export function t(text: string, params?: Record<string, string | number>): string {
-  return fill(current === "en" ? en[text] ?? text : text, params);
+  return fill(current === "en" ? (en[text] ?? text) : text, params);
 }
 
 const ATTRS = ["title", "placeholder", "aria-label"] as const;

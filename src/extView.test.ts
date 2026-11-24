@@ -128,7 +128,19 @@ describe("extView", () => {
         };
       }
       if (cmd === "ext_confirm_install") {
-        return { enabled: true, dir: "/ext/pulso.demo", manifest: { id: "pulso.demo", name: "Demo", version: "1.0.0", description: "", author: "", permissions: ["files", "terminal"], contributes: { themes: [], snippets: [], commands: [], languageServers: [] } } };
+        return {
+          enabled: true,
+          dir: "/ext/pulso.demo",
+          manifest: {
+            id: "pulso.demo",
+            name: "Demo",
+            version: "1.0.0",
+            description: "",
+            author: "",
+            permissions: ["files", "terminal"],
+            contributes: { themes: [], snippets: [], commands: [], languageServers: [] },
+          },
+        };
       }
       if (cmd === "ext_list") return [];
       return null;

@@ -13,10 +13,7 @@ const DEFAULTS = ["explorer", "search", "git", "issues", "ai", "prs", "chat", "p
 
 describe("activityOrder", () => {
   it("normaliza órdenes guardados, descarta obsoletos y agrega nuevas vistas al final", () => {
-    const cfg = normalizeActivity(
-      { order: ["ai", "obsoleto", "explorer", "ai"], hidden: ["search", "obsoleto"] },
-      DEFAULTS,
-    );
+    const cfg = normalizeActivity({ order: ["ai", "obsoleto", "explorer", "ai"], hidden: ["search", "obsoleto"] }, DEFAULTS);
     expect(cfg.order).toEqual(["ai", "explorer", "search", "git", "issues", "prs", "chat", "problems"]);
     expect(cfg.hidden).toEqual(["search"]);
   });

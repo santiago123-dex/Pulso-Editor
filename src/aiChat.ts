@@ -40,7 +40,21 @@ import { extractProposedEdits } from "./workflow/issueWorkflowModel";
 import { reviewProposedEdit } from "./workflow/issueWorkflow";
 import { ICON_EXPAND, ICON_SHRINK, ICON_PLUS, ICON_CLOCK, ICON_SEND, ICON_STOP, ICON_IMAGE, ICON_PALETTE, iconBtn } from "./ai/icons";
 import { markdown, setLeaveFullscreenHook } from "./ai/markdownView";
-import { S, ctl, lives, tools, isFull, seconds, viewEl, q, USAGE_KEY, USAGE_SIG_KEY, FULL_KEY, type Live, type AiMode } from "./ai/chatState";
+import {
+  S,
+  ctl,
+  lives,
+  tools,
+  isFull,
+  seconds,
+  viewEl,
+  q,
+  USAGE_KEY,
+  USAGE_SIG_KEY,
+  FULL_KEY,
+  type Live,
+  type AiMode,
+} from "./ai/chatState";
 import { INTERRUPTED_KEY, fromSaved, newLive, persist, saveRunningBeforeExit } from "./ai/conversations";
 import { refreshExtraUsage, refreshUsage, saveUsage } from "./ai/usageSync";
 import { buildDenialCard, dismissedDenials, proposalStatus, renderIssueBanner } from "./ai/denials";
@@ -54,7 +68,9 @@ import { dismissPopover, openPopover } from "./ai/popoverBase";
 import { openQuickPromptsPopover } from "./ai/quota";
 import "./aiChat.css";
 
-setLeaveFullscreenHook(() => { if (isFull()) setFull(false); });
+setLeaveFullscreenHook(() => {
+  if (isFull()) setFull(false);
+});
 
 /**
  * Asistente de IA: conversa en la carpeta del proyecto con Claude Code, ChatGPT/Codex (`codex app-server`) o Antigravity (`agy`).
@@ -79,22 +95,26 @@ function switchProvider(next: AiProvider) {
   if (S.shown) renderBody();
 }
 
-
-
 // ---------- Eventos de la herramienta ----------
 let diskTimer = 0;
 function refreshDisk() {
   window.clearTimeout(diskTimer);
-  diskTimer = window.setTimeout(() => { void checkExternal(); void refreshTree(); void refreshScm(); }, 500);
+  diskTimer = window.setTimeout(() => {
+    void checkExternal();
+    void refreshTree();
+    void refreshScm();
+  }, 500);
 }
 
 let paintQueued = false;
 function schedulePaint() {
   if (paintQueued || !S.shown) return;
   paintQueued = true;
-  requestAnimationFrame(() => { paintQueued = false; renderBody(); });
+  requestAnimationFrame(() => {
+    paintQueued = false;
+    renderBody();
+  });
 }
-
 
 let lastPersistAt = 0;
 
@@ -120,7 +140,12 @@ function apply(live: Live, ev: AiEvent) {
   if (S.current === live) schedulePaint();
 }
 
-interface TurnCacheEntry { parts: Turn[]; active: boolean; activitySig: string; slot: HTMLElement }
+interface TurnCacheEntry {
+  parts: Turn[];
+  active: boolean;
+  activitySig: string;
+  slot: HTMLElement;
+}
 
 const activitySignature = (t: Turn, active: boolean): string => {
   if (t.role !== "assistant") return "";
@@ -153,8 +178,10 @@ function renderBody() {
   const sub = q(".ai-sub");
   if (sub) {
     if (!curTool?.installed) sub.textContent = "";
-    else if (prov === "claude") sub.textContent = `Claude Code${curTool.version ? ` ${curTool.version.split(" ")[0]}` : ""}${curTool.plan ? " · " + tr("plan {plan}", { plan: planLabel(curTool.plan) }) : ""}`;
-    else sub.textContent = `${meta.title}${curTool.version ? ` ${curTool.version.split(" ")[0]}` : ""}${curTool.plan ? ` · ${curTool.plan}` : ""}`;
+    else if (prov === "claude")
+      sub.textContent = `Claude Code${curTool.version ? ` ${curTool.version.split(" ")[0]}` : ""}${curTool.plan ? " · " + tr("plan {plan}", { plan: planLabel(curTool.plan) }) : ""}`;
+    else
+      sub.textContent = `${meta.title}${curTool.version ? ` ${curTool.version.split(" ")[0]}` : ""}${curTool.plan ? ` · ${curTool.plan}` : ""}`;
   }
   const liveDot = q(".ai-live-dot");
   if (liveDot) {
@@ -163,29 +190,63 @@ function renderBody() {
   const planBadge = q(".ai-plan-pill");
   if (planBadge) {
     planBadge.hidden = !curTool?.installed || !curTool.logged_in;
-    planBadge.textContent = prov === "claude"
-      ? (curTool?.plan ? tr("Plan {plan}", { plan: planLabel(curTool.plan) }) : tr("Conectado"))
-      : prov === "codex"
-        ? (curTool?.auth_method === "api_key" ? "Codex API" : curTool?.plan && curTool.plan !== "ChatGPT" ? `ChatGPT ${planLabel(curTool.plan)}` : "ChatGPT")
-        : prov === "local" ? "Ollama" : (curTool?.plan || "Antigravity");
+    planBadge.textContent =
+      prov === "claude"
+        ? curTool?.plan
+          ? tr("Plan {plan}", { plan: planLabel(curTool.plan) })
+          : tr("Conectado")
+        : prov === "codex"
+          ? curTool?.auth_method === "api_key"
+            ? "Codex API"
+            : curTool?.plan && curTool.plan !== "ChatGPT"
+              ? `ChatGPT ${planLabel(curTool.plan)}`
+              : "ChatGPT"
+          : prov === "local"
+            ? "Ollama"
+            : curTool?.plan || "Antigravity";
   }
   const histBtn = q<HTMLButtonElement>(`.ai-tools button[title="${CSS.escape(tr("Conversaciones anteriores"))}"]`);
-  if (histBtn) { histBtn.classList.toggle("active", S.historyOpen); histBtn.setAttribute("aria-pressed", String(S.historyOpen)); }
+  if (histBtn) {
+    histBtn.classList.toggle("active", S.historyOpen);
+    histBtn.setAttribute("aria-pressed", String(S.historyOpen));
+  }
   renderIssueBanner();
   renderFoot();
-  const recheck = () => { S.toolAt = 0; void detect(true); };
+  const recheck = () => {
+    S.toolAt = 0;
+    void detect(true);
+  };
   const ready = !!curTool?.installed && curTool.logged_in && !!ws.root;
   compose.hidden = !ready || S.historyOpen;
-  if (!curTool) { resetTurnCache(); body.replaceChildren(setupMessage(tr("Detectando {provider}", { provider: meta.title }), tr("Comprobando sesión y estado de tu cuenta…"))); return; }
+  if (!curTool) {
+    resetTurnCache();
+    body.replaceChildren(
+      setupMessage(tr("Detectando {provider}", { provider: meta.title }), tr("Comprobando sesión y estado de tu cuenta…")),
+    );
+    return;
+  }
   if (!curTool.installed) {
     resetTurnCache();
     const canInstall = !!(meta.npmPkg || meta.installCmdPs);
-    const installBtn = canInstall ? (() => { const b = h("button", "foot-btn ai-btn-primary", tr("Instalar y conectar")); b.type = "button"; b.onclick = () => void installAndConnect(prov); return b; })() : null;
-    const again = h("button", canInstall ? "foot-btn foot-btn-line" : "foot-btn ai-btn-primary", tr("Volver a comprobar")); again.type = "button"; again.onclick = recheck;
-    const guide = h("button", "foot-btn foot-btn-line", tr("Cómo instalarlo")); guide.type = "button"; guide.onclick = () => void openExternal(meta.docsUrl);
+    const installBtn = canInstall
+      ? (() => {
+          const b = h("button", "foot-btn ai-btn-primary", tr("Instalar y conectar"));
+          b.type = "button";
+          b.onclick = () => void installAndConnect(prov);
+          return b;
+        })()
+      : null;
+    const again = h("button", canInstall ? "foot-btn foot-btn-line" : "foot-btn ai-btn-primary", tr("Volver a comprobar"));
+    again.type = "button";
+    again.onclick = recheck;
+    const guide = h("button", "foot-btn foot-btn-line", tr("Cómo instalarlo"));
+    guide.type = "button";
+    guide.onclick = () => void openExternal(meta.docsUrl);
     const extraBtns: HTMLElement[] = [...(installBtn ? [installBtn] : []), again, guide];
     if (prov !== "claude") {
-      const back = h("button", "foot-btn foot-btn-line", tr("Volver a Claude Code")); back.type = "button"; back.onclick = () => switchProvider("claude");
+      const back = h("button", "foot-btn foot-btn-line", tr("Volver a Claude Code"));
+      back.type = "button";
+      back.onclick = () => switchProvider("claude");
       extraBtns.push(back);
     }
     body.replaceChildren(setupMessage(tr("{provider} no está instalado", { provider: meta.title }), meta.installHint, ...extraBtns));
@@ -193,31 +254,74 @@ function renderBody() {
   }
   if (!curTool.logged_in) {
     resetTurnCache();
-    const login = h("button", "foot-btn ai-btn-primary", meta.loginBtn); login.type = "button";
+    const login = h("button", "foot-btn ai-btn-primary", meta.loginBtn);
+    login.type = "button";
     login.onclick = () => startLoginFlow(prov);
-    const again = h("button", "foot-btn foot-btn-line", prov === "local" ? tr("Volver a comprobar") : tr("Ya inicié sesión: volver a comprobar")); again.type = "button"; again.onclick = recheck;
+    const again = h(
+      "button",
+      "foot-btn foot-btn-line",
+      prov === "local" ? tr("Volver a comprobar") : tr("Ya inicié sesión: volver a comprobar"),
+    );
+    again.type = "button";
+    again.onclick = recheck;
     const extraBtns: HTMLElement[] = [login, again];
     // Para Ollama «sin sesión» significa que no hay ningún modelo descargado.
     const couldNotCheck = !!curTool.error && prov !== "local" && prov !== "cloud";
-    const title = prov === "cloud" ? tr("Conecta un proveedor de modelos") : couldNotCheck ? tr("No se pudo comprobar tu sesión de {provider}", { provider: meta.title }) : prov === "claude" ? tr("Inicia sesión para cargar tu plan") : prov === "local" ? tr("Descarga un modelo para Ollama") : tr("Inicia sesión en {provider}", { provider: meta.title });
-    const desc = prov === "cloud"
-      ? tr("Pega la clave de un proveedor (OpenAI, Anthropic, Google, OpenRouter, DeepSeek… hay más de 300 en models.dev). La clave se guarda en el almacén seguro del sistema y nunca vuelve a la ventana.")
-      : couldNotCheck
-      ? tr("{provider} está instalado, pero no se pudo comprobar si hay una sesión iniciada (puede ser algo puntual). Pulsa «volver a comprobar»; si sigue igual, inicia sesión de nuevo.", { provider: meta.title })
-      : prov === "local"
-      ? tr("Ollama está en marcha pero no tiene ningún modelo. «Descargar un modelo» baja qwen2.5-coder:7b (unos 4,7 GB) en la terminal integrada; también puedes descargar otro con «ollama pull <modelo>».")
-      : prov === "claude"
-      ? tr("Claude Code está instalado pero no hay una sesión iniciada. Se abrirá el inicio de sesión y tu plan se cargará al instante.")
-      : tr("{provider} está instalado pero no hay una sesión iniciada. Se abrirá el inicio de sesión en la terminal integrada.", { provider: meta.title });
+    const title =
+      prov === "cloud"
+        ? tr("Conecta un proveedor de modelos")
+        : couldNotCheck
+          ? tr("No se pudo comprobar tu sesión de {provider}", { provider: meta.title })
+          : prov === "claude"
+            ? tr("Inicia sesión para cargar tu plan")
+            : prov === "local"
+              ? tr("Descarga un modelo para Ollama")
+              : tr("Inicia sesión en {provider}", { provider: meta.title });
+    const desc =
+      prov === "cloud"
+        ? tr(
+            "Pega la clave de un proveedor (OpenAI, Anthropic, Google, OpenRouter, DeepSeek… hay más de 300 en models.dev). La clave se guarda en el almacén seguro del sistema y nunca vuelve a la ventana.",
+          )
+        : couldNotCheck
+          ? tr(
+              "{provider} está instalado, pero no se pudo comprobar si hay una sesión iniciada (puede ser algo puntual). Pulsa «volver a comprobar»; si sigue igual, inicia sesión de nuevo.",
+              { provider: meta.title },
+            )
+          : prov === "local"
+            ? tr(
+                "Ollama está en marcha pero no tiene ningún modelo. «Descargar un modelo» baja qwen2.5-coder:7b (unos 4,7 GB) en la terminal integrada; también puedes descargar otro con «ollama pull <modelo>».",
+              )
+            : prov === "claude"
+              ? tr(
+                  "Claude Code está instalado pero no hay una sesión iniciada. Se abrirá el inicio de sesión y tu plan se cargará al instante.",
+                )
+              : tr("{provider} está instalado pero no hay una sesión iniciada. Se abrirá el inicio de sesión en la terminal integrada.", {
+                  provider: meta.title,
+                });
     if (prov !== "claude") {
-      const back = h("button", "foot-btn foot-btn-line", tr("Volver a Claude Code")); back.type = "button"; back.onclick = () => switchProvider("claude");
+      const back = h("button", "foot-btn foot-btn-line", tr("Volver a Claude Code"));
+      back.type = "button";
+      back.onclick = () => switchProvider("claude");
       extraBtns.push(back);
     }
     body.replaceChildren(setupMessage(title, desc, ...extraBtns));
     return;
   }
-  if (!ws.root) { resetTurnCache(); body.replaceChildren(setupMessage(tr("Abre un proyecto"), tr("Abre una carpeta de proyecto para que el asistente pueda leer tu código y ayudarte dentro de ella."))); return; }
-  if (S.historyOpen) { resetTurnCache(); renderHistory(body); return; }
+  if (!ws.root) {
+    resetTurnCache();
+    body.replaceChildren(
+      setupMessage(
+        tr("Abre un proyecto"),
+        tr("Abre una carpeta de proyecto para que el asistente pueda leer tu código y ayudarte dentro de ella."),
+      ),
+    );
+    return;
+  }
+  if (S.historyOpen) {
+    resetTurnCache();
+    renderHistory(body);
+    return;
+  }
 
   if (S.current && !sameDir(S.current.cwd, ws.root)) {
     if (S.current.convo.messages.length) persist(S.current, true);
@@ -267,7 +371,10 @@ function renderBody() {
         const { final } = splitAssistantTurn(t.blocks);
         let wrap = slot.querySelector<HTMLElement>(":scope > .ai-assistant");
         if (final.trim()) {
-          if (!wrap) { wrap = h("div", "ai-assistant"); slot.append(wrap); }
+          if (!wrap) {
+            wrap = h("div", "ai-assistant");
+            slot.append(wrap);
+          }
           wrap.replaceChildren(...markdown(final));
         } else {
           wrap?.remove();
@@ -290,7 +397,8 @@ function renderBody() {
       const e = h("div", "ai-error");
       e.append(h("div", "", c.error));
       if (isAuthError(c.error)) {
-        const b = h("button", "foot-btn foot-btn-line", tr("Iniciar sesión en la terminal")); b.type = "button";
+        const b = h("button", "foot-btn foot-btn-line", tr("Iniciar sesión en la terminal"));
+        b.type = "button";
         b.onclick = () => startLoginFlow(live.provider);
         e.append(b);
       }
@@ -305,7 +413,10 @@ function renderBody() {
       // Propuestas revisables en bloques ```lang path=... del último turno del asistente.
       const lastAssistant = [...c.messages].reverse().find((m) => m.role === "assistant");
       const assistantMd = lastAssistant
-        ? lastAssistant.blocks.filter((b): b is Extract<Block, { kind: "text" }> => b.kind === "text").map((b) => b.text).join("\n")
+        ? lastAssistant.blocks
+            .filter((b): b is Extract<Block, { kind: "text" }> => b.kind === "text")
+            .map((b) => b.text)
+            .join("\n")
         : "";
       const proposals = assistantMd ? extractProposedEdits(assistantMd) : [];
       if (proposals.length) {
@@ -314,7 +425,12 @@ function renderBody() {
         for (const edit of proposals) {
           const pkey = `${live.id}:${lastAssistant?.id ?? ""}:${edit.path}`;
           const st = proposalStatus.get(pkey);
-          const label = st === "applied" ? `${baseName(edit.path)} ✓` : st === "discarded" ? `${baseName(edit.path)} ✕` : `Diff: ${baseName(edit.path)}`;
+          const label =
+            st === "applied"
+              ? `${baseName(edit.path)} ✓`
+              : st === "discarded"
+                ? `${baseName(edit.path)} ✕`
+                : `Diff: ${baseName(edit.path)}`;
           const btn = h("button", `ai-prop-btn${st ? ` ${st}` : ""}`, label);
           btn.type = "button";
           btn.title = tr("{path} — Revisar diferencias antes de aplicar", { path: edit.path });
@@ -322,8 +438,14 @@ function renderBody() {
             if (isFull()) setFull(false);
             void reviewProposedEdit(
               edit,
-              () => { proposalStatus.set(pkey, "applied"); renderBody(); },
-              () => { proposalStatus.set(pkey, "discarded"); renderBody(); },
+              () => {
+                proposalStatus.set(pkey, "applied");
+                renderBody();
+              },
+              () => {
+                proposalStatus.set(pkey, "discarded");
+                renderBody();
+              },
             );
           };
           pbox.append(btn);
@@ -358,8 +480,13 @@ function renderBody() {
         const secs = c.outcome.durationMs ? ` · ${seconds(c.outcome.durationMs)} s` : "";
         const modelTag = c.model ? ` · ${formatModelName(c.model)}` : "";
         const o = h("div", "ai-outcome", tr("Listo") + secs + modelTag);
-        if (c.touched) o.append(" · " + (c.touched === 1 ? tr("1 archivo modificado") : tr("{count} archivos modificados", { count: c.touched })));
-        if (c.outcome.denials) o.append(" · " + (c.outcome.denials === 1 ? tr("1 acción no permitida") : tr("{count} acciones no permitidas", { count: c.outcome.denials })));
+        if (c.touched)
+          o.append(" · " + (c.touched === 1 ? tr("1 archivo modificado") : tr("{count} archivos modificados", { count: c.touched })));
+        if (c.outcome.denials)
+          o.append(
+            " · " +
+              (c.outcome.denials === 1 ? tr("1 acción no permitida") : tr("{count} acciones no permitidas", { count: c.outcome.denials })),
+          );
         tailNodes.push(o);
       }
     }
@@ -379,23 +506,46 @@ function renderBody() {
 function renderHistory(body: HTMLElement) {
   const saved = chatsFor(loadChats(), ws.root ?? "");
   const rows: { id: string; title: string; when: number; running: boolean }[] = [];
-  for (const l of lives.values()) if (l.convo.messages.length && ws.root && sameDir(l.cwd, ws.root)) rows.push({ id: l.id, title: titleFrom(l.convo.messages), when: Date.now(), running: l.convo.running });
+  for (const l of lives.values())
+    if (l.convo.messages.length && ws.root && sameDir(l.cwd, ws.root))
+      rows.push({ id: l.id, title: titleFrom(l.convo.messages), when: Date.now(), running: l.convo.running });
   for (const c of saved) if (!rows.some((r) => r.id === c.id)) rows.push({ id: c.id, title: c.title, when: c.updatedAt, running: false });
   rows.sort((a, b) => b.when - a.when);
   const nodes: HTMLElement[] = [h("div", "ai-hist-title", tr("Conversaciones de este proyecto"))];
   if (!rows.length) nodes.push(h("div", "ai-hist-empty", tr("Aún no hay conversaciones guardadas.")));
   for (const r of rows) {
     const row = h("div", `ai-hist-row${S.current?.id === r.id ? " current" : ""}`);
-    const open = h("button", "ai-hist-open"); open.type = "button";
+    const open = h("button", "ai-hist-open");
+    open.type = "button";
     open.append(h("span", "ai-hist-name", r.title), h("span", "ai-hist-when", r.running ? "respondiendo…" : agoFrom(r.when)));
     open.onclick = () => {
-      const opened = lives.get(r.id) ?? (() => { const l = fromSaved(saved.find((c) => c.id === r.id)!); lives.set(l.id, l); return l; })();
+      const opened =
+        lives.get(r.id) ??
+        (() => {
+          const l = fromSaved(saved.find((c) => c.id === r.id)!);
+          lives.set(l.id, l);
+          return l;
+        })();
       switchProvider(opened.provider);
       S.current = opened;
-      S.historyOpen = false; renderBody();
+      S.historyOpen = false;
+      renderBody();
     };
-    const del = iconBtn('<svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/></svg>', tr("Eliminar esta conversación"), "ai-hist-del");
-    del.onclick = () => { deleteChat(r.id); if (lives.get(r.id)?.convo.running) { void invoke("ai_stop", { id: r.id }); } lives.delete(r.id); if (S.current?.id === r.id) S.current = null; pruneUnusedImages(); renderBody(); };
+    const del = iconBtn(
+      '<svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/></svg>',
+      tr("Eliminar esta conversación"),
+      "ai-hist-del",
+    );
+    del.onclick = () => {
+      deleteChat(r.id);
+      if (lives.get(r.id)?.convo.running) {
+        void invoke("ai_stop", { id: r.id });
+      }
+      lives.delete(r.id);
+      if (S.current?.id === r.id) S.current = null;
+      pruneUnusedImages();
+      renderBody();
+    };
     row.append(open, del);
     nodes.push(row);
   }
@@ -404,7 +554,10 @@ function renderHistory(body: HTMLElement) {
 
 // ---------- Acciones ----------
 async function detect(force = false) {
-  if (!force && S.tool && Date.now() - S.toolAt < 60_000) { if (S.shown) renderBody(); return; }
+  if (!force && S.tool && Date.now() - S.toolAt < 60_000) {
+    if (S.shown) renderBody();
+    return;
+  }
   if (S.detectInFlight) return S.detectInFlight;
   const wasLogged = !!tools[S.activeProvider]?.logged_in;
   if (!S.tool && S.shown) renderBody();
@@ -412,7 +565,11 @@ async function detect(force = false) {
     try {
       const all = await invoke<AllAiTools>("ai_detect_all").catch(async () => {
         const claude = await invoke<AiTool>("ai_detect");
-        return { claude, codex: null, antigravity: null } as unknown as { claude: AiTool; codex: AiTool | null; antigravity: AiTool | null };
+        return { claude, codex: null, antigravity: null } as unknown as {
+          claude: AiTool;
+          codex: AiTool | null;
+          antigravity: AiTool | null;
+        };
       });
       const nextClaude = all.claude;
       const sig = `${nextClaude.auth_method}:${nextClaude.plan}`;
@@ -461,15 +618,28 @@ async function detect(force = false) {
 
 function autosize() {
   const t = q<HTMLTextAreaElement>(".ai-input");
-  if (t) { t.style.height = "auto"; t.style.height = `${Math.min(t.scrollHeight, 160)}px`; }
+  if (t) {
+    t.style.height = "auto";
+    t.style.height = `${Math.min(t.scrollHeight, 160)}px`;
+  }
 }
 
 /** Mensajes anteriores en texto para el agente local (sin el último, que es el que se envía ahora). */
 function localHistory(live: Live): { role: string; content: string }[] {
-  return live.convo.messages.slice(0, -1).map((m) => ({
-    role: m.role,
-    content: m.role === "assistant" ? splitAssistantTurn(m.blocks).final : m.blocks.filter((b) => b.kind === "text").map((b) => b.text).join("\n"),
-  })).filter((m) => m.content.trim()).slice(-30);
+  return live.convo.messages
+    .slice(0, -1)
+    .map((m) => ({
+      role: m.role,
+      content:
+        m.role === "assistant"
+          ? splitAssistantTurn(m.blocks).final
+          : m.blocks
+              .filter((b) => b.kind === "text")
+              .map((b) => b.text)
+              .join("\n"),
+    }))
+    .filter((m) => m.content.trim())
+    .slice(-30);
 }
 
 async function dispatchPrompt(live: Live, displayText: string, prompt: string, effectiveMode: AiMode, images: readonly UserImage[] = []) {
@@ -480,18 +650,30 @@ async function dispatchPrompt(live: Live, displayText: string, prompt: string, e
     live.provider = S.activeProvider;
     live.normalize = createProviderNormalizer(live.provider, S.model || "");
   }
-  const useEffort = PROVIDERS[live.provider].supportsEffort && !(live.provider === "antigravity" && S.model)
-    ? S.effort || null
-    : null;
+  const useEffort = PROVIDERS[live.provider].supportsEffort && !(live.provider === "antigravity" && S.model) ? S.effort || null : null;
   apply(live, userEvent(displayText, images));
   try {
     // El agente local no guarda sesiones: recibe la conversación anterior (solo el texto) desde aquí.
-    const sendModel = live.provider === "local" ? S.model || tools.local?.models?.[0]?.id || null
-      : live.provider === "cloud" ? S.model || tools.cloud?.models?.[0]?.id || null
-      : S.model || null;
+    const sendModel =
+      live.provider === "local"
+        ? S.model || tools.local?.models?.[0]?.id || null
+        : live.provider === "cloud"
+          ? S.model || tools.cloud?.models?.[0]?.id || null
+          : S.model || null;
     const history = live.provider === "local" || live.provider === "cloud" ? localHistory(live) : null;
     const imagePaths = images.length ? images.map((i) => i.path) : null;
-    await invoke("ai_send", { id: live.id, cwd: ws.root, prompt, session: live.convo.sessionId || null, model: sendModel, effort: useEffort, mode: effectiveMode, provider: live.provider, history, images: imagePaths });
+    await invoke("ai_send", {
+      id: live.id,
+      cwd: ws.root,
+      prompt,
+      session: live.convo.sessionId || null,
+      model: sendModel,
+      effort: useEffort,
+      mode: effectiveMode,
+      provider: live.provider,
+      history,
+      images: imagePaths,
+    });
   } catch (e) {
     apply(live, exitEvent(1, String(e)));
   }
@@ -501,13 +683,18 @@ async function send() {
   const live = S.current;
   const input = q<HTMLTextAreaElement>(".ai-input");
   if (!live || !input || !ws.root) return;
-  if (live.convo.running) { live.stopping = true; await invoke("ai_stop", { id: live.id }).catch(() => {}); return; }
+  if (live.convo.running) {
+    live.stopping = true;
+    await invoke("ai_stop", { id: live.id }).catch(() => {});
+    return;
+  }
   const text = input.value.trim();
   if (!text && !S.attachedImages.length) return;
   const imgs = [...S.attachedImages];
   const promptText = text || (imgs.length === 1 ? tr("Analiza la imagen adjunta.") : tr("Analiza las imágenes adjuntas."));
   const prompt = buildPrompt(promptText, editorContext());
-  input.value = ""; autosize();
+  input.value = "";
+  autosize();
   S.attachedImages = [];
   S.extraNotes = [];
   renderChips();
@@ -516,7 +703,11 @@ async function send() {
 
 function newConversation() {
   dismissPopover();
-  if (S.current && !S.current.convo.messages.length) { S.historyOpen = false; renderBody(); return; }
+  if (S.current && !S.current.convo.messages.length) {
+    S.historyOpen = false;
+    renderBody();
+    return;
+  }
   S.current = newLive();
   S.extraFiles = [];
   S.extraNotes = [];
@@ -531,7 +722,11 @@ function applyMode() {
   v.classList.toggle("ai-full", isFull());
   v.classList.toggle("ai-docked", !isFull());
   const expand = q<HTMLElement>(".ai-expand");
-  if (expand) { expand.title = isFull() ? tr("Volver a la barra lateral (Esc)") : tr("Pantalla completa"); expand.setAttribute("aria-label", expand.title); expand.innerHTML = isFull() ? ICON_SHRINK : ICON_EXPAND; }
+  if (expand) {
+    expand.title = isFull() ? tr("Volver a la barra lateral (Esc)") : tr("Pantalla completa");
+    expand.setAttribute("aria-label", expand.title);
+    expand.innerHTML = isFull() ? ICON_SHRINK : ICON_EXPAND;
+  }
 }
 
 function setFull(full: boolean) {
@@ -541,28 +736,50 @@ function setFull(full: boolean) {
 }
 
 function onKey(e: KeyboardEvent) {
-  if (e.key === "Escape" && !S.closePopover && isFull() && !document.querySelector(".modal")) { e.preventDefault(); e.stopPropagation(); setFull(false); }
+  if (e.key === "Escape" && !S.closePopover && isFull() && !document.querySelector(".modal")) {
+    e.preventDefault();
+    e.stopPropagation();
+    setFull(false);
+  }
 }
 
 async function chooseMode(next: AiMode) {
   if (next === S.mode) return;
   if (next === "edit" && readStorage("pulso.ai.editOk") !== "1") {
-    const msg = tr("Con «Puede editar», {provider} podrá modificar y crear archivos en tu proyecto sin preguntar cada vez. Verás los cambios en el panel de Git y podrás descartarlos. Si necesita ejecutar un comando de terminal, Pulso te pedirá permiso.", { provider: PROVIDERS[S.activeProvider].title });
+    const msg = tr(
+      "Con «Puede editar», {provider} podrá modificar y crear archivos en tu proyecto sin preguntar cada vez. Verás los cambios en el panel de Git y podrás descartarlos. Si necesita ejecutar un comando de terminal, Pulso te pedirá permiso.",
+      { provider: PROVIDERS[S.activeProvider].title },
+    );
     const r = await showDialog({
       title: tr("Permitir que la IA edite archivos"),
       message: msg,
-      buttons: [{ label: tr("Cancelar"), value: "cancel" }, { label: tr("Permitir editar"), value: "ok", primary: true }],
+      buttons: [
+        { label: tr("Cancelar"), value: "cancel" },
+        { label: tr("Permitir editar"), value: "ok", primary: true },
+      ],
     });
-    if (r !== "ok") { build(); return; }
+    if (r !== "ok") {
+      build();
+      return;
+    }
     writeStorage("pulso.ai.editOk", "1");
   } else if (next === "full" && readStorage("pulso.ai.fullOk") !== "1") {
-    const msg = tr("Con «Agente», {provider} podrá modificar archivos Y ejecutar comandos de terminal (pruebas, búsquedas, diagnósticos, git, etc.) dentro de tu proyecto sin pedir confirmación en cada paso. Actívalo solo en proyectos en los que confíes.", { provider: PROVIDERS[S.activeProvider].title });
+    const msg = tr(
+      "Con «Agente», {provider} podrá modificar archivos Y ejecutar comandos de terminal (pruebas, búsquedas, diagnósticos, git, etc.) dentro de tu proyecto sin pedir confirmación en cada paso. Actívalo solo en proyectos en los que confíes.",
+      { provider: PROVIDERS[S.activeProvider].title },
+    );
     const r = await showDialog({
       title: tr("Activar modo Agente completo"),
       message: msg,
-      buttons: [{ label: tr("Cancelar"), value: "cancel" }, { label: tr("Activar modo Agente"), value: "ok", primary: true }],
+      buttons: [
+        { label: tr("Cancelar"), value: "cancel" },
+        { label: tr("Activar modo Agente"), value: "ok", primary: true },
+      ],
     });
-    if (r !== "ok") { build(); return; }
+    if (r !== "ok") {
+      build();
+      return;
+    }
     writeStorage("pulso.ai.fullOk", "1");
   }
   S.mode = next;
@@ -573,7 +790,6 @@ async function chooseMode(next: AiMode) {
 function openAppearancePopover(anchor: HTMLElement) {
   openPopover(anchor, buildAppearancePopover(viewEl()), "below");
 }
-
 
 // ---------- Construcción de la vista ----------
 function build() {
@@ -590,10 +806,17 @@ function build() {
   titleRow.append(h("span", "ai-live-dot", ""), h("span", "ai-title", tr("Asistente")), planBtn);
   titles.append(titleRow, h("span", "ai-sub", ""));
   const tools = h("div", "ai-tools");
-  const add = iconBtn(ICON_PLUS, tr("Nueva conversación")); add.onclick = newConversation;
-  const hist = iconBtn(ICON_CLOCK, tr("Conversaciones anteriores")); hist.onclick = () => { S.historyOpen = !S.historyOpen; renderBody(); };
-  const themeBtn = iconBtn(ICON_PALETTE, tr("Cambiar color de fondo")); themeBtn.onclick = () => openAppearancePopover(themeBtn);
-  const expand = iconBtn(ICON_EXPAND, tr("Pantalla completa"), "ai-expand"); expand.onclick = () => setFull(!isFull());
+  const add = iconBtn(ICON_PLUS, tr("Nueva conversación"));
+  add.onclick = newConversation;
+  const hist = iconBtn(ICON_CLOCK, tr("Conversaciones anteriores"));
+  hist.onclick = () => {
+    S.historyOpen = !S.historyOpen;
+    renderBody();
+  };
+  const themeBtn = iconBtn(ICON_PALETTE, tr("Cambiar color de fondo"));
+  themeBtn.onclick = () => openAppearancePopover(themeBtn);
+  const expand = iconBtn(ICON_EXPAND, tr("Pantalla completa"), "ai-expand");
+  expand.onclick = () => setFull(!isFull());
   tools.append(add, hist, themeBtn, expand);
   head.append(titles, h("span", "grow"), tools);
 
@@ -608,13 +831,18 @@ function build() {
   mentionBox.setAttribute("role", "listbox");
   mentionBox.setAttribute("aria-label", tr("Mencionar archivo del proyecto"));
   const dock = h("div", "ai-dock");
-  const dockCtx = h("div", "ai-dock-ctx"); dockCtx.hidden = true;
-  const chips = h("div", "ai-chips"); chips.hidden = true;
+  const dockCtx = h("div", "ai-dock-ctx");
+  dockCtx.hidden = true;
+  const chips = h("div", "ai-chips");
+  chips.hidden = true;
   dockCtx.append(h("span", "ai-dock-ctx-lbl", tr("Contexto")), chips);
 
   const inputWrap = h("div", "ai-input-wrap");
   const input = h("textarea", "ai-input");
-  input.rows = 1; input.placeholder = tr("Describe el cambio, duda o archivo a inspeccionar…"); input.setAttribute("aria-label", tr("Mensaje para la IA")); input.value = keep;
+  input.rows = 1;
+  input.placeholder = tr("Describe el cambio, duda o archivo a inspeccionar…");
+  input.setAttribute("aria-label", tr("Mensaje para la IA"));
+  input.value = keep;
   inputWrap.append(h("span", "ai-input-caret", "›"), input);
 
   const dockBar = h("div", "ai-dock-bar");
@@ -632,7 +860,11 @@ function build() {
   };
   const imgBtn = iconBtn(ICON_IMAGE, tr("Adjuntar imagen (o pega con Ctrl+V)"), "ai-compose-act");
   imgBtn.onclick = () => imgInput.click();
-  const quickBtn = iconBtn('<svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>', tr("Acciones rápidas"), "ai-compose-act");
+  const quickBtn = iconBtn(
+    '<svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>',
+    tr("Acciones rápidas"),
+    "ai-compose-act",
+  );
   quickBtn.onclick = () => openQuickPromptsPopover(quickBtn);
 
   const modelBtn = h("button", "ai-model-btn");
@@ -651,14 +883,22 @@ function build() {
     ["full", tr("Agente"), tr("La IA puede editar archivos y ejecutar comandos de terminal en tu proyecto para completar tareas")],
   ];
   for (const [value, label, hint] of modeOptions) {
-    const b = h("button", "", label); b.type = "button"; b.title = hint; b.setAttribute("role", "tab"); b.setAttribute("aria-selected", String(S.mode === value));
+    const b = h("button", "", label);
+    b.type = "button";
+    b.title = hint;
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(S.mode === value));
     b.onclick = () => void chooseMode(value);
     seg.append(b);
   }
   leftBar.append(attachBtn, imgBtn, imgInput, quickBtn, modelBtn, seg);
 
   const rightBar = h("div", "ai-dock-right");
-  const sendBtn = h("button", "ai-send"); sendBtn.type = "submit"; sendBtn.innerHTML = ICON_SEND; sendBtn.title = tr("Enviar (Enter)"); sendBtn.setAttribute("aria-label", tr("Enviar"));
+  const sendBtn = h("button", "ai-send");
+  sendBtn.type = "submit";
+  sendBtn.innerHTML = ICON_SEND;
+  sendBtn.title = tr("Enviar (Enter)");
+  sendBtn.setAttribute("aria-label", tr("Enviar"));
   rightBar.append(h("span", "ai-send-hint", "Enter ↵"), sendBtn);
   dockBar.append(leftBar, rightBar);
   dock.append(dockCtx, inputWrap, dockBar);
@@ -668,7 +908,11 @@ function build() {
   let mentionIdx = 0;
   let mentionStart = -1;
   let mentionQuery = "";
-  const closeMention = () => { mentionBox.hidden = true; mentionItems = []; mentionStart = -1; };
+  const closeMention = () => {
+    mentionBox.hidden = true;
+    mentionItems = [];
+    mentionStart = -1;
+  };
   const pickMention = (file: string) => {
     if (mentionStart < 0) return;
     const end = input.selectionStart ?? input.value.length;
@@ -684,24 +928,38 @@ function build() {
     input.focus();
   };
   const paintMention = () => {
-    if (!mentionItems.length) { closeMention(); return; }
-    mentionBox.replaceChildren(...mentionItems.map((file, i) => {
-      const row = h("button", `ai-mention-item${i === mentionIdx ? " active" : ""}`);
-      row.type = "button";
-      row.setAttribute("role", "option");
-      row.setAttribute("aria-selected", String(i === mentionIdx));
-      row.append(h("span", "ai-mention-name", baseName(file)));
-      const dir = dirName(file);
-      if (dir) row.append(h("span", "ai-mention-dir", dir));
-      row.onmousedown = (e) => { e.preventDefault(); pickMention(file); };
-      return row;
-    }));
+    if (!mentionItems.length) {
+      closeMention();
+      return;
+    }
+    mentionBox.replaceChildren(
+      ...mentionItems.map((file, i) => {
+        const row = h("button", `ai-mention-item${i === mentionIdx ? " active" : ""}`);
+        row.type = "button";
+        row.setAttribute("role", "option");
+        row.setAttribute("aria-selected", String(i === mentionIdx));
+        row.append(h("span", "ai-mention-name", baseName(file)));
+        const dir = dirName(file);
+        if (dir) row.append(h("span", "ai-mention-dir", dir));
+        row.onmousedown = (e) => {
+          e.preventDefault();
+          pickMention(file);
+        };
+        return row;
+      }),
+    );
     mentionBox.hidden = false;
   };
   const updateMention = async () => {
-    if (!ws.root) { closeMention(); return; }
+    if (!ws.root) {
+      closeMention();
+      return;
+    }
     const hit = fileMentionAt(input.value, input.selectionStart ?? input.value.length);
-    if (!hit) { closeMention(); return; }
+    if (!hit) {
+      closeMention();
+      return;
+    }
     mentionStart = hit.start;
     mentionQuery = hit.query;
     const root = ws.root;
@@ -722,17 +980,48 @@ function build() {
     paintMention();
   };
 
-  compose.onsubmit = (e) => { e.preventDefault(); closeMention(); void send(); };
-  input.oninput = () => { autosize(); void updateMention(); };
-  input.onblur = () => { window.setTimeout(closeMention, 120); };
+  compose.onsubmit = (e) => {
+    e.preventDefault();
+    closeMention();
+    void send();
+  };
+  input.oninput = () => {
+    autosize();
+    void updateMention();
+  };
+  input.onblur = () => {
+    window.setTimeout(closeMention, 120);
+  };
   input.onkeydown = (e) => {
     if (!mentionBox.hidden && mentionItems.length) {
-      if (e.key === "ArrowDown") { e.preventDefault(); mentionIdx = (mentionIdx + 1) % mentionItems.length; paintMention(); return; }
-      if (e.key === "ArrowUp") { e.preventDefault(); mentionIdx = (mentionIdx - 1 + mentionItems.length) % mentionItems.length; paintMention(); return; }
-      if ((e.key === "Enter" || e.key === "Tab") && !e.isComposing) { e.preventDefault(); pickMention(mentionItems[mentionIdx]); return; }
-      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeMention(); return; }
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        mentionIdx = (mentionIdx + 1) % mentionItems.length;
+        paintMention();
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        mentionIdx = (mentionIdx - 1 + mentionItems.length) % mentionItems.length;
+        paintMention();
+        return;
+      }
+      if ((e.key === "Enter" || e.key === "Tab") && !e.isComposing) {
+        e.preventDefault();
+        pickMention(mentionItems[mentionIdx]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        closeMention();
+        return;
+      }
     }
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); void send(); }
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      void send();
+    }
   };
   input.onpaste = (e) => {
     const items = e.clipboardData?.items;
@@ -785,10 +1074,17 @@ Object.assign(ctl, controller);
 export function setAiVisible(visible: boolean) {
   S.shown = visible;
   window.removeEventListener("keydown", onKey, true);
-  if (!visible) { dismissPopover(); return; }
+  if (!visible) {
+    dismissPopover();
+    return;
+  }
   window.addEventListener("keydown", onKey, true);
   if (isFull()) bus.emit("overlay", "ai");
-  if (!q(".ai-shell")) build(); else { applyMode(); renderBody(); }
+  if (!q(".ai-shell")) build();
+  else {
+    applyMode();
+    renderBody();
+  }
   void detect(!S.tool?.logged_in);
   q<HTMLTextAreaElement>(".ai-input")?.focus();
 }
@@ -811,13 +1107,17 @@ export function initAi() {
           S.current = l;
         }
       }
-    } catch { /* nada que hacer */ }
+    } catch {
+      /* nada que hacer */
+    }
     pruneUnusedImages();
     if (S.shown) renderBody();
   });
   window.addEventListener("beforeunload", saveRunningBeforeExit);
   window.addEventListener("pagehide", saveRunningBeforeExit);
-  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") saveRunningBeforeExit(); });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") saveRunningBeforeExit();
+  });
   // Reconoce Claude Code y su plan al instante al iniciar la aplicación.
   void detect(true);
   window.addEventListener("focus", () => {
@@ -842,7 +1142,9 @@ export function initAi() {
         return;
       }
       for (const ev of live.normalize(raw)) apply(live, ev);
-    } catch { /* línea que no es JSON: se ignora */ }
+    } catch {
+      /* línea que no es JSON: se ignora */
+    }
   });
   void listen<{ id: string; code: number | null; stderr: string }>("ai-exit", (e) => {
     const live = lives.get(e.payload.id);
@@ -851,13 +1153,30 @@ export function initAi() {
   });
   // El contexto adjunto sigue al editor: archivo y selección actuales, liberando listeners al cerrar el editor.
   const attach = (ed: monaco.editor.ICodeEditor) => {
-    const d1 = ed.onDidChangeCursorSelection(() => { if (S.shown && ed === focusedEditor()) { S.useSel = true; renderChips(); } });
-    const d2 = ed.onDidFocusEditorText(() => { const p = activePath() ?? ""; if (p !== S.lastFile) { S.lastFile = p; S.useFile = true; } if (S.shown) renderChips(); });
-    ed.onDidDispose(() => { d1.dispose(); d2.dispose(); });
+    const d1 = ed.onDidChangeCursorSelection(() => {
+      if (S.shown && ed === focusedEditor()) {
+        S.useSel = true;
+        renderChips();
+      }
+    });
+    const d2 = ed.onDidFocusEditorText(() => {
+      const p = activePath() ?? "";
+      if (p !== S.lastFile) {
+        S.lastFile = p;
+        S.useFile = true;
+      }
+      if (S.shown) renderChips();
+    });
+    ed.onDidDispose(() => {
+      d1.dispose();
+      d2.dispose();
+    });
   };
   monaco.editor.getEditors().forEach(attach);
   monaco.editor.onDidCreateEditor(attach);
-  bus.on("overlay", (kind) => { if (kind === "board" && isFull()) setFull(false); });
+  bus.on("overlay", (kind) => {
+    if (kind === "board" && isFull()) setFull(false);
+  });
   bus.on("issue-workflow-start", ({ body: prompt }) => {
     S.historyOpen = false;
     newConversation();
@@ -920,4 +1239,7 @@ export function resetAi() {
 }
 
 /** «IA: Nueva conversación» desde la paleta. */
-export const startNewConversation = () => { S.historyOpen = false; newConversation(); };
+export const startNewConversation = () => {
+  S.historyOpen = false;
+  newConversation();
+};

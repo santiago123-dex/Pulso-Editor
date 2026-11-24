@@ -46,19 +46,37 @@ export function renderChips() {
     c.title = title;
     c.append(h("span", "", text));
     const x = h("button", "ai-chip-x", "×");
-    x.type = "button"; x.title = tr("No adjuntar esto"); x.setAttribute("aria-label", tr("Quitar {item}", { item: text }));
-    x.onclick = () => { off(); renderChips(); };
+    x.type = "button";
+    x.title = tr("No adjuntar esto");
+    x.setAttribute("aria-label", tr("Quitar {item}", { item: text }));
+    x.onclick = () => {
+      off();
+      renderChips();
+    };
     c.append(x);
     return c;
   };
   const nodes: HTMLElement[] = [];
-  if (labels.file) nodes.push(chip(labels.file, tr("Archivo abierto: se le dice a la IA cuál es"), () => { S.useFile = false; }));
+  if (labels.file)
+    nodes.push(
+      chip(labels.file, tr("Archivo abierto: se le dice a la IA cuál es"), () => {
+        S.useFile = false;
+      }),
+    );
   for (const extra of S.extraFiles) {
     if (extra === ctx.file) continue;
-    nodes.push(chip(baseName(extra), tr("Archivo adjunto: {file}", { file: extra }), () => { S.extraFiles = S.extraFiles.filter((f) => f !== extra); }));
+    nodes.push(
+      chip(baseName(extra), tr("Archivo adjunto: {file}", { file: extra }), () => {
+        S.extraFiles = S.extraFiles.filter((f) => f !== extra);
+      }),
+    );
   }
   for (const note of S.extraNotes) {
-    nodes.push(chip(note.label, note.title, () => { S.extraNotes = S.extraNotes.filter((n) => n.id !== note.id); }));
+    nodes.push(
+      chip(note.label, note.title, () => {
+        S.extraNotes = S.extraNotes.filter((n) => n.id !== note.id);
+      }),
+    );
   }
   for (const img of S.attachedImages) {
     const c = h("span", "ai-chip ai-chip-img");
@@ -68,17 +86,30 @@ export function renderChips() {
       thumb.className = "ai-chip-thumb";
       thumb.src = img.preview;
       thumb.alt = img.name;
-      thumb.onclick = (e) => { e.stopPropagation(); void openImageLightbox(img); };
+      thumb.onclick = (e) => {
+        e.stopPropagation();
+        void openImageLightbox(img);
+      };
       c.append(thumb);
     }
     c.append(h("span", "", img.name));
     const x = h("button", "ai-chip-x", "×");
-    x.type = "button"; x.title = tr("No adjuntar esto"); x.setAttribute("aria-label", tr("Quitar {item}", { item: img.name }));
-    x.onclick = () => { S.attachedImages = S.attachedImages.filter((i) => i !== img); renderChips(); };
+    x.type = "button";
+    x.title = tr("No adjuntar esto");
+    x.setAttribute("aria-label", tr("Quitar {item}", { item: img.name }));
+    x.onclick = () => {
+      S.attachedImages = S.attachedImages.filter((i) => i !== img);
+      renderChips();
+    };
     c.append(x);
     nodes.push(c);
   }
-  if (labels.selection) nodes.push(chip(labels.selection, tr("Tu selección se envía a la IA con el mensaje"), () => { S.useSel = false; }));
+  if (labels.selection)
+    nodes.push(
+      chip(labels.selection, tr("Tu selección se envía a la IA con el mensaje"), () => {
+        S.useSel = false;
+      }),
+    );
   box.replaceChildren(...nodes);
   box.hidden = !nodes.length;
   const ctxWrap = q(".ai-dock-ctx");
@@ -108,7 +139,10 @@ export function pruneUnusedImages() {
 }
 
 export async function addImageFiles(files: Iterable<File>) {
-  if (!ws.root) { setStatus(tr("Abre una carpeta primero")); return; }
+  if (!ws.root) {
+    setStatus(tr("Abre una carpeta primero"));
+    return;
+  }
   for (const file of files) {
     if (S.attachedImages.length >= MAX_IMAGES) {
       setStatus(tr("Puedes adjuntar como máximo {max} imágenes por mensaje", { max: MAX_IMAGES }), 4000);
@@ -150,26 +184,35 @@ export function addContextNote(note: ContextNote) {
 }
 
 export function attachProjectFileOnly() {
-  if (!ws.root) { setStatus(tr("Abre una carpeta primero")); return; }
+  if (!ws.root) {
+    setStatus(tr("Abre una carpeta primero"));
+    return;
+  }
   quickPick({
     placeholder: tr("Adjuntar archivo del proyecto al contexto…"),
     load: async () => {
       const files = await invoke<string[]>("list_files", { path: ws.root });
-      return files.map((p) => ({ p, r: rel(p) })).sort((a, b) => a.r.localeCompare(b.r)).map<PickItem>(({ p, r }) => ({
-        label: baseName(p),
-        detail: dirName(r),
-        run: () => {
-          if (!S.extraFiles.includes(r)) S.extraFiles.push(r);
-          renderChips();
-          q<HTMLTextAreaElement>(".ai-input")?.focus();
-        },
-      }));
+      return files
+        .map((p) => ({ p, r: rel(p) }))
+        .sort((a, b) => a.r.localeCompare(b.r))
+        .map<PickItem>(({ p, r }) => ({
+          label: baseName(p),
+          detail: dirName(r),
+          run: () => {
+            if (!S.extraFiles.includes(r)) S.extraFiles.push(r);
+            renderChips();
+            q<HTMLTextAreaElement>(".ai-input")?.focus();
+          },
+        }));
     },
   });
 }
 
 export async function attachGitChanges() {
-  if (!ws.root) { setStatus(tr("Abre una carpeta primero")); return; }
+  if (!ws.root) {
+    setStatus(tr("Abre una carpeta primero"));
+    return;
+  }
   try {
     const c = await invoke<Changes>("git_changes", { root: ws.root });
     const lines: string[] = [`Rama: ${c.branch}`];
@@ -177,7 +220,10 @@ export async function attachGitChanges() {
     if (c.staged.length) lines.push("Preparados:\n" + c.staged.map((x) => `  ${x.status} ${x.path}`).join("\n"));
     if (c.unstaged.length) lines.push("Sin preparar:\n" + c.unstaged.map((x) => `  ${x.status} ${x.path}`).join("\n"));
     const total = c.conflicted.length + c.staged.length + c.unstaged.length;
-    if (!total) { setStatus(tr("No hay cambios de Git pendientes para adjuntar")); return; }
+    if (!total) {
+      setStatus(tr("No hay cambios de Git pendientes para adjuntar"));
+      return;
+    }
     addContextNote({
       id: "git:changes",
       label: tr("Git · {count} cambios", { count: total }),
@@ -191,7 +237,10 @@ export async function attachGitChanges() {
 
 export async function attachGithubIssue() {
   const repo = await currentRepo();
-  if (!repo) { setStatus(tr("Esta carpeta no tiene un remoto de GitHub.")); return; }
+  if (!repo) {
+    setStatus(tr("Esta carpeta no tiene un remoto de GitHub."));
+    return;
+  }
   quickPick({
     placeholder: tr("Adjuntar issue de GitHub al contexto…"),
     empty: tr("No hay issues abiertas"),
@@ -200,12 +249,13 @@ export async function attachGithubIssue() {
       return issues.map<PickItem>((i) => ({
         label: `#${i.number} ${i.title}`,
         detail: i.labels.map((l) => l.name).join(", "),
-        run: () => addContextNote({
-          id: `issue:${i.number}`,
-          label: `Issue #${i.number}`,
-          title: `Issue #${i.number}: ${i.title}`,
-          body: (i.body?.trim() || i.title) + `\n\nURL: ${i.html_url}`,
-        }),
+        run: () =>
+          addContextNote({
+            id: `issue:${i.number}`,
+            label: `Issue #${i.number}`,
+            title: `Issue #${i.number}: ${i.title}`,
+            body: (i.body?.trim() || i.title) + `\n\nURL: ${i.html_url}`,
+          }),
       }));
     },
   });
@@ -213,7 +263,10 @@ export async function attachGithubIssue() {
 
 export async function attachGithubPr() {
   const repo = await currentRepo();
-  if (!repo) { setStatus(tr("Esta carpeta no tiene un remoto de GitHub.")); return; }
+  if (!repo) {
+    setStatus(tr("Esta carpeta no tiene un remoto de GitHub."));
+    return;
+  }
   quickPick({
     placeholder: tr("Adjuntar pull request de GitHub al contexto…"),
     empty: tr("No hay pull requests abiertas"),
@@ -222,26 +275,46 @@ export async function attachGithubPr() {
       return prs.map<PickItem>((p) => ({
         label: `PR #${p.number} ${p.title}`,
         detail: `${p.head.ref} → ${p.base.ref}`,
-        run: () => addContextNote({
-          id: `pr:${p.number}`,
-          label: `PR #${p.number}`,
-          title: `Pull Request #${p.number}: ${p.title} (${p.head.ref} → ${p.base.ref})`,
-          body: (p.body?.trim() || p.title) + `\n\nURL: ${p.html_url}`,
-        }),
+        run: () =>
+          addContextNote({
+            id: `pr:${p.number}`,
+            label: `PR #${p.number}`,
+            title: `Pull Request #${p.number}: ${p.title} (${p.head.ref} → ${p.base.ref})`,
+            body: (p.body?.trim() || p.title) + `\n\nURL: ${p.html_url}`,
+          }),
       }));
     },
   });
 }
 
 export function attachProjectFile() {
-  if (!ws.root) { setStatus(tr("Abre una carpeta primero")); return; }
+  if (!ws.root) {
+    setStatus(tr("Abre una carpeta primero"));
+    return;
+  }
   quickPick({
     placeholder: tr("¿Qué quieres adjuntar al contexto?"),
     load: () => [
-      { label: tr("Archivo del proyecto…"), detail: tr("Añade una ruta del proyecto (también puedes escribir @archivo)"), run: attachProjectFileOnly },
-      { label: tr("Cambios de Git actuales"), detail: tr("Rama activa y archivos modificados/preparados"), run: () => void attachGitChanges() },
-      { label: tr("Issue de GitHub…"), detail: tr("Adjunta título y descripción de una issue abierta"), run: () => void attachGithubIssue() },
-      { label: tr("Pull request de GitHub…"), detail: tr("Adjunta título, ramas y descripción de una PR abierta"), run: () => void attachGithubPr() },
+      {
+        label: tr("Archivo del proyecto…"),
+        detail: tr("Añade una ruta del proyecto (también puedes escribir @archivo)"),
+        run: attachProjectFileOnly,
+      },
+      {
+        label: tr("Cambios de Git actuales"),
+        detail: tr("Rama activa y archivos modificados/preparados"),
+        run: () => void attachGitChanges(),
+      },
+      {
+        label: tr("Issue de GitHub…"),
+        detail: tr("Adjunta título y descripción de una issue abierta"),
+        run: () => void attachGithubIssue(),
+      },
+      {
+        label: tr("Pull request de GitHub…"),
+        detail: tr("Adjunta título, ramas y descripción de una PR abierta"),
+        run: () => void attachGithubPr(),
+      },
     ],
   });
 }

@@ -54,7 +54,9 @@ export function toolRow(b: Extract<Block, { kind: "tool" }>): HTMLElement {
     }
     detail.append(list);
   }
-  const input = Object.entries(b.input).map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`).join("\n");
+  const input = Object.entries(b.input)
+    .map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`)
+    .join("\n");
   if (input) detail.append(h("pre", "", input.length > 1500 ? `${input.slice(0, 1500)}…` : input));
   if (b.result) detail.append(h("pre", "ai-tool-result", b.result.length > 1200 ? `${b.result.slice(0, 1200)}…` : b.result));
   d.append(detail);
@@ -75,8 +77,14 @@ export let waitingSince = 0;
 /** Mantiene vivo el contador de segundos de las tarjetas en curso sin volver a pintar la conversación. */
 export function tickActivityClocks() {
   const live = document.querySelectorAll<HTMLElement>(".ai-activity.running .ai-act-time[data-start]");
-  if (!live.length) { window.clearInterval(activityTimer); activityTimer = 0; return; }
-  live.forEach((el) => { el.textContent = elapsedLabel(Date.now() - Number(el.dataset.start)); });
+  if (!live.length) {
+    window.clearInterval(activityTimer);
+    activityTimer = 0;
+    return;
+  }
+  live.forEach((el) => {
+    el.textContent = elapsedLabel(Date.now() - Number(el.dataset.start));
+  });
 }
 
 export function activityItem(b: Block): HTMLElement {
@@ -138,7 +146,9 @@ export function activityCard(turnId: string, items: Block[], running: boolean): 
   }
   const detail = h("span", "ai-act-detail", running ? now : counts || `${items.length} pasos`);
   const more = h("span", "ai-act-more", items.length ? (d.open ? tr("Ocultar") : tr("Ver pasos")) : "");
-  d.addEventListener("toggle", () => { more.textContent = items.length ? (d.open ? tr("Ocultar") : tr("Ver pasos")) : ""; });
+  d.addEventListener("toggle", () => {
+    more.textContent = items.length ? (d.open ? tr("Ocultar") : tr("Ver pasos")) : "";
+  });
   sum.append(pulse, title, time, detail, more);
   if (!items.length) sum.classList.add("empty");
   d.append(sum);

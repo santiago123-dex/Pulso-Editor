@@ -96,10 +96,26 @@ beforeEach(() => {
   setStatusMock.mockReset();
 
   const ids = [
-    "debug-badge", "dbg-config", "dbg-trust", "dbg-trust-btn", "dbg-controls",
-    "dbg-status", "dbg-vars", "dbg-stack", "dbg-bps", "dbg-console",
-    "dbg-start", "dbg-create-cfg", "dbg-continue", "dbg-pause", "dbg-next",
-    "dbg-step-in", "dbg-step-out", "dbg-stop", "dbg-bp-clear", "dbg-eval-input",
+    "debug-badge",
+    "dbg-config",
+    "dbg-trust",
+    "dbg-trust-btn",
+    "dbg-controls",
+    "dbg-status",
+    "dbg-vars",
+    "dbg-stack",
+    "dbg-bps",
+    "dbg-console",
+    "dbg-start",
+    "dbg-create-cfg",
+    "dbg-continue",
+    "dbg-pause",
+    "dbg-next",
+    "dbg-step-in",
+    "dbg-step-out",
+    "dbg-stop",
+    "dbg-bp-clear",
+    "dbg-eval-input",
   ];
   for (const id of ids) {
     const tag = id === "dbg-config" ? "select" : id === "dbg-eval-input" ? "input" : "div";
@@ -119,7 +135,16 @@ describe("debugView", () => {
     invokeMock.mockResolvedValueOnce({
       trusted: false,
       configs: [
-        { name: "Python: Archivo actual", type: "python", request: "launch", program: "${file}", args: [], env: {}, adapterArgs: [], source: "auto" },
+        {
+          name: "Python: Archivo actual",
+          type: "python",
+          request: "launch",
+          program: "${file}",
+          args: [],
+          env: {},
+          adapterArgs: [],
+          source: "auto",
+        },
       ],
     });
 
@@ -148,7 +173,9 @@ describe("debugView", () => {
     });
 
     const mod = await import("./debugView");
-    mod.initDebug(async (path, line) => { opened.push({ path, line }); });
+    mod.initDebug(async (path, line) => {
+      opened.push({ path, line });
+    });
 
     const handler = listeners.get("dap-event");
     expect(handler).toBeDefined();

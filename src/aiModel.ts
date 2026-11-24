@@ -5,28 +5,67 @@ import { lang, t, t as tr } from "./i18n";
  */
 export type AiProvider = "claude" | "codex" | "antigravity" | "local" | "cloud";
 
-export interface UserImage { path: string; name: string; preview?: string }
+export interface UserImage {
+  path: string;
+  name: string;
+  preview?: string;
+}
 
 export type Block =
   | { kind: "text"; text: string }
   | { kind: "image"; path: string; name: string; preview?: string }
   | { kind: "thinking"; text: string }
-  | { kind: "tool"; id: string; name: string; input: Record<string, unknown>; json: string; result?: string; error?: boolean; steps?: SubagentStep[] };
+  | {
+      kind: "tool";
+      id: string;
+      name: string;
+      input: Record<string, unknown>;
+      json: string;
+      result?: string;
+      error?: boolean;
+      steps?: SubagentStep[];
+    };
 
 /** Una herramienta que usó un subagente mientras trabajaba (se cuelga de la tarjeta de su tarea). */
-export interface SubagentStep { name: string; input: Record<string, unknown>; error: boolean }
+export interface SubagentStep {
+  name: string;
+  input: Record<string, unknown>;
+  error: boolean;
+}
 
 /** Cuántos pasos de un subagente se guardan en la tarjeta. */
 export const MAX_SUBAGENT_STEPS = 200;
 
-export interface Turn { id: string; role: "user" | "assistant"; blocks: Block[]; done: boolean }
+export interface Turn {
+  id: string;
+  role: "user" | "assistant";
+  blocks: Block[];
+  done: boolean;
+}
 
-export interface UsageWindow { utilization: number; resetsAt: number }
-export interface PlanUsage { fiveHour?: UsageWindow; sevenDay?: UsageWindow }
+export interface UsageWindow {
+  utilization: number;
+  resetsAt: number;
+}
+export interface PlanUsage {
+  fiveHour?: UsageWindow;
+  sevenDay?: UsageWindow;
+}
 
-export interface DeniedAction { tool: string; detail: string; reason: string }
+export interface DeniedAction {
+  tool: string;
+  detail: string;
+  reason: string;
+}
 
-export interface Outcome { ok: boolean; costUsd: number; durationMs: number; message: string; denials: number; deniedActions?: DeniedAction[] }
+export interface Outcome {
+  ok: boolean;
+  costUsd: number;
+  durationMs: number;
+  message: string;
+  denials: number;
+  deniedActions?: DeniedAction[];
+}
 
 export interface Conversation {
   messages: Turn[];
@@ -40,7 +79,16 @@ export interface Conversation {
   touched: number;
 }
 
-export const emptyConversation = (): Conversation => ({ messages: [], sessionId: "", model: "", running: false, usage: {}, outcome: null, error: "", touched: 0 });
+export const emptyConversation = (): Conversation => ({
+  messages: [],
+  sessionId: "",
+  model: "",
+  running: false,
+  usage: {},
+  outcome: null,
+  error: "",
+  touched: 0,
+});
 
 /** Resultados de herramientas muy largos se recortan: la conversación se guarda y se pinta entera. */
 export const MAX_RESULT = 4000;
@@ -61,7 +109,9 @@ export const userEvent = (text: string, images?: readonly UserImage[]): AiEvent 
 export function friendlyToolError(stderr: string): string {
   const s = stderr.trim();
   if (/IneligibleTierError|no longer supported for Gemini Code Assist/i.test(s)) {
-    return t("Google ya no permite usar Gemini CLI con cuentas personales: lo migró a Antigravity. Para seguir usando Gemini aquí hace falta una clave de API de Gemini (variable GEMINI_API_KEY) o una cuenta de Workspace/Vertex.");
+    return t(
+      "Google ya no permite usar Gemini CLI con cuentas personales: lo migró a Antigravity. Para seguir usando Gemini aquí hace falta una clave de API de Gemini (variable GEMINI_API_KEY) o una cuenta de Workspace/Vertex.",
+    );
   }
   if (/not running in a trusted directory/i.test(s)) {
     return t("Gemini CLI no confía en esta carpeta. Ábrela una vez con `gemini` en una terminal y acepta la confianza.");
@@ -80,18 +130,32 @@ function blockFrom(raw: unknown): Block | null {
 }
 
 function parseJson(text: string): Record<string, unknown> {
-  try { return obj(JSON.parse(text)); } catch { return {}; }
+  try {
+    return obj(JSON.parse(text));
+  } catch {
+    return {};
+  }
 }
 
 /** Contenido de un `tool_result`: texto, o lista de bloques de texto. */
 function resultText(content: unknown): string {
-  const t = typeof content === "string" ? content : Array.isArray(content) ? content.map((c) => str(obj(c).text)).filter(Boolean).join("\n") : "";
+  const t =
+    typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? content
+            .map((c) => str(obj(c).text))
+            .filter(Boolean)
+            .join("\n")
+        : "";
   return t.length > MAX_RESULT ? `${t.slice(0, MAX_RESULT)}\n… ${tr("(recortado)")}` : t;
 }
 
 const windowOf = (v: unknown): UsageWindow | undefined => {
   const o = obj(v);
-  return typeof o.utilization === "number" ? { utilization: o.utilization, resetsAt: typeof o.resetsAt === "number" ? o.resetsAt : 0 } : undefined;
+  return typeof o.utilization === "number"
+    ? { utilization: o.utilization, resetsAt: typeof o.resetsAt === "number" ? o.resetsAt : 0 }
+    : undefined;
 };
 
 function withTurn(prev: Conversation, idx: number, turn: Turn): Conversation {
@@ -130,10 +194,20 @@ export function parseDeniedActions(raw: unknown): DeniedAction[] {
     if (!Object.keys(o).length) continue;
     const tool = str(o.tool_name) || str(o.tool) || str(o.name) || str(o.action) || t("Acción bloqueada");
     const inp = obj(o.tool_input ?? o.input ?? o.parameters ?? o.arguments);
-    const detail = str(o.command) || str(o.cmd) || str(o.CommandLine)
-      || str(inp.command) || str(inp.cmd) || str(inp.CommandLine)
-      || str(o.path) || str(o.file_path) || str(inp.path) || str(inp.file_path) || str(inp.TargetFile)
-      || str(o.detail) || str(o.summary);
+    const detail =
+      str(o.command) ||
+      str(o.cmd) ||
+      str(o.CommandLine) ||
+      str(inp.command) ||
+      str(inp.cmd) ||
+      str(inp.CommandLine) ||
+      str(o.path) ||
+      str(o.file_path) ||
+      str(inp.path) ||
+      str(inp.file_path) ||
+      str(inp.TargetFile) ||
+      str(o.detail) ||
+      str(o.summary);
     const reason = str(o.reason) || str(o.message) || str(o.error) || str(o.description);
     out.push({ tool, detail: detail.slice(0, 220), reason: reason.slice(0, 240) });
   }
@@ -223,9 +297,10 @@ export function reduce(prev: Conversation, ev: AiEvent): Conversation {
       const id = str(m.id);
       const content = Array.isArray(m.content) ? m.content : [];
       const existingIdx = prev.messages.findIndex((t) => t.id === id && t.role === "assistant");
-      const baseTurn: Turn = existingIdx >= 0
-        ? prev.messages[existingIdx]
-        : { id: id || `a${prev.messages.length}`, role: "assistant", blocks: [], done: false };
+      const baseTurn: Turn =
+        existingIdx >= 0
+          ? prev.messages[existingIdx]
+          : { id: id || `a${prev.messages.length}`, role: "assistant", blocks: [], done: false };
       const blocks = baseTurn.blocks.slice();
       content.forEach((raw, i) => {
         const b = blockFrom(raw);
@@ -251,16 +326,16 @@ export function reduce(prev: Conversation, ev: AiEvent): Conversation {
         if (bi < 0) continue;
         const b = turn.blocks[bi];
         if (b.kind !== "tool") return prev;
-        const steps = [...(b.steps ?? []), { name: str(ev.name), input: obj(ev.input), error: ev.error === true }].slice(-MAX_SUBAGENT_STEPS);
+        const steps = [...(b.steps ?? []), { name: str(ev.name), input: obj(ev.input), error: ev.error === true }].slice(
+          -MAX_SUBAGENT_STEPS,
+        );
         return withBlock(prev, ti, bi, { ...b, steps });
       }
       return prev;
     }
     case "user": {
       const m = obj(ev.message);
-      const results = (Array.isArray(m.content) ? m.content : [])
-        .map(obj)
-        .filter((r) => r.type === "tool_result");
+      const results = (Array.isArray(m.content) ? m.content : []).map(obj).filter((r) => r.type === "tool_result");
       if (!results.length) return prev;
       let touched = prev.touched;
       let anyChanged = false;
@@ -314,7 +389,10 @@ export function reduce(prev: Conversation, ev: AiEvent): Conversation {
         ...prev,
         running: false,
         messages: markAllDone(prev.messages),
-        error: ev.code === null ? t("La conversación se detuvo.") : friendlyToolError(stderr) || t("La herramienta terminó con el código {code} sin responder.", { code: String(ev.code) }),
+        error:
+          ev.code === null
+            ? t("La conversación se detuvo.")
+            : friendlyToolError(stderr) || t("La herramienta terminó con el código {code} sin responder.", { code: String(ev.code) }),
       };
     }
     default:
@@ -334,22 +412,46 @@ export function toolSummary(b: Extract<Block, { kind: "tool" }>): string {
   const pat = str(i.pattern) || str(i.Pattern) || str(i.Query);
   const cmd = str(i.command) || str(i.CommandLine);
   switch (b.name) {
-    case "Read": return file ? t("Leyó {file}", { file: baseName(file) }) : t("Leyó un archivo");
-    case "Edit": case "MultiEdit": return file ? t("Editó {file}", { file: baseName(file) }) : t("Editó un archivo");
-    case "Write": return file ? t("Escribió {file}", { file: baseName(file) }) : t("Escribió un archivo");
-    case "NotebookEdit": return file ? t("Editó {file}", { file: baseName(file) }) : t("Editó un cuaderno");
-    case "Glob": return pat ? t("Buscó archivos «{pattern}»", { pattern: pat }) : file ? t("Exploró {file}", { file: baseName(file) }) : t("Buscó archivos");
-    case "Grep": return pat ? t("Buscó «{pattern}»", { pattern: pat }) : t("Buscó en los archivos");
-    case "Bash": return t("Quiso ejecutar un comando");
-    case "Command": return cmd ? t("Ejecutó {command}", { command: cmd }) : t("Ejecutó un comando");
-    case "WebFetch": case "WebSearch": return t("Consultó la web");
-    case "TodoWrite": return t("Actualizó la lista de tareas");
-    case "Memory": return t("Guardó una nota en la memoria");
-    case "Hook": return t("Un gancho bloqueó una herramienta");
-    case "Mcp": return str(i.tool) ? t("Usó {tool} de {server}", { tool: str(i.tool), server: str(i.server) }) : t("Usó una herramienta MCP");
-    case "Skill": return str(i.name) ? t("Usó la skill {name}", { name: str(i.name) }) : t("Usó una skill");
-    case "Task": return str(i.description) ? t("Subagente {agent}: {description}", { agent: str(i.agent), description: str(i.description) }) : t("Lanzó un subagente");
-    default: return b.name || t("Usó una herramienta");
+    case "Read":
+      return file ? t("Leyó {file}", { file: baseName(file) }) : t("Leyó un archivo");
+    case "Edit":
+    case "MultiEdit":
+      return file ? t("Editó {file}", { file: baseName(file) }) : t("Editó un archivo");
+    case "Write":
+      return file ? t("Escribió {file}", { file: baseName(file) }) : t("Escribió un archivo");
+    case "NotebookEdit":
+      return file ? t("Editó {file}", { file: baseName(file) }) : t("Editó un cuaderno");
+    case "Glob":
+      return pat
+        ? t("Buscó archivos «{pattern}»", { pattern: pat })
+        : file
+          ? t("Exploró {file}", { file: baseName(file) })
+          : t("Buscó archivos");
+    case "Grep":
+      return pat ? t("Buscó «{pattern}»", { pattern: pat }) : t("Buscó en los archivos");
+    case "Bash":
+      return t("Quiso ejecutar un comando");
+    case "Command":
+      return cmd ? t("Ejecutó {command}", { command: cmd }) : t("Ejecutó un comando");
+    case "WebFetch":
+    case "WebSearch":
+      return t("Consultó la web");
+    case "TodoWrite":
+      return t("Actualizó la lista de tareas");
+    case "Memory":
+      return t("Guardó una nota en la memoria");
+    case "Hook":
+      return t("Un gancho bloqueó una herramienta");
+    case "Mcp":
+      return str(i.tool) ? t("Usó {tool} de {server}", { tool: str(i.tool), server: str(i.server) }) : t("Usó una herramienta MCP");
+    case "Skill":
+      return str(i.name) ? t("Usó la skill {name}", { name: str(i.name) }) : t("Usó una skill");
+    case "Task":
+      return str(i.description)
+        ? t("Subagente {agent}: {description}", { agent: str(i.agent), description: str(i.description) })
+        : t("Lanzó un subagente");
+    default:
+      return b.name || t("Usó una herramienta");
   }
 }
 
@@ -360,14 +462,37 @@ export function stepSummary(s: SubagentStep): string {
 
 function mapAgyToolName(raw: string): string {
   switch (raw) {
-    case "read_file": case "read_many_files": case "view_file": return "Read";
-    case "write_file": case "write_to_file": return "Write";
-    case "replace": case "edit_file": case "replace_file_content": case "multi_replace_file_content": return "Edit";
-    case "list_directory": case "list_dir": case "glob": case "find_by_name": return "Glob";
-    case "search_file_content": case "grep": case "grep_search": return "Grep";
-    case "run_shell_command": case "run_command": return "Command";
-    case "google_web_search": case "web_fetch": case "search_web": case "read_url_content": return "WebSearch";
-    default: return raw || "Tool";
+    case "read_file":
+    case "read_many_files":
+    case "view_file":
+      return "Read";
+    case "write_file":
+    case "write_to_file":
+      return "Write";
+    case "replace":
+    case "edit_file":
+    case "replace_file_content":
+    case "multi_replace_file_content":
+      return "Edit";
+    case "list_directory":
+    case "list_dir":
+    case "glob":
+    case "find_by_name":
+      return "Glob";
+    case "search_file_content":
+    case "grep":
+    case "grep_search":
+      return "Grep";
+    case "run_shell_command":
+    case "run_command":
+      return "Command";
+    case "google_web_search":
+    case "web_fetch":
+    case "search_web":
+    case "read_url_content":
+      return "WebSearch";
+    default:
+      return raw || "Tool";
   }
 }
 
@@ -394,8 +519,14 @@ export function createProviderNormalizer(provider: AiProvider, fallbackModel = "
       type: "rate_limit_event",
       rate_limit_info: {
         unifiedWindows: {
-          five_hour: typeof p.used_percent === "number" ? { utilization: p.used_percent / 100, resetsAt: typeof p.resets_at === "number" ? p.resets_at : 0 } : undefined,
-          seven_day: typeof s.used_percent === "number" ? { utilization: s.used_percent / 100, resetsAt: typeof s.resets_at === "number" ? s.resets_at : 0 } : undefined,
+          five_hour:
+            typeof p.used_percent === "number"
+              ? { utilization: p.used_percent / 100, resetsAt: typeof p.resets_at === "number" ? p.resets_at : 0 }
+              : undefined,
+          seven_day:
+            typeof s.used_percent === "number"
+              ? { utilization: s.used_percent / 100, resetsAt: typeof s.resets_at === "number" ? s.resets_at : 0 }
+              : undefined,
         },
       },
     };
@@ -432,11 +563,25 @@ export function createProviderNormalizer(provider: AiProvider, fallbackModel = "
           }
           if (kind === "command_execution") {
             const cmd = str(item.command);
-            const evs: AiEvent[] = [{ type: "assistant", message: { id, content: [{ type: "tool_use", id, name: "Command", input: { command: cmd } }] } }];
+            const evs: AiEvent[] = [
+              { type: "assistant", message: { id, content: [{ type: "tool_use", id, name: "Command", input: { command: cmd } }] } },
+            ];
             if (done) {
               const exitCode = typeof item.exit_code === "number" ? item.exit_code : 0;
               const isErr = str(item.status) === "failed" || exitCode !== 0;
-              evs.push({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, content: str(item.aggregated_output) || (isErr ? `Código ${exitCode}` : "ok"), is_error: isErr }] } });
+              evs.push({
+                type: "user",
+                message: {
+                  content: [
+                    {
+                      type: "tool_result",
+                      tool_use_id: id,
+                      content: str(item.aggregated_output) || (isErr ? `Código ${exitCode}` : "ok"),
+                      is_error: isErr,
+                    },
+                  ],
+                },
+              });
             }
             return evs;
           }
@@ -448,8 +593,23 @@ export function createProviderNormalizer(provider: AiProvider, fallbackModel = "
               const fp = str(cObj.path);
               const act = str(cObj.kind) === "add" ? "Write" : "Edit";
               const tid = `${id}_${idx}`;
-              evs.push({ type: "assistant", message: { id: tid, content: [{ type: "tool_use", id: tid, name: act, input: { file_path: fp, kind: str(cObj.kind) } }] } });
-              evs.push({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: tid, content: `${str(cObj.kind) || "update"} ${fp}`, is_error: str(item.status) === "failed" }] } });
+              evs.push({
+                type: "assistant",
+                message: { id: tid, content: [{ type: "tool_use", id: tid, name: act, input: { file_path: fp, kind: str(cObj.kind) } }] },
+              });
+              evs.push({
+                type: "user",
+                message: {
+                  content: [
+                    {
+                      type: "tool_result",
+                      tool_use_id: tid,
+                      content: `${str(cObj.kind) || "update"} ${fp}`,
+                      is_error: str(item.status) === "failed",
+                    },
+                  ],
+                },
+              });
             });
             return evs;
           }
@@ -470,11 +630,20 @@ export function createProviderNormalizer(provider: AiProvider, fallbackModel = "
           const out: AiEvent[] = [];
           const rl = codexRateLimitEvent(raw.rate_limits);
           if (rl) out.push(rl);
-          out.push({ type: "result", subtype: "success", is_error: false, duration_ms: Math.max(0, Date.now() - turnStart), total_cost_usd: 0, result: "ok" });
+          out.push({
+            type: "result",
+            subtype: "success",
+            is_error: false,
+            duration_ms: Math.max(0, Date.now() - turnStart),
+            total_cost_usd: 0,
+            result: "ok",
+          });
           return out;
         }
         case "turn.failed":
-          return [{ type: "result", subtype: "error", is_error: true, result: str(obj(raw.error).message) || t("La ejecución de Codex falló.") }];
+          return [
+            { type: "result", subtype: "error", is_error: true, result: str(obj(raw.error).message) || t("La ejecución de Codex falló.") },
+          ];
         case "error":
           return [{ type: "result", subtype: "error", is_error: true, result: str(raw.message) || t("Error de Codex CLI.") }];
         default:
@@ -490,7 +659,14 @@ export function createProviderNormalizer(provider: AiProvider, fallbackModel = "
         agyStreamedText = false;
         agySteps.clear();
         const init = obj(raw.init);
-        return [{ type: "system", subtype: "init", session_id: str(raw.conversation_id) || str(raw.session_id), model: str(init.model) || str(raw.model) || fallbackModel }];
+        return [
+          {
+            type: "system",
+            subtype: "init",
+            session_id: str(raw.conversation_id) || str(raw.session_id),
+            model: str(init.model) || str(raw.model) || fallbackModel,
+          },
+        ];
       }
       case "step_update": {
         const su = obj(raw.step_update);
@@ -520,7 +696,11 @@ export function createProviderNormalizer(provider: AiProvider, fallbackModel = "
           return [{ type: "assistant", message: { id: prev.id, content: [{ type: "text", text: prev.text }] } }];
         }
         const ti = obj(su.tool_info);
-        const toolNameRaw = str(ti.name) || str(su.tool_name) || str(su.name) || (stepType && stepType !== "planner_response" && stepType !== "tool" ? stepType : "");
+        const toolNameRaw =
+          str(ti.name) ||
+          str(su.tool_name) ||
+          str(su.name) ||
+          (stepType && stepType !== "planner_response" && stepType !== "tool" ? stepType : "");
         if (toolNameRaw) {
           const id = str(su.tool_id) || `agy_tool_${idx}`;
           const name = mapAgyToolName(toolNameRaw);
@@ -572,9 +752,12 @@ export function createProviderNormalizer(provider: AiProvider, fallbackModel = "
 }
 
 /** ¿El error indica que falta iniciar sesión? */
-export const isAuthError = (text: string): boolean => /not logged in|please run \/login|\/login|invalid api key|authentication|unauthorized|sign in|oauth|401/i.test(text);
+export const isAuthError = (text: string): boolean =>
+  /not logged in|please run \/login|\/login|invalid api key|authentication|unauthorized|sign in|oauth|401/i.test(text);
 
-export function percent(w: UsageWindow | undefined): string { return w ? `${Math.round(Math.min(1, Math.max(0, w.utilization)) * 100)} %` : "—"; }
+export function percent(w: UsageWindow | undefined): string {
+  return w ? `${Math.round(Math.min(1, Math.max(0, w.utilization)) * 100)} %` : "—";
+}
 
 /** Proporción usada de una ventana (0..1). */
 export function usedRatio(w: UsageWindow | undefined): number {
@@ -607,7 +790,16 @@ const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "
 
 /** Diferencia (ms) entre la hora local de `tz` y UTC en el instante dado. */
 function tzOffsetMs(utcMs: number, tz: string): number {
-  const f = new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric" });
+  const f = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "numeric",
+    second: "numeric",
+  });
   const p: Record<string, number> = {};
   for (const x of f.formatToParts(new Date(utcMs))) if (x.type !== "literal") p[x.type] = Number(x.value);
   return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(utcMs / 1000) * 1000;
@@ -620,18 +812,27 @@ function wallToUtc(y: number, mo: number, d: number, h: number, mi: number, tz: 
   try {
     const first = guess - tzOffsetMs(guess, tz);
     return guess - tzOffsetMs(first, tz);
-  } catch { return new Date(y, mo, d, h, mi).getTime(); }
+  } catch {
+    return new Date(y, mo, d, h, mi).getTime();
+  }
 }
 
 function tzDateParts(utcMs: number, tz: string | undefined): { year: number; month: number; day: number } {
   const validTz = tz && /^[\w/+-]+$/.test(tz) ? tz : undefined;
   try {
     const p: Record<string, number> = {};
-    for (const x of new Intl.DateTimeFormat("en-US", { timeZone: validTz, year: "numeric", month: "numeric", day: "numeric" }).formatToParts(new Date(utcMs))) {
+    for (const x of new Intl.DateTimeFormat("en-US", {
+      timeZone: validTz,
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+    }).formatToParts(new Date(utcMs))) {
       if (x.type !== "literal") p[x.type] = Number(x.value);
     }
     if (p.year && p.month && p.day) return { year: p.year, month: p.month - 1, day: p.day };
-  } catch { /* cae a la fecha local */ }
+  } catch {
+    /* cae a la fecha local */
+  }
   const d = new Date(utcMs);
   return { year: d.getFullYear(), month: d.getMonth(), day: d.getDate() };
 }
@@ -709,7 +910,10 @@ export function formatModelName(raw: string): string {
   }
   const gem = /^gemini-(.+)$/i.exec(s);
   if (gem) {
-    return `Gemini ${gem[1].split("-").map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(" ")}`;
+    return `Gemini ${gem[1]
+      .split("-")
+      .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
+      .join(" ")}`;
   }
   const oss = /^gpt-oss-(\d+[a-z]*)-([a-z]+)$/i.exec(s);
   if (oss) {
@@ -749,7 +953,10 @@ export function touchedFiles(messages: readonly Turn[]): string[] {
       if (!p) continue;
       const normP = p.replace(/\\/g, "/");
       const key = normP.toLowerCase();
-      if (!seen.has(key)) { seen.add(key); out.push(normP); }
+      if (!seen.has(key)) {
+        seen.add(key);
+        out.push(normP);
+      }
     }
   }
   return out;
@@ -761,7 +968,11 @@ export function resetIn(w: UsageWindow | undefined, nowMs = Date.now()): string 
   const s = Math.round(w.resetsAt - nowMs / 1000);
   if (s <= 0) return t("ya");
   if (s < 3600) return t("en {n} min", { n: Math.max(1, Math.round(s / 60)) });
-  if (s < 86400) { const h = Math.floor(s / 3600); const m = Math.round((s % 3600) / 60); return m ? t("en {h} h {m} min", { h, m }) : t("en {h} h", { h }); }
+  if (s < 86400) {
+    const h = Math.floor(s / 3600);
+    const m = Math.round((s % 3600) / 60);
+    return m ? t("en {h} h {m} min", { h, m }) : t("en {h} h", { h });
+  }
   return t("en {n} d", { n: Math.round(s / 86400) });
 }
 
@@ -779,7 +990,10 @@ export function splitAssistantTurn(blocks: Block[]): { activity: Block[]; final:
     const b = blocks[i];
     if (!b) continue;
     if (b.kind === "text") {
-      if (b.text.trim()) { finalIdx = i; break; }
+      if (b.text.trim()) {
+        finalIdx = i;
+        break;
+      }
       continue;
     }
     if (b.kind === "thinking" && !b.text.trim()) continue;
@@ -792,7 +1006,12 @@ export function splitAssistantTurn(blocks: Block[]): { activity: Block[]; final:
 
 /** Resumen de la actividad: qué está haciendo ahora (en vivo) o qué hizo (al terminar). */
 export function activitySummary(items: Block[], running: boolean): { now: string; counts: string } {
-  let reads = 0; let edits = 0; let searches = 0; let cmds = 0; let other = 0; let now = "";
+  let reads = 0;
+  let edits = 0;
+  let searches = 0;
+  let cmds = 0;
+  let other = 0;
+  let now = "";
   for (const b of items) {
     if (b.kind !== "tool") continue;
     now = toolSummary(b);
@@ -803,7 +1022,9 @@ export function activitySummary(items: Block[], running: boolean): { now: string
     else other++;
   }
   const parts: string[] = [];
-  const add = (n: number, one: string, many: string) => { if (n) parts.push(n === 1 ? one : many.replace("{n}", String(n))); };
+  const add = (n: number, one: string, many: string) => {
+    if (n) parts.push(n === 1 ? one : many.replace("{n}", String(n)));
+  };
   add(reads, t("1 archivo leído"), t("{n} archivos leídos"));
   add(edits, t("1 edición"), t("{n} ediciones"));
   add(searches, t("1 búsqueda"), t("{n} búsquedas"));

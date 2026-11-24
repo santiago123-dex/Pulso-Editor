@@ -39,7 +39,9 @@ fn resolve(raw: &str, cwd: &Path) -> PathBuf {
     for c in joined.components() {
         match c {
             std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => { out.pop(); }
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
             other => out.push(other.as_os_str()),
         }
     }
@@ -54,8 +56,14 @@ pub fn parse_args(args: &[String], cwd: &Path) -> Vec<CliTarget> {
     for a in args {
         if !only_paths {
             match a.as_str() {
-                "--" => { only_paths = true; continue; }
-                "-g" | "--goto" => { goto_next = true; continue; }
+                "--" => {
+                    only_paths = true;
+                    continue;
+                }
+                "-g" | "--goto" => {
+                    goto_next = true;
+                    continue;
+                }
                 s if s.starts_with('-') && s.len() > 1 => continue,
                 _ => {}
             }
@@ -64,11 +72,19 @@ pub fn parse_args(args: &[String], cwd: &Path) -> Vec<CliTarget> {
         goto_next = false;
         let whole = resolve(a, cwd);
         // Una ruta que existe tal cual manda sobre la interpretación `archivo:número`.
-        let (path, line, col) = if whole.exists() { (whole, None, None) } else {
+        let (path, line, col) = if whole.exists() {
+            (whole, None, None)
+        } else {
             let (p, l, c) = split_position(a);
             (resolve(p, cwd), l, c)
         };
-        let kind = if path.is_dir() { "dir" } else if path.exists() { "file" } else { "missing" };
+        let kind = if path.is_dir() {
+            "dir"
+        } else if path.exists() {
+            "file"
+        } else {
+            "missing"
+        };
         targets.push(CliTarget { path: path.to_string_lossy().replace('\\', "/"), kind, line, col });
     }
     targets

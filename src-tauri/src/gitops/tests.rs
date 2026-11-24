@@ -16,16 +16,27 @@ impl Repo {
         r.git(&["config", "core.autocrlf", "false"]);
         r
     }
-    fn s(&self) -> String { self.0.to_string_lossy().replace('\\', "/") }
-    fn git(&self, args: &[&str]) -> String { run(&self.s(), args).unwrap() }
+    fn s(&self) -> String {
+        self.0.to_string_lossy().replace('\\', "/")
+    }
+    fn git(&self, args: &[&str]) -> String {
+        run(&self.s(), args).unwrap()
+    }
     fn write(&self, name: &str, text: &str) {
         let p = self.0.join(name);
         fs::create_dir_all(p.parent().unwrap()).unwrap();
         fs::write(p, text).unwrap();
     }
-    fn commit_all(&self, msg: &str) { self.git(&["add", "-A"]); self.git(&["commit", "-q", "-m", msg]); }
+    fn commit_all(&self, msg: &str) {
+        self.git(&["add", "-A"]);
+        self.git(&["commit", "-q", "-m", msg]);
+    }
 }
-impl Drop for Repo { fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); } }
+impl Drop for Repo {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
 
 #[test]
 fn parser_splits_staged_unstaged_untracked_and_conflicts() {
@@ -264,7 +275,11 @@ fn discard_restores_tracked_files_and_removes_untracked_through_the_given_functi
         DiscardItem { path: "b.txt".into(), status: "D".into() },
         DiscardItem { path: "nuevo.txt".into(), status: "U".into() },
     ];
-    let n = discard_sync(&r.s(), items, &|p| { removed.borrow_mut().push(p.to_path_buf()); fs::remove_file(p).map_err(|e| e.to_string()) }).unwrap();
+    let n = discard_sync(&r.s(), items, &|p| {
+        removed.borrow_mut().push(p.to_path_buf());
+        fs::remove_file(p).map_err(|e| e.to_string())
+    })
+    .unwrap();
     assert_eq!(n, 3);
     assert_eq!(fs::read_to_string(r.0.join("a.txt")).unwrap(), "v1\n");
     assert_eq!(fs::read_to_string(r.0.join("b.txt")).unwrap(), "b\n");
@@ -374,7 +389,9 @@ fn network_operations_are_cancelled_when_they_hang() {
 fn many_paths_are_staged_in_chunks() {
     let r = Repo::new();
     let names: Vec<String> = (0..250).map(|i| format!("f{i}.txt")).collect();
-    for n in &names { r.write(n, "x\n"); }
+    for n in &names {
+        r.write(n, "x\n");
+    }
     stage_sync(&r.s(), names).unwrap();
     assert_eq!(changes_sync(&r.s()).unwrap().staged.len(), 250);
 }

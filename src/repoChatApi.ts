@@ -2,9 +2,19 @@ import { githubFetch, GithubError, type GithubProxyResult } from "./github";
 import { ROOM_LABEL, ROOM_TITLE, type ChatComment, type ChatUser } from "./chatModel";
 
 export type { ChatComment, ChatUser } from "./chatModel";
-export interface ChatRepo { owner: string; repo: string }
-export interface ChatRoom { number: number; title: string; html_url: string }
-export interface ChatMembers { users: ChatUser[]; kind: "collaborators" | "contributors" }
+export interface ChatRepo {
+  owner: string;
+  repo: string;
+}
+export interface ChatRoom {
+  number: number;
+  title: string;
+  html_url: string;
+}
+export interface ChatMembers {
+  users: ChatUser[];
+  kind: "collaborators" | "contributors";
+}
 
 /** La interfaz depende de este contrato, no de cómo se almacenen los mensajes. */
 export interface ChatStore {
@@ -39,13 +49,18 @@ async function request<T>(url: string, method = "GET", body?: unknown): Promise<
 
 /** La etiqueta de la sala debe existir antes de usarla: se intenta crear y, si ya existe (422), se sigue. Una sola llamada. */
 async function ensureRoomLabel(repo: ChatRepo): Promise<void> {
-  try { await request(`${path(repo)}/labels`, "POST", { name: ROOM_LABEL, color: "7c3aed", description: "Chat del equipo en Pulso" }); }
-  catch (e) { if (!(e instanceof GithubError) || e.status !== 422) throw e; /* otra persona la creó a la vez */ }
+  try {
+    await request(`${path(repo)}/labels`, "POST", { name: ROOM_LABEL, color: "7c3aed", description: "Chat del equipo en Pulso" });
+  } catch (e) {
+    if (!(e instanceof GithubError) || e.status !== 422) throw e; /* otra persona la creó a la vez */
+  }
 }
 
 export const githubChatStore: ChatStore = {
   async findRoom(repo) {
-    const list = await request<Array<ChatRoom & { pull_request?: unknown }>>(`${path(repo)}/issues?labels=${encodeURIComponent(ROOM_LABEL)}&state=open&sort=created&direction=asc&per_page=10`);
+    const list = await request<Array<ChatRoom & { pull_request?: unknown }>>(
+      `${path(repo)}/issues?labels=${encodeURIComponent(ROOM_LABEL)}&state=open&sort=created&direction=asc&per_page=10`,
+    );
     // Si por error hubiera varias, todas las personas eligen la más antigua y acaban en la misma sala.
     const room = list.find((i) => !i.pull_request);
     return room ? { number: room.number, title: room.title, html_url: room.html_url } : null;
@@ -78,7 +93,7 @@ export const githubChatStore: ChatStore = {
     const all: ChatComment[] = lastPage <= 5 ? firstPage : [];
     // Solo se reconstruyen números de página: el token nunca se envía a enlaces del encabezado.
     for (let page = Math.max(2, lastPage - 4); page <= lastPage; page++) {
-      all.push(...await request<ChatComment[]>(`${base}${page}`));
+      all.push(...(await request<ChatComment[]>(`${base}${page}`)));
     }
     return all.sort((a, b) => a.id - b.id);
   },

@@ -6,11 +6,15 @@ pub fn parse_agy_models(text: &str) -> Vec<AiModelInfo> {
     let mut out = Vec::new();
     for raw in text.lines() {
         let line = raw.trim();
-        if line.is_empty() || !line.contains('\t') { continue; }
+        if line.is_empty() || !line.contains('\t') {
+            continue;
+        }
         let Some((id, label)) = line.split_once('\t') else { continue };
         let id = id.trim();
         let label = label.trim();
-        if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')) { continue; }
+        if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')) {
+            continue;
+        }
         let note = label.rsplit_once('(').and_then(|(_, r)| r.strip_suffix(')')).map(str::trim).unwrap_or("").to_string();
         if !out.iter().any(|x: &AiModelInfo| x.id == id) {
             out.push(AiModelInfo { id: id.to_string(), label: if label.is_empty() { id.to_string() } else { label.to_string() }, note });
@@ -21,14 +25,18 @@ pub fn parse_agy_models(text: &str) -> Vec<AiModelInfo> {
 
 /// Extrae los grupos y cubos de cuota de `agy -p "/usage" --output-format json --mode plan`.
 pub fn parse_agy_usage_json(text: &str) -> Option<AntigravityUsage> {
-    let v: serde_json::Value = serde_json::from_str(text.trim()).ok()
-        .or_else(|| text.lines().rev().find_map(|l| serde_json::from_str::<serde_json::Value>(l.trim()).ok()))?;
-    if v.get("status").and_then(|s| s.as_str()) != Some("SUCCESS") { return None; }
+    let v: serde_json::Value =
+        serde_json::from_str(text.trim()).ok().or_else(|| text.lines().rev().find_map(|l| serde_json::from_str::<serde_json::Value>(l.trim()).ok()))?;
+    if v.get("status").and_then(|s| s.as_str()) != Some("SUCCESS") {
+        return None;
+    }
     let arr = v.get("command").and_then(|c| c.get("data")).and_then(|d| d.get("groups")).and_then(|g| g.as_array())?;
     let mut groups = Vec::new();
     for g in arr {
         let name = g.get("name").and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
-        if name.is_empty() { continue; }
+        if name.is_empty() {
+            continue;
+        }
         let description = g.get("description").and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
         let mut buckets = Vec::new();
         if let Some(bs) = g.get("buckets").and_then(|x| x.as_array()) {
@@ -74,7 +82,9 @@ pub fn detect_antigravity() -> AiTool {
     let (logged, method, plan) = gemini_auth_from(user_home().as_deref(), false, false);
     tool.logged_in = logged;
     tool.auth_method = method;
-    if logged { tool.plan = if plan == "Google" { "Antigravity".into() } else { plan }; }
+    if logged {
+        tool.plan = if plan == "Google" { "Antigravity".into() } else { plan };
+    }
     tool
 }
 

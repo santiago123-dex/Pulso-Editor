@@ -30,8 +30,12 @@ export function refreshExtraUsage(): Promise<boolean> {
       const res = await invoke<ExtraUsage>("ai_extra_usage");
       if (res.codex) {
         S.codexUsage = pruneUsage({
-          fiveHour: res.codex.five_hour ? { utilization: res.codex.five_hour.used_percent / 100, resetsAt: res.codex.five_hour.resets_at } : undefined,
-          sevenDay: res.codex.seven_day ? { utilization: res.codex.seven_day.used_percent / 100, resetsAt: res.codex.seven_day.resets_at } : undefined,
+          fiveHour: res.codex.five_hour
+            ? { utilization: res.codex.five_hour.used_percent / 100, resetsAt: res.codex.five_hour.resets_at }
+            : undefined,
+          sevenDay: res.codex.seven_day
+            ? { utilization: res.codex.seven_day.used_percent / 100, resetsAt: res.codex.seven_day.resets_at }
+            : undefined,
         });
         if (res.codex.plan && tools.codex && tools.codex.auth_method !== "api_key") {
           tools.codex.plan = res.codex.plan;
@@ -50,8 +54,14 @@ export function refreshExtraUsage(): Promise<boolean> {
 }
 
 export function providerUsage(prov: AiProvider = S.activeProvider): Conversation["usage"] {
-  if (prov === "claude") { S.usage = pruneUsage(S.usage); return S.usage; }
-  if (prov === "codex") { S.codexUsage = pruneUsage(S.codexUsage); return S.codexUsage; }
+  if (prov === "claude") {
+    S.usage = pruneUsage(S.usage);
+    return S.usage;
+  }
+  if (prov === "codex") {
+    S.codexUsage = pruneUsage(S.codexUsage);
+    return S.codexUsage;
+  }
   if (prov === "local" || prov === "cloud") return {};
   return agyPrimaryUsage();
 }

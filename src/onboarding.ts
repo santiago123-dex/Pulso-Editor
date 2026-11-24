@@ -9,7 +9,9 @@ import "./onboarding.css";
 const ONBOARD_KEY = "pulso.onboarded";
 
 export const isOnboardingDone = () => readStorage(ONBOARD_KEY) === "1";
-export const markOnboardingDone = () => { writeStorage(ONBOARD_KEY, "1"); };
+export const markOnboardingDone = () => {
+  writeStorage(ONBOARD_KEY, "1");
+};
 
 /** Solo se abre automáticamente la primera vez que no hay carpeta abierta ni recientes. */
 export function shouldShowOnboarding(opts: { done: boolean; hasRecent: boolean; hasRoot: boolean }): boolean {
@@ -39,7 +41,9 @@ export function openOnboarding(opts: { onOpenFolder: () => Promise<void> }) {
       close();
     }
   };
-  backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
+  backdrop.onclick = (e) => {
+    if (e.target === backdrop) close();
+  };
   window.addEventListener("keydown", onKey, true);
 
   // Cabecera
@@ -135,7 +139,10 @@ export function openOnboarding(opts: { onOpenFolder: () => Promise<void> }) {
   const foot = h("div", "onb-foot");
   const folderBtn = h("button", "diff-btn", t("Abrir una carpeta…"));
   folderBtn.type = "button";
-  folderBtn.onclick = () => { close(); void opts.onOpenFolder(); };
+  folderBtn.onclick = () => {
+    close();
+    void opts.onOpenFolder();
+  };
   const doneBtn = h("button", "diff-btn primary", t("Empezar"));
   doneBtn.type = "button";
   doneBtn.onclick = close;

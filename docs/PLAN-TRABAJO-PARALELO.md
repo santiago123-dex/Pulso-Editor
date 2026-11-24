@@ -211,7 +211,7 @@ Dividir por responsabilidad facilita revisar y evita que las ramas choquen. **Ha
 | `src-tauri/src/lib.rs` | 1352 | **Hecho:** `lib.rs` queda en unas 280 líneas (módulos, `run()` y el registro de comandos); el resto está en `workspace.rs`, `files.rs`, `recovery.rs`, `secrets.rs`, `search.rs`, `themes.rs` y `gitinfo.rs` |
 
 - [ ] Sin cambiar comportamiento: las pruebas existentes deben pasar sin tocarlas.
-- [ ] Después, **un PR solo de formato** con `cargo fmt` y Prettier.
+- [x] Después, **un PR solo de formato** con `cargo fmt` y Prettier. Hecho sin otras ramas abiertas: `cargo fmt --check` y `npm run format:check` ya salen limpios. Queda decidir si se quita el `continue-on-error` de esos dos pasos de la CI para que el formato se exija en cada PR.
 
 ---
 

@@ -105,9 +105,7 @@ pub fn is_valid_ext_id(id: &str) -> bool {
     if !bytes[0].is_ascii_lowercase() && !bytes[0].is_ascii_digit() {
         return false;
     }
-    bytes
-        .iter()
-        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'-' | b'_'))
+    bytes.iter().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'-' | b'_'))
 }
 
 fn is_valid_semver(v: &str) -> bool {
@@ -123,14 +121,12 @@ fn is_safe_relative_path(raw: &str) -> bool {
     if p.is_absolute() {
         return false;
     }
-    !p.components()
-        .any(|c| matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_)))
+    !p.components().any(|c| matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_)))
 }
 
 /// Valida estrictamente el contenido de un `manifest.json` de extensión declarativa.
 pub fn validate_manifest(raw: &str) -> Result<ExtensionManifest, String> {
-    let mut manifest: ExtensionManifest = serde_json::from_str(raw)
-        .map_err(|e| trf("Manifiesto de extensión no válido: {e}", &[("e", &e)]))?;
+    let mut manifest: ExtensionManifest = serde_json::from_str(raw).map_err(|e| trf("Manifiesto de extensión no válido: {e}", &[("e", &e)]))?;
 
     if !is_valid_ext_id(&manifest.id) {
         return Err(tr("El identificador de la extensión debe tener entre 2 y 64 caracteres (minúsculas, números, ., - o _).").into());
@@ -165,9 +161,7 @@ pub fn validate_manifest(raw: &str) -> Result<ExtensionManifest, String> {
             return Err(tr("Un fragmento declarado en la extensión tiene datos o ruta no válidos.").into());
         }
     }
-    if (!manifest.contributes.commands.is_empty() || !manifest.contributes.language_servers.is_empty())
-        && !seen_perms.contains("terminal")
-    {
+    if (!manifest.contributes.commands.is_empty() || !manifest.contributes.language_servers.is_empty()) && !seen_perms.contains("terminal") {
         return Err(tr("Las extensiones con comandos o servidores de lenguaje deben declarar el permiso «terminal».").into());
     }
     for cmd in &manifest.contributes.commands {
@@ -187,21 +181,14 @@ pub fn validate_manifest(raw: &str) -> Result<ExtensionManifest, String> {
 fn extensions_root() -> Result<PathBuf, String> {
     let base = std::env::var_os("APPDATA")
         .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("USERPROFILE")
-                .or_else(|| std::env::var_os("HOME"))
-                .map(|h| PathBuf::from(h).join(".config"))
-        })
+        .or_else(|| std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(|h| PathBuf::from(h).join(".config")))
         .ok_or_else(|| tr("No se pudo localizar la carpeta de extensiones del usuario.").to_string())?;
     Ok(base.join("dev.pulso.editor").join("extensions"))
 }
 
 fn load_state_in(root: &Path) -> ExtensionsStateFile {
     let file = root.join("extensions-state.json");
-    fs::read_to_string(file)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+    fs::read_to_string(file).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
 }
 
 fn save_state_in(root: &Path, st: &ExtensionsStateFile) -> Result<(), String> {
@@ -223,11 +210,7 @@ pub fn list_extensions_in(root: &Path) -> Vec<InstalledExtension> {
         let Ok(raw) = fs::read_to_string(&manifest_path) else { continue };
         let Ok(manifest) = validate_manifest(&raw) else { continue };
         let enabled = state.enabled.get(&manifest.id).copied().unwrap_or(true);
-        out.push(InstalledExtension {
-            manifest,
-            enabled,
-            dir: crate::norm(&dir),
-        });
+        out.push(InstalledExtension { manifest, enabled, dir: crate::norm(&dir) });
     }
     out.sort_by(|a, b| a.manifest.name.to_lowercase().cmp(&b.manifest.name.to_lowercase()));
     out
@@ -252,8 +235,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
 }
 
 pub fn install_extension_into(root: &Path, src_dir: &Path) -> Result<InstalledExtension, String> {
-    let raw = fs::read_to_string(src_dir.join("manifest.json"))
-        .map_err(|_| tr("La carpeta elegida no contiene un archivo manifest.json.").to_string())?;
+    let raw = fs::read_to_string(src_dir.join("manifest.json")).map_err(|_| tr("La carpeta elegida no contiene un archivo manifest.json.").to_string())?;
     let manifest = validate_manifest(&raw)?;
     let dest = root.join(&manifest.id);
     if dest.exists() {
@@ -263,11 +245,7 @@ pub fn install_extension_into(root: &Path, src_dir: &Path) -> Result<InstalledEx
     let mut st = load_state_in(root);
     st.enabled.insert(manifest.id.clone(), true);
     save_state_in(root, &st)?;
-    Ok(InstalledExtension {
-        manifest,
-        enabled: true,
-        dir: crate::norm(&dest),
-    })
+    Ok(InstalledExtension { manifest, enabled: true, dir: crate::norm(&dest) })
 }
 
 pub fn set_enabled_in(root: &Path, id: &str, enabled: bool) -> Result<(), String> {
@@ -311,40 +289,20 @@ pub fn ext_uninstall(id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn ext_pick_for_install(
-    app: tauri::AppHandle,
-    state: State<'_, ExtensionState>,
-) -> Result<Option<ExtensionInstallPreview>, String> {
+pub async fn ext_pick_for_install(app: tauri::AppHandle, state: State<'_, ExtensionState>) -> Result<Option<ExtensionInstallPreview>, String> {
     use tauri_plugin_dialog::DialogExt;
-    let picked = tauri::async_runtime::spawn_blocking(move || app.dialog().file().blocking_pick_folder())
-        .await
-        .map_err(|e| e.to_string())?;
+    let picked = tauri::async_runtime::spawn_blocking(move || app.dialog().file().blocking_pick_folder()).await.map_err(|e| e.to_string())?;
     let Some(folder) = picked else { return Ok(None) };
     let path = folder.into_path().map_err(|e| e.to_string())?;
-    let raw = fs::read_to_string(path.join("manifest.json"))
-        .map_err(|_| tr("La carpeta elegida no contiene un archivo manifest.json.").to_string())?;
+    let raw = fs::read_to_string(path.join("manifest.json")).map_err(|_| tr("La carpeta elegida no contiene un archivo manifest.json.").to_string())?;
     let manifest = validate_manifest(&raw)?;
-    let token = format!(
-        "ext-{}-{}",
-        manifest.id,
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0)
-    );
-    state
-        .pending_installs
-        .lock()
-        .map_err(|e| e.to_string())?
-        .insert(token.clone(), path);
+    let token = format!("ext-{}-{}", manifest.id, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0));
+    state.pending_installs.lock().map_err(|e| e.to_string())?.insert(token.clone(), path);
     Ok(Some(ExtensionInstallPreview { token, manifest }))
 }
 
 #[tauri::command]
-pub fn ext_confirm_install(
-    state: State<'_, ExtensionState>,
-    token: String,
-) -> Result<InstalledExtension, String> {
+pub fn ext_confirm_install(state: State<'_, ExtensionState>, token: String) -> Result<InstalledExtension, String> {
     let src = state
         .pending_installs
         .lock()
@@ -384,7 +342,8 @@ mod tests {
         assert!(validate_manifest(bad_perm).is_err());
 
         // Comando sin permiso terminal rechazado.
-        let missing_term = r#"{"id":"pulso.cmd","name":"Cmd","version":"1.0.0","permissions":["files"],"contributes":{"commands":[{"id":"c","title":"C","script":"ls"}]}}"#;
+        let missing_term =
+            r#"{"id":"pulso.cmd","name":"Cmd","version":"1.0.0","permissions":["files"],"contributes":{"commands":[{"id":"c","title":"C","script":"ls"}]}}"#;
         assert!(validate_manifest(missing_term).is_err());
     }
 

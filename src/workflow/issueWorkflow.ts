@@ -95,7 +95,9 @@ export async function startWorkOnIssue(issue: Issue): Promise<boolean> {
       await addLabel(repo.owner, repo.repo, issue.number, label);
       await removeLabel(repo.owner, repo.repo, issue.number, REVIEW_LABEL).catch(() => {});
       bus.emit("issues-changed");
-    } catch { /* sin permiso de escritura: continuamos igual con el flujo local */ }
+    } catch {
+      /* sin permiso de escritura: continuamos igual con el flujo local */
+    }
   }
 
   // 3. Guardar trabajo activo y notificar al chat de IA.
@@ -143,11 +145,7 @@ export async function applyProposedEdit(edit: ProposedFileEdit): Promise<string>
  * Abre un Diff Review interactivo en Monaco comparando el contenido actual vs la propuesta de la IA,
  * con botones «Aplicar cambio» y «Descartar» antes de pisar el disco.
  */
-export async function reviewProposedEdit(
-  edit: ProposedFileEdit,
-  onApplied?: () => void,
-  onRejected?: () => void,
-): Promise<void> {
+export async function reviewProposedEdit(edit: ProposedFileEdit, onApplied?: () => void, onRejected?: () => void): Promise<void> {
   if (!ws.root) {
     setStatus(tr("Abre una carpeta para revisar cambios propuestos"));
     return;
@@ -212,12 +210,7 @@ export async function createPrForActiveIssue(touchedFiles: string[] = []): Promi
     await newPull();
     return;
   }
-  const draft = buildPrDraft(
-    { number: work.number, title: work.title },
-    work.branch,
-    "main",
-    touchedFiles,
-  );
+  const draft = buildPrDraft({ number: work.number, title: work.title }, work.branch, "main", touchedFiles);
   const created = await newPull({
     title: draft.title,
     body: draft.body,
@@ -231,6 +224,8 @@ export async function createPrForActiveIssue(touchedFiles: string[] = []): Promi
       await removeLabel(work.owner, work.repo, work.number, progress).catch(() => {});
       bus.emit("issues-changed");
       setStatus(tr("PR #{pr} creada · Issue #{issue} movida a «En revisión»", { pr: created.number, issue: work.number }), 6000);
-    } catch { /* la PR ya fue creada */ }
+    } catch {
+      /* la PR ya fue creada */
+    }
   }
 }

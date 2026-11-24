@@ -30,6 +30,7 @@ Todos los cambios notables en Pulso Editor se documentan en este archivo.
 - **Fusionar y revisar pull requests y ver sus comprobaciones funciona de verdad.** El panel nuevo las pedía, pero la lista de permitidos de GitHub (`githubpolicy.rs`) las rechazaba. Ahora se permiten solo `PUT pulls/N/merge`, `POST pulls/N/reviews` y `GET commits/SHA/check-runs`, y el cuerpo de las dos primeras se acota: solo los campos que usa el panel y valores conocidos (`merge_method` ∈ merge, squash, rebase; `event` ∈ COMMENT, APPROVE, REQUEST_CHANGES).
 
 ### Interno
+- **Todo el código con el formato del proyecto:** `cargo fmt` (Rust) y Prettier (TypeScript en `src/`, sin traducciones), con las reglas de `src-tauri/rustfmt.toml` y `.prettierrc.json`. Solo cambia el formato, no el comportamiento. Para trabajar: `cargo fmt --manifest-path src-tauri/Cargo.toml` y `npm run format:check` (hace falta `npm install` para tener Prettier).
 - `aiChat.ts` pasa de unas 2 300 líneas a unas 870: el estado compartido del panel está en `ai/chatState.ts` y el resto repartido en doce módulos de `src/ai/` (`turnView`, `popovers`, `quota`, `attachments`, `workbench`, `denials`…). Sin cambios de comportamiento.
 - `aiChat.ts`: primeros módulos aparte (`ai/icons.ts`, `ai/modelLabels.ts`, `ai/images.ts`, `ai/markdownView.ts`), los que no dependen del estado del panel. Sin cambios de comportamiento.
 

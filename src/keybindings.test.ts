@@ -1,7 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
-  assignKey, duplicatedKeys, effectiveKey, findConflicts, groupByCategory, isCustom, keyParts, matches,
-  reservedFor, resetKey, searchable, splitLabel, type KbCommand,
+  assignKey,
+  duplicatedKeys,
+  effectiveKey,
+  findConflicts,
+  groupByCategory,
+  isCustom,
+  keyParts,
+  matches,
+  reservedFor,
+  resetKey,
+  searchable,
+  splitLabel,
+  type KbCommand,
 } from "./keybindings";
 
 const cmds: KbCommand[] = [

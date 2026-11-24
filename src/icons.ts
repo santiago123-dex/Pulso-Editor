@@ -8,7 +8,9 @@ interface IconSet {
   folderNames: Record<string, string>;
   folderNamesExpanded: Record<string, string>;
 }
-interface Manifest extends IconSet { light: Partial<IconSet> }
+interface Manifest extends IconSet {
+  light: Partial<IconSet>;
+}
 
 let manifest: Manifest | null = null;
 let lightMode = false;
@@ -67,7 +69,7 @@ export const fileIcon = (name: string): HTMLElement => iconEl(fileIconName(name)
 export function folderIcon(name: string, open: boolean): HTMLElement {
   const lower = name.toLowerCase();
   const icon = open
-    ? pickMap("folderNamesExpanded", lower) ?? pickDefault("folderExpanded")
-    : pickMap("folderNames", lower) ?? pickDefault("folder");
+    ? (pickMap("folderNamesExpanded", lower) ?? pickDefault("folderExpanded"))
+    : (pickMap("folderNames", lower) ?? pickDefault("folder"));
   return iconEl(icon, " folder");
 }

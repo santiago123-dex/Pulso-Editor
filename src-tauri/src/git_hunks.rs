@@ -23,9 +23,7 @@ pub struct DiffHunk {
 /// Divide una salida de `git diff` de un solo archivo en fragmentos aplicables individualmente.
 pub fn split_unified_hunks(diff: &str) -> Vec<DiffHunk> {
     static RE: OnceLock<Regex> = OnceLock::new();
-    let re = RE.get_or_init(|| {
-        Regex::new(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$").unwrap()
-    });
+    let re = RE.get_or_init(|| Regex::new(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$").unwrap());
 
     let lines: Vec<&str> = diff.lines().collect();
     let mut file_header: Vec<&str> = Vec::new();
@@ -71,17 +69,7 @@ pub fn split_unified_hunks(diff: &str) -> Vec<DiffHunk> {
         patch.push_str(&slice.join("\n"));
         patch.push('\n');
 
-        out.push(DiffHunk {
-            index: idx,
-            header: slice[0].to_string(),
-            old_start,
-            old_count,
-            new_start,
-            new_count,
-            added,
-            removed,
-            patch,
-        });
+        out.push(DiffHunk { index: idx, header: slice[0].to_string(), old_start, old_count, new_start, new_count, added, removed, patch });
     }
 
     out
@@ -95,11 +83,7 @@ fn file_hunks_sync(root: &Path, rel_path: &str, staged: bool) -> Result<Vec<Diff
     args.push("--");
     args.push(rel_path);
 
-    let out = background_command("git")
-        .args(&args)
-        .current_dir(root)
-        .output()
-        .map_err(|e| format!("No se pudo ejecutar git diff: {e}"))?;
+    let out = background_command("git").args(&args).current_dir(root).output().map_err(|e| format!("No se pudo ejecutar git diff: {e}"))?;
 
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
@@ -125,14 +109,10 @@ fn apply_hunk_sync(root: &Path, patch: &str, reverse: bool) -> Result<(), String
         .map_err(|e| format!("No se pudo iniciar git apply: {e}"))?;
 
     if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(patch.as_bytes())
-            .map_err(|e| format!("Error enviando el fragmento a git apply: {e}"))?;
+        stdin.write_all(patch.as_bytes()).map_err(|e| format!("Error enviando el fragmento a git apply: {e}"))?;
     }
 
-    let out = child
-        .wait_with_output()
-        .map_err(|e| format!("Error esperando git apply: {e}"))?;
+    let out = child.wait_with_output().map_err(|e| format!("Error esperando git apply: {e}"))?;
 
     if !out.status.success() {
         let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
@@ -142,29 +122,15 @@ fn apply_hunk_sync(root: &Path, patch: &str, reverse: bool) -> Result<(), String
 }
 
 #[tauri::command]
-pub async fn git_file_hunks(
-    root: String,
-    path: String,
-    staged: bool,
-    guard: tauri::State<'_, fsguard::WorkspaceGuard>,
-) -> Result<Vec<DiffHunk>, String> {
+pub async fn git_file_hunks(root: String, path: String, staged: bool, guard: tauri::State<'_, fsguard::WorkspaceGuard>) -> Result<Vec<DiffHunk>, String> {
     let safe = guard.ensure_read(&root)?;
-    tauri::async_runtime::spawn_blocking(move || file_hunks_sync(&safe, &path, staged))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || file_hunks_sync(&safe, &path, staged)).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub async fn git_apply_hunk(
-    root: String,
-    patch: String,
-    reverse: bool,
-    guard: tauri::State<'_, fsguard::WorkspaceGuard>,
-) -> Result<(), String> {
+pub async fn git_apply_hunk(root: String, patch: String, reverse: bool, guard: tauri::State<'_, fsguard::WorkspaceGuard>) -> Result<(), String> {
     let safe = guard.ensure_write(&root)?;
-    tauri::async_runtime::spawn_blocking(move || apply_hunk_sync(&safe, &patch, reverse))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || apply_hunk_sync(&safe, &patch, reverse)).await.map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]

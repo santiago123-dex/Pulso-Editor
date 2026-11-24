@@ -220,7 +220,8 @@ impl McpClient {
 
     /// Saludo inicial del protocolo.
     pub fn initialize(&self, cancel: &AtomicBool) -> Result<(), String> {
-        let params = json!({ "protocolVersion": PROTOCOL_VERSION, "capabilities": {}, "clientInfo": { "name": "pulso-editor", "version": env!("CARGO_PKG_VERSION") } });
+        let params =
+            json!({ "protocolVersion": PROTOCOL_VERSION, "capabilities": {}, "clientInfo": { "name": "pulso-editor", "version": env!("CARGO_PKG_VERSION") } });
         self.request("initialize", params, START_TIMEOUT, cancel)?;
         self.notify("notifications/initialized");
         Ok(())
@@ -301,7 +302,8 @@ fn resolve_program(program: &str) -> String {
     if !cfg!(windows) || program.contains(['\\', '/']) || Path::new(program).extension().is_some() {
         return program.to_string();
     }
-    let exts: Vec<String> = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into()).split(';').filter(|e| !e.is_empty()).map(str::to_string).collect();
+    let exts: Vec<String> =
+        std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into()).split(';').filter(|e| !e.is_empty()).map(str::to_string).collect();
     for dir in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
         for ext in &exts {
             let candidate = dir.join(format!("{program}{ext}"));
@@ -385,7 +387,12 @@ pub fn probe(config: &McpConfig, root: &Path, trusted: bool, cancel: &Arc<Atomic
                     Ok((client, list)) => {
                         let tools = list
                             .iter()
-                            .filter_map(|t| Some(ToolInfo { name: t["name"].as_str().filter(|n| !n.is_empty())?.to_string(), description: t["description"].as_str().unwrap_or("").chars().take(300).collect() }))
+                            .filter_map(|t| {
+                                Some(ToolInfo {
+                                    name: t["name"].as_str().filter(|n| !n.is_empty())?.to_string(),
+                                    description: t["description"].as_str().unwrap_or("").chars().take(300).collect(),
+                                })
+                            })
                             .collect();
                         drop(client);
                         status_of(&def, "ok", String::new(), tools)
@@ -586,12 +593,18 @@ pub(crate) mod testkit {
                 let Ok(m) = serde_json::from_str::<Value>(line.trim()) else { continue };
                 let (Some(id), Some(method)) = (m.get("id").cloned(), m["method"].as_str()) else { continue };
                 match method {
-                    "initialize" => say(json!({ "jsonrpc": "2.0", "id": id, "result": { "protocolVersion": PROTOCOL_VERSION, "capabilities": { "tools": {} }, "serverInfo": { "name": "mock", "version": "1" } } })),
+                    "initialize" => say(
+                        json!({ "jsonrpc": "2.0", "id": id, "result": { "protocolVersion": PROTOCOL_VERSION, "capabilities": { "tools": {} }, "serverInfo": { "name": "mock", "version": "1" } } }),
+                    ),
                     "tools/list" => {
                         if m["params"]["cursor"].is_null() {
-                            say(json!({ "jsonrpc": "2.0", "id": id, "result": { "tools": [{ "name": "echo", "description": "Repite el texto", "inputSchema": { "type": "object", "properties": { "text": { "type": "string" } } } }], "nextCursor": "p2" } }));
+                            say(
+                                json!({ "jsonrpc": "2.0", "id": id, "result": { "tools": [{ "name": "echo", "description": "Repite el texto", "inputSchema": { "type": "object", "properties": { "text": { "type": "string" } } } }], "nextCursor": "p2" } }),
+                            );
                         } else {
-                            say(json!({ "jsonrpc": "2.0", "id": id, "result": { "tools": [{ "name": "echo", "description": "Otra con el mismo nombre" }, { "name": "falla.mal nombre" }] } }));
+                            say(
+                                json!({ "jsonrpc": "2.0", "id": id, "result": { "tools": [{ "name": "echo", "description": "Otra con el mismo nombre" }, { "name": "falla.mal nombre" }] } }),
+                            );
                         }
                     }
                     "tools/call" => {
@@ -601,7 +614,9 @@ pub(crate) mod testkit {
                         let name = m["params"]["name"].as_str().unwrap_or("");
                         if name == "echo" {
                             let text = m["params"]["arguments"]["text"].as_str().unwrap_or("");
-                            say(json!({ "jsonrpc": "2.0", "id": id, "result": { "content": [{ "type": "text", "text": format!("eco: {text}") }, { "type": "image", "data": "AAAA", "mimeType": "image/png" }] } }));
+                            say(
+                                json!({ "jsonrpc": "2.0", "id": id, "result": { "content": [{ "type": "text", "text": format!("eco: {text}") }, { "type": "image", "data": "AAAA", "mimeType": "image/png" }] } }),
+                            );
                         } else if name == "colgar" {
                             // No contesta nunca.
                         } else {
@@ -637,7 +652,16 @@ mod tests {
         let s = parse_servers(text, true);
         assert_eq!(s.len(), 2);
         let docs = s.iter().find(|d| d.name == "docs").unwrap();
-        assert_eq!(*docs, ServerDef { name: "docs".into(), command: "npx".into(), args: vec!["-y".into(), "pkg".into()], env: vec![("TOKEN".into(), "abc".into())], project: true });
+        assert_eq!(
+            *docs,
+            ServerDef {
+                name: "docs".into(),
+                command: "npx".into(),
+                args: vec!["-y".into(), "pkg".into()],
+                env: vec![("TOKEN".into(), "abc".into())],
+                project: true
+            }
+        );
         assert!(s.iter().any(|d| d.name == "con_espacios_y__"));
         assert!(parse_servers("{ no es json", false).is_empty());
         assert!(parse_servers(r#"{"mcpServers": {"a": {"command": "x"}}}"#, false).len() == 1);
@@ -652,7 +676,10 @@ mod tests {
         std::fs::write(home.join(".pulso").join("mcp.json"), r#"{"servers":{"a":{"command":"mio"}}}"#).unwrap();
         std::fs::write(root.join(".pulso").join("mcp.json"), r#"{"servers":{"a":{"command":"ajeno"},"b":{"command":"otro"}}}"#).unwrap();
         let cfg = McpConfig::load(&root, Some(&home));
-        assert_eq!(cfg.servers.iter().map(|s| (s.name.as_str(), s.command.as_str(), s.project)).collect::<Vec<_>>(), vec![("a", "mio", false), ("b", "otro", true)]);
+        assert_eq!(
+            cfg.servers.iter().map(|s| (s.name.as_str(), s.command.as_str(), s.project)).collect::<Vec<_>>(),
+            vec![("a", "mio", false), ("b", "otro", true)]
+        );
         let sin = cfg.without_project();
         assert_eq!(sin.servers.len(), 1);
         assert_eq!(sin.servers[0].command, "mio");
@@ -791,9 +818,19 @@ rl.on('line', (l) => {
             "const rl = require('readline').createInterface({ input: process.stdin });\nrl.on('line', (l) => { const m = JSON.parse(l); if (m.id === undefined) return;\n  const send = (r) => console.log(JSON.stringify({ jsonrpc: '2.0', id: m.id, ...r }));\n  if (m.method === 'initialize') send({ result: { protocolVersion: '2025-06-18', capabilities: {}, serverInfo: { name: 'n', version: '1' } } });\n  else if (m.method === 'tools/list') send({ result: { tools: [{ name: 'suma', description: 'Suma dos números' }, { name: 'resta' }] } }); });",
         )
         .unwrap();
-        let def = |name: &str, command: &str, args: &[&str], project: bool| ServerDef { name: name.into(), command: command.into(), args: args.iter().map(|a| a.to_string()).collect(), env: vec![("TOKEN".into(), "secreto".into())], project };
+        let def = |name: &str, command: &str, args: &[&str], project: bool| ServerDef {
+            name: name.into(),
+            command: command.into(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+            env: vec![("TOKEN".into(), "secreto".into())],
+            project,
+        };
         let config = McpConfig {
-            servers: vec![def("js", "node", &["server.js"], false), def("roto", "programa-que-no-existe-pulso", &[], false), def("ajeno", "node", &["peligroso.js"], true)],
+            servers: vec![
+                def("js", "node", &["server.js"], false),
+                def("roto", "programa-que-no-existe-pulso", &[], false),
+                def("ajeno", "node", &["peligroso.js"], true),
+            ],
         };
         let cancel = Arc::new(AtomicBool::new(false));
         let s = probe(&config, &dir, false, &cancel);

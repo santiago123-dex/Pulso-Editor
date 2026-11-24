@@ -23,7 +23,11 @@ export function buildProviderTabs(onPick?: (p: AiProvider) => void): HTMLElement
     const dotCls = t?.logged_in ? "on" : t?.installed ? "wait" : "off";
     const btn = h("button", `ai-prov-tab${S.activeProvider === id ? " active" : ""}`);
     btn.type = "button";
-    btn.title = t?.logged_in ? tr("{provider} conectado", { provider: PROVIDERS[id].title }) : t?.installed ? tr("{provider}: falta iniciar sesión", { provider: PROVIDERS[id].title }) : tr("{provider}: sin instalar", { provider: PROVIDERS[id].title });
+    btn.title = t?.logged_in
+      ? tr("{provider} conectado", { provider: PROVIDERS[id].title })
+      : t?.installed
+        ? tr("{provider}: falta iniciar sesión", { provider: PROVIDERS[id].title })
+        : tr("{provider}: sin instalar", { provider: PROVIDERS[id].title });
     btn.append(h("span", `ai-prov-dot ${dotCls}`, ""), h("span", "", PROVIDERS[id].short));
     btn.onclick = () => {
       ctl.switchProvider(id);
@@ -42,7 +46,10 @@ export function accountStatusText(id: AiProvider, t: AiTool | null): string {
   if (!t.logged_in) return t.error ? tr("Instalado · no se pudo comprobar la sesión") : tr("Instalado · falta iniciar sesión");
   if (id === "claude") return t.plan ? tr("Conectado · Plan {plan}", { plan: planLabel(t.plan) }) : tr("Conectado · Suscripción Claude");
   if (id === "codex") {
-    if (t.auth_method === "chatgpt") return t.plan && t.plan !== "ChatGPT" ? tr("Conectado · Plan {plan}", { plan: planLabel(t.plan) }) : tr("Conectado · Suscripción ChatGPT");
+    if (t.auth_method === "chatgpt")
+      return t.plan && t.plan !== "ChatGPT"
+        ? tr("Conectado · Plan {plan}", { plan: planLabel(t.plan) })
+        : tr("Conectado · Suscripción ChatGPT");
     if (t.auth_method === "api_key") return tr("Conectado · Clave API");
     return tr("Conectado · ChatGPT");
   }
@@ -60,21 +67,30 @@ export async function installAndConnect(prov: AiProvider, onDone?: () => void) {
     if (cmd && meta.loginCmd) {
       cmd = ps
         ? prov === "local"
-          // Tras instalar, la terminal abierta aún no tiene Ollama en el PATH: se usa su ruta.
-          ? `${cmd}; if ($?) { & "$env:LOCALAPPDATA\\Programs\\Ollama\\ollama.exe" pull qwen2.5-coder:7b }`
+          ? // Tras instalar, la terminal abierta aún no tiene Ollama en el PATH: se usa su ruta.
+            `${cmd}; if ($?) { & "$env:LOCALAPPDATA\\Programs\\Ollama\\ollama.exe" pull qwen2.5-coder:7b }`
           : `${cmd}; if ($?) { $agy = "$env:LOCALAPPDATA\\agy\\bin\\agy.exe"; if (Test-Path $agy) { & $agy acp --login } }`
         : `${cmd} && ${meta.loginCmd}`;
     }
   } else if (meta.npmPkg) {
-    cmd = ps
-      ? `npm install -g ${meta.npmPkg}; if ($?) { ${meta.loginCmd} }`
-      : `npm install -g ${meta.npmPkg} && ${meta.loginCmd}`;
+    cmd = ps ? `npm install -g ${meta.npmPkg}; if ($?) { ${meta.loginCmd} }` : `npm install -g ${meta.npmPkg} && ${meta.loginCmd}`;
   }
-  if (!cmd) { void openExternal(meta.docsUrl); return; }
+  if (!cmd) {
+    void openExternal(meta.docsUrl);
+    return;
+  }
   const r = await showDialog({
     title: tr("Instalar y conectar {account}", { account: meta.accountTitle }),
-    message: tr("Se ejecutará en la terminal integrada:") + "\n" + cmd + "\n\n" + tr("Pulso no pide ni guarda claves: iniciarás sesión directamente en la herramienta oficial."),
-    buttons: [{ label: tr("Cancelar"), value: "cancel" }, { label: tr("Instalar y conectar"), value: "ok", primary: true }],
+    message:
+      tr("Se ejecutará en la terminal integrada:") +
+      "\n" +
+      cmd +
+      "\n\n" +
+      tr("Pulso no pide ni guarda claves: iniciarás sesión directamente en la herramienta oficial."),
+    buttons: [
+      { label: tr("Cancelar"), value: "cancel" },
+      { label: tr("Instalar y conectar"), value: "ok", primary: true },
+    ],
   });
   if (r !== "ok") return;
   onDone?.();
@@ -143,19 +159,24 @@ export function openAccountsPopover(anchor: HTMLElement) {
       checkBtn.disabled = true;
       checkBtn.textContent = tr("Comprobando…");
       S.toolAt = 0;
-      void ctl.detect(true).finally(() => { if (pop.isConnected) render(); });
+      void ctl.detect(true).finally(() => {
+        if (pop.isConnected) render();
+      });
     };
     head.append(checkBtn);
     pop.append(
       head,
-      h("div", "ai-usage-note", tr("Cada proveedor administra su sesión en su CLI oficial. Pulso detecta cuáles tienes activas para habilitar sus modelos.")),
+      h(
+        "div",
+        "ai-usage-note",
+        tr("Cada proveedor administra su sesión en su CLI oficial. Pulso detecta cuáles tienes activas para habilitar sus modelos."),
+      ),
       buildAccountsList(() => dismissPopover()),
     );
   };
   render();
   openPopover(anchor, pop, "below");
 }
-
 
 export function openModelPopover(anchor: HTMLElement) {
   const dockWrap = h("div", "ai-popover-pair");
@@ -179,31 +200,46 @@ export function openModelPopover(anchor: HTMLElement) {
   };
 
   const renderSideUsage = () => {
-    if (!usageSideOpen) { sideUsage.hidden = true; return; }
+    if (!usageSideOpen) {
+      sideUsage.hidden = true;
+      return;
+    }
     sideUsage.hidden = false;
-    populateUsageContainer(sideUsage, () => { if (dockWrap.isConnected && usageSideOpen) renderSideUsage(); });
-    requestAnimationFrame(() => { if (dockWrap.isConnected) syncSidePosition(); });
+    populateUsageContainer(sideUsage, () => {
+      if (dockWrap.isConnected && usageSideOpen) renderSideUsage();
+    });
+    requestAnimationFrame(() => {
+      if (dockWrap.isConnected) syncSidePosition();
+    });
   };
 
   const openSideUsage = () => {
     if (usageSideOpen) return;
     usageSideOpen = true;
     renderSideUsage();
-    void syncAccountAndUsage().finally(() => { if (dockWrap.isConnected && usageSideOpen) renderSideUsage(); });
+    void syncAccountAndUsage().finally(() => {
+      if (dockWrap.isConnected && usageSideOpen) renderSideUsage();
+    });
   };
 
   const render = () => {
     const meta = PROVIDERS[S.activeProvider];
     const cat = providerCatalog(S.activeProvider);
     pop.replaceChildren();
-    pop.append(h("div", "ai-pop-head", tr("Herramienta")), buildProviderTabs(() => {
-      const target = tools[S.activeProvider];
-      if (target && !target.logged_in) { dismissPopover(); return; }
-      specificOpen = providerCatalog(S.activeProvider).specific.some((m) => m.value === S.model);
-      syncModelButton();
-      render();
-      if (usageSideOpen) renderSideUsage();
-    }));
+    pop.append(
+      h("div", "ai-pop-head", tr("Herramienta")),
+      buildProviderTabs(() => {
+        const target = tools[S.activeProvider];
+        if (target && !target.logged_in) {
+          dismissPopover();
+          return;
+        }
+        specificOpen = providerCatalog(S.activeProvider).specific.some((m) => m.value === S.model);
+        syncModelButton();
+        render();
+        if (usageSideOpen) renderSideUsage();
+      }),
+    );
     pop.append(h("div", "ai-pop-sep"), h("div", "ai-pop-head", tr("Modelo · {provider}", { provider: meta.short })));
 
     const listBox = h("div", "ai-model-list");
@@ -236,7 +272,10 @@ export function openModelPopover(anchor: HTMLElement) {
       const toggleMain = h("span", "ai-pop-main");
       toggleMain.append(h("span", "ai-pop-name", tr("Más modelos ({count})", { count: cat.specific.length })));
       toggleSpec.append(toggleMain, h("span", "ai-pop-chev", specificOpen ? "▾" : "›"));
-      toggleSpec.onclick = () => { specificOpen = !specificOpen; render(); };
+      toggleSpec.onclick = () => {
+        specificOpen = !specificOpen;
+        render();
+      };
       listBox.append(h("div", "ai-pop-sep"), toggleSpec);
       if (specificOpen) for (const m of cat.specific) addOption(m);
     }
@@ -248,7 +287,11 @@ export function openModelPopover(anchor: HTMLElement) {
     custom.append(customMain);
     custom.onclick = async () => {
       dismissPopover();
-      const entered = await promptText({ title: tr("Identificador exacto del modelo"), value: S.model, placeholder: cat.models[1]?.value ?? "modelo" });
+      const entered = await promptText({
+        title: tr("Identificador exacto del modelo"),
+        value: S.model,
+        placeholder: cat.models[1]?.value ?? "modelo",
+      });
       if (!entered) return;
       S.model = entered.trim();
       writeStorage(meta.modelKey, S.model);
@@ -285,8 +328,14 @@ export function openModelPopover(anchor: HTMLElement) {
     viewUsage.setAttribute("aria-expanded", String(usageSideOpen));
     viewUsage.append(usageMain, h("span", "ai-pop-chev", "›"));
     viewUsage.onclick = () => {
-      if (usageSideOpen) { usageSideOpen = false; renderSideUsage(); render(); }
-      else { openSideUsage(); render(); }
+      if (usageSideOpen) {
+        usageSideOpen = false;
+        renderSideUsage();
+        render();
+      } else {
+        openSideUsage();
+        render();
+      }
     };
 
     const manage = h("button", "ai-pop-item ai-pop-subtoggle");
@@ -296,7 +345,9 @@ export function openModelPopover(anchor: HTMLElement) {
     manage.append(manageMain, h("span", "ai-pop-chev", "›"));
     manage.onclick = () => openAccountsPopover(anchor);
     pop.append(h("div", "ai-pop-sep"), viewUsage, manage);
-    requestAnimationFrame(() => { if (dockWrap.isConnected) syncSidePosition(); });
+    requestAnimationFrame(() => {
+      if (dockWrap.isConnected) syncSidePosition();
+    });
   };
 
   render();

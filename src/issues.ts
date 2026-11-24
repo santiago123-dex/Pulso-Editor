@@ -90,7 +90,10 @@ function render(issues: Issue[]) {
   searchInp.placeholder = t("Filtrar issues…");
   searchInp.setAttribute("aria-label", t("Filtrar issues por texto"));
   searchInp.value = textFilter;
-  searchInp.oninput = () => { textFilter = searchInp.value; render(allLoaded); };
+  searchInp.oninput = () => {
+    textFilter = searchInp.value;
+    render(allLoaded);
+  };
 
   const labelSel = document.createElement("select");
   labelSel.className = "issues-label-select";
@@ -107,7 +110,10 @@ function render(issues: Issue[]) {
     if (ln === labelFilter) opt.selected = true;
     labelSel.append(opt);
   }
-  labelSel.onchange = () => { labelFilter = labelSel.value; render(allLoaded); };
+  labelSel.onchange = () => {
+    labelFilter = labelSel.value;
+    render(allLoaded);
+  };
   filterLi.append(searchInp, labelSel);
   list.append(filterLi);
 
@@ -141,17 +147,26 @@ function render(issues: Issue[]) {
         work.title = t("Trabajar en esta issue (rama + contexto IA)");
         work.setAttribute("aria-label", t("Trabajar en la issue #{number}", { number: i.number }));
         work.innerHTML = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
-        work.onclick = (e) => { e.stopPropagation(); void startWorkOnIssue(i); };
+        work.onclick = (e) => {
+          e.stopPropagation();
+          void startWorkOnIssue(i);
+        };
         actions.append(work);
       }
       const gh = h("button", "icon-btn");
       gh.title = t("Abrir en GitHub");
       gh.innerHTML = '<svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5H5V6h5"/></svg>';
-      gh.onclick = (e) => { e.stopPropagation(); void openExternal(i.html_url); };
+      gh.onclick = (e) => {
+        e.stopPropagation();
+        void openExternal(i.html_url);
+      };
       const del = h("button", "icon-btn");
       del.title = t("Eliminar la issue");
       del.innerHTML = '<svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12M10 11v5M14 11v5"/></svg>';
-      del.onclick = (e) => { e.stopPropagation(); void deleteIssueNumber(i.number); };
+      del.onclick = (e) => {
+        e.stopPropagation();
+        void deleteIssueNumber(i.number);
+      };
       actions.append(gh, del);
       li.append(actions);
       list.append(li);
@@ -169,7 +184,10 @@ function render(issues: Issue[]) {
 
   if (activeWasSearch) {
     const inp = list.querySelector<HTMLInputElement>(".issues-search");
-    if (inp) { inp.focus(); if (selStart !== null) inp.setSelectionRange(selStart, selStart); }
+    if (inp) {
+      inp.focus();
+      if (selStart !== null) inp.setSelectionRange(selStart, selStart);
+    }
   }
 }
 
@@ -188,7 +206,14 @@ export function initIssues() {
   $("open-board").onclick = () => void openBoard();
   $("new-issue-btn").onclick = () => void createIssueFromSidebar();
   // Lo que cambia el tablero (crear, editar, cerrar, eliminar) y lo que pasa en GitHub mientras no mirabas se refleja aquí.
-  bus.on("issues-changed", () => { if (!$("view-issues").hidden) void loadIssues(true); });
-  window.setInterval(() => { if (ws.root && !$("view-issues").hidden && document.visibilityState === "visible" && Date.now() - lastLoad > 15_000) void loadIssues(true); }, 5_000);
-  window.addEventListener("focus", () => { if (ws.root && !$("view-issues").hidden && Date.now() - lastLoad > 10_000) void loadIssues(true); });
+  bus.on("issues-changed", () => {
+    if (!$("view-issues").hidden) void loadIssues(true);
+  });
+  window.setInterval(() => {
+    if (ws.root && !$("view-issues").hidden && document.visibilityState === "visible" && Date.now() - lastLoad > 15_000)
+      void loadIssues(true);
+  }, 5_000);
+  window.addEventListener("focus", () => {
+    if (ws.root && !$("view-issues").hidden && Date.now() - lastLoad > 10_000) void loadIssues(true);
+  });
 }

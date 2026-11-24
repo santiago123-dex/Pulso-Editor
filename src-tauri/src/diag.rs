@@ -75,12 +75,8 @@ pub async fn diag_collect(app: AppHandle, lsp_status: String, lang: String) -> R
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
     let data_dir = app.path().app_data_dir().ok();
-    let git_ver = tauri::async_runtime::spawn_blocking(detect_git_version)
-        .await
-        .unwrap_or_else(|_| "unknown".to_string());
-    let mut out = format!(
-        "Pulso Editor: {version}\nOS: {os} ({arch})\nLanguage: {lang}\nGit: {git_ver}\nLSP: {lsp_status}\n"
-    );
+    let git_ver = tauri::async_runtime::spawn_blocking(detect_git_version).await.unwrap_or_else(|_| "unknown".to_string());
+    let mut out = format!("Pulso Editor: {version}\nOS: {os} ({arch})\nLanguage: {lang}\nGit: {git_ver}\nLSP: {lsp_status}\n");
     if let Some(dir) = data_dir {
         let tail = read_tail(&dir, MAX_TAIL_LINES);
         if !tail.is_empty() {

@@ -8,23 +8,34 @@ import { h } from "../util";
 
 let leaveFullscreen: () => void = () => {};
 /** El panel registra aquí cómo salir de la pantalla completa, para no depender del estado del panel. */
-export function setLeaveFullscreenHook(fn: () => void) { leaveFullscreen = fn; }
+export function setLeaveFullscreenHook(fn: () => void) {
+  leaveFullscreen = fn;
+}
 
 export function copy(text: string, btn?: HTMLButtonElement) {
-  void navigator.clipboard.writeText(text).then(() => {
-    setStatus(tr("Copiado"), 2000);
-    if (!btn) return;
-    const prev = btn.textContent ?? tr("Copiar");
-    btn.textContent = tr("Copiado");
-    btn.classList.add("copied");
-    window.setTimeout(() => { btn.textContent = prev; btn.classList.remove("copied"); }, 1400);
-  }, () => setStatus(tr("No se pudo copiar")));
+  void navigator.clipboard.writeText(text).then(
+    () => {
+      setStatus(tr("Copiado"), 2000);
+      if (!btn) return;
+      const prev = btn.textContent ?? tr("Copiar");
+      btn.textContent = tr("Copiado");
+      btn.classList.add("copied");
+      window.setTimeout(() => {
+        btn.textContent = prev;
+        btn.classList.remove("copied");
+      }, 1400);
+    },
+    () => setStatus(tr("No se pudo copiar")),
+  );
 }
 
 export function insertCode(text: string) {
   const ed = focusedEditor();
   const sel = ed?.getSelection();
-  if (!ed || !sel) { setStatus(tr("Abre un archivo en el editor para insertar el código")); return; }
+  if (!ed || !sel) {
+    setStatus(tr("Abre un archivo en el editor para insertar el código"));
+    return;
+  }
   leaveFullscreen();
   ed.executeEdits("pulso-ai", [{ range: sel, text, forceMoveMarkers: true }]);
   ed.focus();
@@ -37,9 +48,17 @@ export function linkNode(text: string, href: string): Node {
   if (!target) return document.createTextNode(text);
   const b = h("button", "ai-link", text);
   b.type = "button";
-  b.title = target.kind === "file" ? (target.line > 1 ? tr("Abrir {path} en la línea {line}", { path: target.path, line: target.line }) : tr("Abrir {path}", { path: target.path })) : target.url;
+  b.title =
+    target.kind === "file"
+      ? target.line > 1
+        ? tr("Abrir {path} en la línea {line}", { path: target.path, line: target.line })
+        : tr("Abrir {path}", { path: target.path })
+      : target.url;
   b.onclick = () => {
-    if (target.kind === "web") { void invoke("open_external", { url: target.url }).catch((e) => setStatus(String(e))); return; }
+    if (target.kind === "web") {
+      void invoke("open_external", { url: target.url }).catch((e) => setStatus(String(e)));
+      return;
+    }
     leaveFullscreen();
     void openFile(target.path, { line: target.line, col: 1 });
   };
@@ -79,8 +98,19 @@ export function markdown(text: string): HTMLElement[] {
       box.append(head, pre);
       return box;
     }
-    if (b.type === "h") { const e = h("div", `ai-h ai-h${b.level}`); inline(e, b.text); return e; }
-    if (b.type === "li") { const e = h("div", "ai-li"); e.append(h("span", "ai-li-m", b.marker)); const t = h("span", "ai-li-t"); inline(t, b.text); e.append(t); return e; }
+    if (b.type === "h") {
+      const e = h("div", `ai-h ai-h${b.level}`);
+      inline(e, b.text);
+      return e;
+    }
+    if (b.type === "li") {
+      const e = h("div", "ai-li");
+      e.append(h("span", "ai-li-m", b.marker));
+      const t = h("span", "ai-li-t");
+      inline(t, b.text);
+      e.append(t);
+      return e;
+    }
     const p = h("p", "ai-p");
     inline(p, b.text);
     return p;

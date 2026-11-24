@@ -13,7 +13,10 @@ export function splitLabelLevel(raw: string): { name: string; tier: string } {
 }
 
 export function titleFromId(id: string): string {
-  return id.split("-").map((p) => (/^\d/.test(p) ? p : p.charAt(0).toUpperCase() + p.slice(1))).join(" ");
+  return id
+    .split("-")
+    .map((p) => (/^\d/.test(p) ? p : p.charAt(0).toUpperCase() + p.slice(1)))
+    .join(" ");
 }
 
 export function tierFromNote(note: string): string {

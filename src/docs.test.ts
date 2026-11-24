@@ -7,10 +7,18 @@ const h = vi.hoisted(() => {
     alt = 1;
     disposed = false;
     listeners: (() => void)[] = [];
-    constructor(text: string) { this.text = text; }
-    getValue() { return this.text; }
-    getAlternativeVersionId() { return this.alt; }
-    getFullModelRange() { return { full: true }; }
+    constructor(text: string) {
+      this.text = text;
+    }
+    getValue() {
+      return this.text;
+    }
+    getAlternativeVersionId() {
+      return this.alt;
+    }
+    getFullModelRange() {
+      return { full: true };
+    }
     pushEditOperations(_s: unknown, ops: { text: string }[]) {
       if (ops[0].text !== this.text) {
         this.text = ops[0].text;
@@ -19,9 +27,13 @@ const h = vi.hoisted(() => {
       }
       return null;
     }
-    onDidChangeContent(f: () => void) { this.listeners.push(f); }
+    onDidChangeContent(f: () => void) {
+      this.listeners.push(f);
+    }
     updateOptions() {}
-    dispose() { this.disposed = true; }
+    dispose() {
+      this.disposed = true;
+    }
   }
 
   type Backup = { path: string; contents: string; base_mtime: number; saved_at: number };
@@ -54,9 +66,13 @@ const h = vi.hoisted(() => {
       case "backup_write":
         backups.set(args.path, { path: args.path, contents: args.contents, base_mtime: args.baseMtime, saved_at: Date.now() });
         return;
-      case "backup_remove": backups.delete(args.path); return;
-      case "backup_list": return Array.from(backups.values());
-      default: throw new Error("comando no simulado: " + cmd);
+      case "backup_remove":
+        backups.delete(args.path);
+        return;
+      case "backup_list":
+        return Array.from(backups.values());
+      default:
+        throw new Error("comando no simulado: " + cmd);
     }
   };
 
@@ -71,40 +87,68 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: (cmd: string, args: unknown) =>
 vi.mock("./settings", () => ({ state: { settings: { autoSave: false, tabSize: 2 } } }));
 vi.mock("./ui", () => ({
   setStatus: vi.fn(),
-  showDialog: vi.fn(async (o: unknown) => { h.dialog.shown.push(o); return h.dialog.answers.shift() ?? "cancel"; }),
+  showDialog: vi.fn(async (o: unknown) => {
+    h.dialog.shown.push(o);
+    return h.dialog.answers.shift() ?? "cancel";
+  }),
 }));
 vi.mock("./diffView", () => ({
   openDiffRequest: vi.fn(async () => {}),
 }));
 
 import {
-  checkExternal, cloneDoc, disposeDoc, docs, flushBackups, isDirty, loadDoc, offerRecovery, onDocsChange, reloadDoc, removeBackup, restoreFromBackup, saveDoc, setBeforeSave,
+  checkExternal,
+  cloneDoc,
+  disposeDoc,
+  docs,
+  flushBackups,
+  isDirty,
+  loadDoc,
+  offerRecovery,
+  onDocsChange,
+  reloadDoc,
+  removeBackup,
+  restoreFromBackup,
+  saveDoc,
+  setBeforeSave,
 } from "./docs";
 
 const P = "C:/proyecto/a.ts";
 const model = (path: string) => docs.get(path)!.model as unknown as InstanceType<typeof h.FakeModel>;
 const edit = (path: string, text: string) => model(path).pushEditOperations(null, [{ text }]);
 const disk = (path: string) => h.fsys.get(path)!;
-const externalWrite = (path: string, text: string) => { h.clock.now += 500; h.fsys.set(path, { text, mtime: h.clock.now }); };
+const externalWrite = (path: string, text: string) => {
+  h.clock.now += 500;
+  h.fsys.set(path, { text, mtime: h.clock.now });
+};
 
 beforeEach(() => {
   vi.useFakeTimers();
   vi.stubGlobal("window", globalThis);
-  h.fsys.clear(); h.backups.clear(); h.calls.length = 0;
-  h.dialog.answers = []; h.dialog.shown = [];
+  h.fsys.clear();
+  h.backups.clear();
+  h.calls.length = 0;
+  h.dialog.answers = [];
+  h.dialog.shown = [];
   h.clock.now = 1000;
   h.fsys.set(P, { text: "uno", mtime: 1000 });
   for (const k of Array.from(docs.keys())) disposeDoc(k);
   h.backups.clear();
 });
 
-afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 describe("guardar", () => {
   it("avisa a la interfaz solo cuando cambia el estado de guardado, sin perder la recuperación", async () => {
-    const changed = vi.fn(); onDocsChange(changed);
+    const changed = vi.fn();
+    onDocsChange(changed);
     const d = await loadDoc(P);
-    edit(P, "dos"); edit(P, "tres"); edit(P, "cuatro");
+    edit(P, "dos");
+    edit(P, "tres");
+    edit(P, "cuatro");
     expect(changed).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(1000);
     expect(h.backups.get(P)?.contents).toBe("cuatro");
@@ -114,10 +158,14 @@ describe("guardar", () => {
     expect(changed).toHaveBeenCalledTimes(3);
   });
   it("actualiza la interfaz cuando deshacer vuelve a la versión guardada", async () => {
-    const changed = vi.fn(); onDocsChange(changed);
+    const changed = vi.fn();
+    onDocsChange(changed);
     const d = await loadDoc(P);
     edit(P, "dos");
-    const fake = model(P); fake.text = "uno"; fake.alt = 1; fake.listeners.forEach(f => f());
+    const fake = model(P);
+    fake.text = "uno";
+    fake.alt = 1;
+    fake.listeners.forEach((f) => f());
     expect(isDirty(d)).toBe(false);
     expect(changed).toHaveBeenCalledTimes(2);
   });
@@ -209,7 +257,10 @@ describe("guardar", () => {
     const d = await loadDoc(P);
     const original = disk(P).text;
     edit(P, "mio");
-    externalWrite(P, original.replace(/./, (c) => (c === "x" ? "y" : "x")));
+    externalWrite(
+      P,
+      original.replace(/./, (c) => (c === "x" ? "y" : "x")),
+    );
     h.dialog.answers = ["cancel"];
     expect(await saveDoc(d)).toBe(false);
     expect(h.dialog.shown.length).toBe(1);
@@ -231,7 +282,12 @@ describe("guardar", () => {
     externalWrite(P, "externo");
     let release!: (v: string) => void;
     const { showDialog } = await import("./ui");
-    vi.mocked(showDialog).mockImplementationOnce(() => new Promise<string>((r) => { release = r; }));
+    vi.mocked(showDialog).mockImplementationOnce(
+      () =>
+        new Promise<string>((r) => {
+          release = r;
+        }),
+    );
     const first = saveDoc(d);
     await vi.advanceTimersByTimeAsync(0);
     const second = await saveDoc(d);
@@ -245,7 +301,10 @@ describe("guardar", () => {
     const d = await loadDoc(P);
     edit(P, "dos");
     const orig = h.invoke;
-    (h as any).invoke = async (c: string, a: any) => { if (c === "write_file") throw "Acceso denegado"; return orig(c, a); };
+    (h as any).invoke = async (c: string, a: any) => {
+      if (c === "write_file") throw "Acceso denegado";
+      return orig(c, a);
+    };
     expect(await saveDoc(d)).toBe(false);
     expect(isDirty(d)).toBe(true);
     (h as any).invoke = orig;
@@ -253,7 +312,9 @@ describe("guardar", () => {
 });
 
 describe("formatear al guardar", () => {
-  afterEach(() => { setBeforeSave(null); });
+  afterEach(() => {
+    setBeforeSave(null);
+  });
 
   it("con la opción activa formatea antes de escribir y guarda el texto formateado", async () => {
     const { state } = await import("./settings");
@@ -261,24 +322,32 @@ describe("formatear al guardar", () => {
     try {
       const d = await loadDoc(P);
       edit(P, "sin   formato");
-      setBeforeSave(async (doc) => { (doc.model as any).pushEditOperations([], [{ text: "con formato" }], () => null); });
+      setBeforeSave(async (doc) => {
+        (doc.model as any).pushEditOperations([], [{ text: "con formato" }], () => null);
+      });
       expect(await saveDoc(d)).toBe(true);
       expect(disk(P).text).toBe("con formato");
-    } finally { (state.settings as any).formatOnSave = false; }
+    } finally {
+      (state.settings as any).formatOnSave = false;
+    }
   });
 
   it("no formatea en el autoguardado ni con la opción apagada", async () => {
     const { state } = await import("./settings");
     const d = await loadDoc(P);
     let calls = 0;
-    setBeforeSave(async () => { calls++; });
+    setBeforeSave(async () => {
+      calls++;
+    });
     edit(P, "uno");
     await saveDoc(d);
     (state.settings as any).formatOnSave = true;
     try {
       edit(P, "dos");
       await saveDoc(d, false, false, true);
-    } finally { (state.settings as any).formatOnSave = false; }
+    } finally {
+      (state.settings as any).formatOnSave = false;
+    }
     expect(calls).toBe(0);
   });
 
@@ -288,10 +357,14 @@ describe("formatear al guardar", () => {
     try {
       const d = await loadDoc(P);
       edit(P, "texto propio");
-      setBeforeSave(async () => { throw new Error("servidor caído"); });
+      setBeforeSave(async () => {
+        throw new Error("servidor caído");
+      });
       expect(await saveDoc(d)).toBe(true);
       expect(disk(P).text).toBe("texto propio");
-    } finally { (state.settings as any).formatOnSave = false; }
+    } finally {
+      (state.settings as any).formatOnSave = false;
+    }
   });
 });
 
@@ -378,45 +451,76 @@ describe("copias de recuperación", () => {
     const snapshot = vi.spyOn(model(P), "getValue");
     const orig = h.invoke;
     let release!: () => void, started!: () => void;
-    const pending = new Promise<void>(r => { release = r; });
-    const ready = new Promise<void>(r => { started = r; });
+    const pending = new Promise<void>((r) => {
+      release = r;
+    });
+    const ready = new Promise<void>((r) => {
+      started = r;
+    });
     let writes = 0;
     (h as any).invoke = async (c: string, a: any) => {
-      if (c === "backup_write" && ++writes === 1) { started(); await pending; }
+      if (c === "backup_write" && ++writes === 1) {
+        started();
+        await pending;
+      }
       return orig(c, a);
     };
     try {
-      edit(P, "primero"); vi.advanceTimersByTime(1000); await ready;
-      for (const text of ["dos", "tres", "cuatro"]) { edit(P, text); vi.advanceTimersByTime(1000); await Promise.resolve(); }
+      edit(P, "primero");
+      vi.advanceTimersByTime(1000);
+      await ready;
+      for (const text of ["dos", "tres", "cuatro"]) {
+        edit(P, text);
+        vi.advanceTimersByTime(1000);
+        await Promise.resolve();
+      }
       expect(writes).toBe(1);
       release();
       for (let i = 0; i < 20; i++) await Promise.resolve();
       expect(h.backups.get(P)?.contents).toBe("cuatro");
       expect(writes).toBe(2);
       expect(snapshot).toHaveBeenCalledTimes(2);
-    } finally { release(); (h as any).invoke = orig; }
+    } finally {
+      release();
+      (h as any).invoke = orig;
+    }
   });
 
   it("conserva una edición posterior al borrado aunque haya copias anteriores en cola", async () => {
     await loadDoc(P);
     const orig = h.invoke;
     let release!: () => void, started!: () => void;
-    const pending = new Promise<void>(r => { release = r; });
-    const ready = new Promise<void>(r => { started = r; });
+    const pending = new Promise<void>((r) => {
+      release = r;
+    });
+    const ready = new Promise<void>((r) => {
+      started = r;
+    });
     let writes = 0;
     (h as any).invoke = async (c: string, a: any) => {
-      if (c === "backup_write" && ++writes === 1) { started(); await pending; }
+      if (c === "backup_write" && ++writes === 1) {
+        started();
+        await pending;
+      }
       return orig(c, a);
     };
     try {
-      edit(P, "primero"); vi.advanceTimersByTime(1000); await ready;
-      edit(P, "segundo"); vi.advanceTimersByTime(1000);
+      edit(P, "primero");
+      vi.advanceTimersByTime(1000);
+      await ready;
+      edit(P, "segundo");
+      vi.advanceTimersByTime(1000);
       const removed = removeBackup(P);
-      edit(P, "tercero"); vi.advanceTimersByTime(1000);
-      release(); await removed;
+      edit(P, "tercero");
+      vi.advanceTimersByTime(1000);
+      release();
+      await removed;
       for (let i = 0; i < 20; i++) await Promise.resolve();
       expect(h.backups.get(P)?.contents).toBe("tercero");
-    } finally { release(); (h as any).invoke = orig; }
+    } finally {
+      release();
+      (h as any).invoke = orig;
+    }
   });
 
   it("informa si falla una copia de recuperación", async () => {
@@ -432,7 +536,9 @@ describe("copias de recuperación", () => {
       edit(P, "pendiente");
       await vi.advanceTimersByTimeAsync(1100);
       expect(setStatus).toHaveBeenCalledWith(expect.stringContaining("disco lleno"), 10000);
-    } finally { (h as any).invoke = orig; }
+    } finally {
+      (h as any).invoke = orig;
+    }
   });
 
   it("espera una copia en curso antes de eliminarla al guardar", async () => {
@@ -440,10 +546,17 @@ describe("copias de recuperación", () => {
     const orig = h.invoke;
     let release!: () => void;
     let started!: () => void;
-    const pending = new Promise<void>((r) => { release = r; });
-    const ready = new Promise<void>((r) => { started = r; });
+    const pending = new Promise<void>((r) => {
+      release = r;
+    });
+    const ready = new Promise<void>((r) => {
+      started = r;
+    });
     (h as any).invoke = async (c: string, a: any) => {
-      if (c === "backup_write") { started(); await pending; }
+      if (c === "backup_write") {
+        started();
+        await pending;
+      }
       return orig(c, a);
     };
     try {
@@ -455,7 +568,9 @@ describe("copias de recuperación", () => {
       release();
       expect(await saving).toBe(true);
       expect(h.backups.has(P)).toBe(false);
-    } finally { (h as any).invoke = orig; }
+    } finally {
+      (h as any).invoke = orig;
+    }
   });
 
   it("no considera terminado el guardado si se editó durante la escritura", async () => {
@@ -463,10 +578,17 @@ describe("copias de recuperación", () => {
     const orig = h.invoke;
     let release!: () => void;
     let started!: () => void;
-    const pending = new Promise<void>((r) => { release = r; });
-    const ready = new Promise<void>((r) => { started = r; });
+    const pending = new Promise<void>((r) => {
+      release = r;
+    });
+    const ready = new Promise<void>((r) => {
+      started = r;
+    });
     (h as any).invoke = async (c: string, a: any) => {
-      if (c === "write_file") { started(); await pending; }
+      if (c === "write_file") {
+        started();
+        await pending;
+      }
       return orig(c, a);
     };
     try {
@@ -478,7 +600,9 @@ describe("copias de recuperación", () => {
       expect(await saving).toBe(false);
       expect(isDirty(d)).toBe(true);
       expect(disk(P).text).toBe("primero");
-    } finally { (h as any).invoke = orig; }
+    } finally {
+      (h as any).invoke = orig;
+    }
   });
 });
 
@@ -496,7 +620,9 @@ describe("recuperar tras un cierre inesperado", () => {
     backup(P, "trabajo sin guardar");
     h.dialog.answers = ["restore"];
     const opened: string[] = [];
-    await offerRecovery(async (p) => { opened.push(p); });
+    await offerRecovery(async (p) => {
+      opened.push(p);
+    });
     expect(h.dialog.shown[0].message).toContain("a.ts");
     expect(opened).toEqual([P]);
     expect(model(P).getValue()).toBe("trabajo sin guardar");

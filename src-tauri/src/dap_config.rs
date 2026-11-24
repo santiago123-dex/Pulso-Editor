@@ -139,48 +139,25 @@ pub fn expand_vars(value: &str, workspace: &str, active_file: Option<&str>) -> S
 /// Analiza un archivo `launch.json` (JSON o JSONC) y devuelve sus configuraciones válidas.
 pub fn parse_launch_json(raw: &str, source: &str) -> Result<Vec<LaunchConfig>, String> {
     let clean = strip_jsonc(raw);
-    let val: Value = serde_json::from_str(&clean)
-        .map_err(|e| trf("Error al leer launch.json: {e}", &[("e", &e)]))?;
-    let list = val
-        .get("configurations")
-        .and_then(Value::as_array)
-        .ok_or_else(|| tr("launch.json no contiene una lista «configurations».").to_string())?;
+    let val: Value = serde_json::from_str(&clean).map_err(|e| trf("Error al leer launch.json: {e}", &[("e", &e)]))?;
+    let list = val.get("configurations").and_then(Value::as_array).ok_or_else(|| tr("launch.json no contiene una lista «configurations».").to_string())?;
 
     let mut out = Vec::new();
     for item in list {
         let Some(name) = item.get("name").and_then(Value::as_str) else { continue };
         let Some(kind) = item.get("type").and_then(Value::as_str) else { continue };
-        let request = item
-            .get("request")
-            .and_then(Value::as_str)
-            .unwrap_or("launch")
-            .to_string();
-        let program = item
-            .get("program")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        let args = item
-            .get("args")
-            .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(Value::as_str).map(String::from).collect())
-            .unwrap_or_default();
+        let request = item.get("request").and_then(Value::as_str).unwrap_or("launch").to_string();
+        let program = item.get("program").and_then(Value::as_str).unwrap_or("").to_string();
+        let args = item.get("args").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(String::from).collect()).unwrap_or_default();
         let cwd = item.get("cwd").and_then(Value::as_str).map(String::from);
         let env = item
             .get("env")
             .and_then(Value::as_object)
-            .map(|o| {
-                o.iter()
-                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-                    .collect()
-            })
+            .map(|o| o.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
             .unwrap_or_default();
         let adapter_command = item.get("adapterCommand").and_then(Value::as_str).map(String::from);
-        let adapter_args = item
-            .get("adapterArgs")
-            .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(Value::as_str).map(String::from).collect())
-            .unwrap_or_default();
+        let adapter_args =
+            item.get("adapterArgs").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(String::from).collect()).unwrap_or_default();
 
         out.push(LaunchConfig {
             name: name.to_string(),
@@ -200,12 +177,7 @@ pub fn parse_launch_json(raw: &str, source: &str) -> Result<Vec<LaunchConfig>, S
 
 fn is_node_script(path: &str) -> bool {
     let p = path.to_ascii_lowercase();
-    p.ends_with(".js")
-        || p.ends_with(".mjs")
-        || p.ends_with(".cjs")
-        || p.ends_with(".ts")
-        || p.ends_with(".mts")
-        || p.ends_with(".cts")
+    p.ends_with(".js") || p.ends_with(".mjs") || p.ends_with(".cjs") || p.ends_with(".ts") || p.ends_with(".mts") || p.ends_with(".cts")
 }
 
 /// Lee `.pulso/launch.json`, después `.vscode/launch.json` y añade configuraciones automáticas para Python y Node/TypeScript.
@@ -385,25 +357,16 @@ pub fn resolve_adapter(cfg: &LaunchConfig, workspace: &Path) -> Result<(String, 
     }
     match cfg.kind.to_ascii_lowercase().as_str() {
         "python" | "debugpy" => {
-            let py = find_python(workspace).ok_or_else(|| {
-                tr("No se encontró Python en el sistema. Instala Python y `pip install debugpy` para depurar.").to_string()
-            })?;
-            Ok((
-                py.to_string_lossy().into_owned(),
-                vec!["-m".into(), "debugpy.adapter".into()],
-            ))
+            let py = find_python(workspace)
+                .ok_or_else(|| tr("No se encontró Python en el sistema. Instala Python y `pip install debugpy` para depurar.").to_string())?;
+            Ok((py.to_string_lossy().into_owned(), vec!["-m".into(), "debugpy.adapter".into()]))
         }
         "node" | "pwa-node" | "typescript" | "javascript" => {
-            let node = find_node().ok_or_else(|| {
-                tr("No se encontró Node.js en el sistema para depurar Node/TypeScript.").to_string()
-            })?;
+            let node = find_node().ok_or_else(|| tr("No se encontró Node.js en el sistema para depurar Node/TypeScript.").to_string())?;
             let adapter = find_node_dap_adapter(workspace).ok_or_else(|| {
                 tr("No se encontró un adaptador DAP de Node/TypeScript (js-debug). Instala `@vscode/js-debug` o define `PULSO_NODE_DAP` / `adapterCommand` en .pulso/launch.json.").to_string()
             })?;
-            Ok((
-                node.to_string_lossy().into_owned(),
-                vec![adapter.to_string_lossy().into_owned()],
-            ))
+            Ok((node.to_string_lossy().into_owned(), vec![adapter.to_string_lossy().into_owned()]))
         }
         other => Err(trf(
             "Tipo de depurador «{kind}» no soportado todavía. Usa «python» (debugpy), «node» (js-debug) o indica «adapterCommand» en .pulso/launch.json.",
@@ -451,11 +414,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(dir.join(".pulso")).unwrap();
         fs::create_dir_all(dir.join(".vscode")).unwrap();
-        fs::write(
-            dir.join(".pulso").join("launch.json"),
-            r#"{"configurations":[{"name":"App","type":"python","program":"a.py"}]}"#,
-        )
-        .unwrap();
+        fs::write(dir.join(".pulso").join("launch.json"), r#"{"configurations":[{"name":"App","type":"python","program":"a.py"}]}"#).unwrap();
         fs::write(
             dir.join(".vscode").join("launch.json"),
             r#"{"configurations":[{"name":"App","type":"python","program":"b.py"},{"name":"Extra","type":"python","program":"c.py"}]}"#,

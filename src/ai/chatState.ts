@@ -11,7 +11,15 @@ import type { ContextNote } from "../aiContext";
 import { pruneUsage, type AiEvent, type AiProvider, type Conversation, type UserImage } from "../aiModel";
 
 /** Una conversación del panel (la que se ve o una que sigue en marcha en segundo plano). */
-export interface Live { id: string; provider: AiProvider; normalize: (ev: AiEvent) => AiEvent[]; convo: Conversation; cwd: string; title: string; stopping?: boolean }
+export interface Live {
+  id: string;
+  provider: AiProvider;
+  normalize: (ev: AiEvent) => AiEvent[];
+  convo: Conversation;
+  cwd: string;
+  title: string;
+  stopping?: boolean;
+}
 
 export type AiMode = "read" | "edit" | "full";
 

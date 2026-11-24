@@ -32,7 +32,11 @@ function load(path: string): Promise<BlameLine[] | null> {
       const t = await top();
       const rel = t && relativeToTop(path, t);
       if (!rel || !ws.root) return null;
-      try { return await invoke<BlameLine[]>("git_blame", { root: ws.root, path: rel }); } catch { return null; }
+      try {
+        return await invoke<BlameLine[]>("git_blame", { root: ws.root, path: rel });
+      } catch {
+        return null;
+      }
     })();
     cache.set(path, p);
   }
@@ -41,21 +45,38 @@ function load(path: string): Promise<BlameLine[] | null> {
 
 async function update(ed: monaco.editor.ICodeEditor) {
   const model = ed.getModel();
-  if (!enabled || !model || model.uri.scheme !== "file") { clear(ed); return; }
+  if (!enabled || !model || model.uri.scheme !== "file") {
+    clear(ed);
+    return;
+  }
   const path = norm(model.uri.fsPath);
   const doc = findOpenDoc(path);
   // Con cambios sin guardar los números de línea ya no coinciden con los de git: no se muestra nada engañoso.
-  if (!doc || isDirty(doc)) { clear(ed); return; }
+  if (!doc || isDirty(doc)) {
+    clear(ed);
+    return;
+  }
   const line = ed.getPosition()?.lineNumber;
-  if (!line) { clear(ed); return; }
+  if (!line) {
+    clear(ed);
+    return;
+  }
   const data = await load(path);
   // El cursor o el documento pudieron cambiar mientras git respondía.
   if (!enabled || ed.getModel() !== model || ed.getPosition()?.lineNumber !== line || isDirty(doc)) return;
   const text = blameText(data?.find((b) => b.line === line));
-  if (!text) { clear(ed); return; }
+  if (!text) {
+    clear(ed);
+    return;
+  }
   const mark = marks.get(ed) ?? ed.createDecorationsCollection();
   marks.set(ed, mark);
-  mark.set([{ range: new monaco.Range(line, model.getLineMaxColumn(line), line, model.getLineMaxColumn(line)), options: { after: { content: `    ${text}`, inlineClassName: "blame-inline" }, showIfCollapsed: true } }]);
+  mark.set([
+    {
+      range: new monaco.Range(line, model.getLineMaxColumn(line), line, model.getLineMaxColumn(line)),
+      options: { after: { content: `    ${text}`, inlineClassName: "blame-inline" }, showIfCollapsed: true },
+    },
+  ]);
 }
 
 function attach(ed: monaco.editor.ICodeEditor) {
@@ -73,9 +94,13 @@ function attach(ed: monaco.editor.ICodeEditor) {
   });
 }
 
-const refreshAll = () => { for (const ed of monaco.editor.getEditors()) void update(ed); };
+const refreshAll = () => {
+  for (const ed of monaco.editor.getEditors()) void update(ed);
+};
 
-export function blameEnabled() { return enabled; }
+export function blameEnabled() {
+  return enabled;
+}
 
 /** «Git: Alternar culpa en línea». */
 export function toggleBlame() {
@@ -83,13 +108,21 @@ export function toggleBlame() {
   writeStorage(KEY, enabled ? "1" : "0");
   if (!enabled) for (const ed of monaco.editor.getEditors()) clear(ed);
   else refreshAll();
-  setStatus(enabled ? t("Culpa en línea: activada. Se muestra en la línea del cursor de los archivos guardados") : t("Culpa en línea: desactivada"));
+  setStatus(
+    enabled ? t("Culpa en línea: activada. Se muestra en la línea del cursor de los archivos guardados") : t("Culpa en línea: desactivada"),
+  );
 }
 
 export function initBlame() {
   monaco.editor.getEditors().forEach(attach);
   monaco.editor.onDidCreateEditor(attach);
   // Guardar o confirmar cambia la culpa; también cambiar de carpeta.
-  onDocSaved((path) => { cache.delete(path); refreshAll(); });
-  bus.on("scm-refreshed", () => { cache.clear(); refreshAll(); });
+  onDocSaved((path) => {
+    cache.delete(path);
+    refreshAll();
+  });
+  bus.on("scm-refreshed", () => {
+    cache.clear();
+    refreshAll();
+  });
 }

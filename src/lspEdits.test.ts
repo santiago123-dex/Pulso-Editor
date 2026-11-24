@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { applyTextEdits, collectEdits, type LspEdit } from "./lspEdits";
 
-const e = (l1: number, c1: number, l2: number, c2: number, newText: string): LspEdit => ({ range: { start: { line: l1, character: c1 }, end: { line: l2, character: c2 } }, newText });
+const e = (l1: number, c1: number, l2: number, c2: number, newText: string): LspEdit => ({
+  range: { start: { line: l1, character: c1 }, end: { line: l2, character: c2 } },
+  newText,
+});
 
 describe("applyTextEdits", () => {
   it("reemplaza varias coincidencias sin que se desplacen las posiciones", () => {
@@ -33,7 +36,10 @@ describe("collectEdits", () => {
   it("junta `changes` y `documentChanges` por archivo", () => {
     const m = collectEdits({
       changes: { "file:///a.ts": [e(0, 0, 0, 1, "x")] },
-      documentChanges: [{ textDocument: { uri: "file:///a.ts" }, edits: [e(1, 0, 1, 1, "y")] }, { textDocument: { uri: "file:///b.ts" }, edits: [e(0, 0, 0, 1, "z")] }],
+      documentChanges: [
+        { textDocument: { uri: "file:///a.ts" }, edits: [e(1, 0, 1, 1, "y")] },
+        { textDocument: { uri: "file:///b.ts" }, edits: [e(0, 0, 0, 1, "z")] },
+      ],
     });
     expect(m.get("file:///a.ts")).toHaveLength(2);
     expect(m.get("file:///b.ts")).toHaveLength(1);

@@ -25,8 +25,15 @@ export function h<K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", text 
 
 /** Nerd Fonts habituales: traen los iconos que usan prompts como oh-my-posh o Starship. */
 const NERD_FONTS = [
-  "CaskaydiaCove Nerd Font", "CaskaydiaCove NF", "CaskaydiaMono Nerd Font", "MesloLGS NF", "MesloLGM Nerd Font",
-  "JetBrainsMono Nerd Font", "FiraCode Nerd Font", "Hack Nerd Font", "Symbols Nerd Font Mono",
+  "CaskaydiaCove Nerd Font",
+  "CaskaydiaCove NF",
+  "CaskaydiaMono Nerd Font",
+  "MesloLGS NF",
+  "MesloLGM Nerd Font",
+  "JetBrainsMono Nerd Font",
+  "FiraCode Nerd Font",
+  "Hack Nerd Font",
+  "Symbols Nerd Font Mono",
 ];
 
 /**
@@ -41,11 +48,16 @@ export function terminalFontStack(custom: string, editorFont: string, preferred:
     for (const raw of stack.split(",")) {
       const name = raw.trim();
       const key = name.replace(/^["']|["']$/g, "").toLowerCase();
-      if (name && !seen.has(key)) { seen.add(key); out.push(name); }
+      if (name && !seen.has(key)) {
+        seen.add(key);
+        out.push(name);
+      }
     }
   };
   if (custom.trim()) add(custom);
-  preferred.forEach((p) => { if (p.trim()) add(p); });
+  preferred.forEach((p) => {
+    if (p.trim()) add(p);
+  });
   installedNerd.forEach((f) => add(`"${f}"`));
   if (!custom.trim()) NERD_FONTS.forEach((f) => add(`"${f}"`));
   // Pulso incluye esta fuente de símbolos (ver styles.css): siempre hay iconos de respaldo para los prompts con Nerd Fonts.

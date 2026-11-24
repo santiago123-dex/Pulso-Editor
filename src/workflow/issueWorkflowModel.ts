@@ -75,11 +75,7 @@ export function branchNameForIssue(issue: WorkflowIssueRef): string {
 /** Construye el prompt inicial enriquecido con el contexto de la issue y el formato revisable de diffs. */
 export function buildIssuePrompt(issue: WorkflowIssueRef, branch: string): string {
   const labels = (issue.labels ?? []).map((l) => l.name).filter(Boolean);
-  const lines: string[] = [
-    `Estamos trabajando en la issue #${issue.number} en la rama \`${branch}\`:`,
-    "",
-    `Título: ${issue.title}`,
-  ];
+  const lines: string[] = [`Estamos trabajando en la issue #${issue.number} en la rama \`${branch}\`:`, "", `Título: ${issue.title}`];
   if (labels.length) lines.push(`Etiquetas: ${labels.join(", ")}`);
   if (issue.body?.trim()) {
     lines.push("", "Descripción:", issue.body.trim().slice(0, 4000));
@@ -94,7 +90,11 @@ export function buildIssuePrompt(issue: WorkflowIssueRef, branch: string): strin
 }
 
 function normalizeCandidatePath(raw: string): string | null {
-  const cleaned = raw.trim().replace(/^["'`]|["'`]$/g, "").replace(/^\.\//, "").replace(/\\/g, "/");
+  const cleaned = raw
+    .trim()
+    .replace(/^["'`]|["'`]$/g, "")
+    .replace(/^\.\//, "")
+    .replace(/\\/g, "/");
   return isSafeRelativeEditPath(cleaned) ? cleaned : null;
 }
 
@@ -132,8 +132,7 @@ export function extractProposedEdits(markdown: string): ProposedFileEdit[] {
         // 3. Línea anterior con «Archivo: `src/a.ts`» o «**`src/a.ts`**»
         const prev = i > 0 ? lines[i - 1].trim() : "";
         const hint =
-          prev.match(/^(?:#{1,6}\s*)?(?:archivo|file)\s*:\s*`?([^`\s]+)`?$/i) ??
-          prev.match(/^\*\*`?([^*`\s]+\.[a-z0-9]+)`?\*\*$/i);
+          prev.match(/^(?:#{1,6}\s*)?(?:archivo|file)\s*:\s*`?([^`\s]+)`?$/i) ?? prev.match(/^\*\*`?([^*`\s]+\.[a-z0-9]+)`?\*\*$/i);
         if (hint) rawPath = hint[1];
       }
     }
@@ -168,10 +167,7 @@ export function buildPrDraft(
 ): PrDraft {
   const prefix = branchPrefix(issue.labels);
   const title = `${prefix}(#${issue.number}): ${issue.title.trim()}`;
-  const parts: string[] = [
-    `## Resumen`,
-    `Resuelve la issue #${issue.number} (${issue.title.trim()}).`,
-  ];
+  const parts: string[] = [`## Resumen`, `Resuelve la issue #${issue.number} (${issue.title.trim()}).`];
   if (touchedFiles.length) {
     parts.push("", "## Archivos modificados", ...touchedFiles.map((f) => `- \`${f}\``));
   }

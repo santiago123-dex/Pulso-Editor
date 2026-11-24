@@ -128,7 +128,13 @@ pub fn parse_frontmatter(text: &str) -> (BTreeMap<String, String>, String) {
                     parts.push(t.to_string());
                 }
             }
-            let joined = if is_list { parts.join(", ") } else if literal { parts.join("\n") } else { parts.join(" ") };
+            let joined = if is_list {
+                parts.join(", ")
+            } else if literal {
+                parts.join("\n")
+            } else {
+                parts.join(" ")
+            };
             map.insert(key, joined);
         } else {
             map.insert(key, unquote(v));
@@ -400,7 +406,16 @@ fn load_file_commands(root: &Path, home: Option<&Path>) -> Vec<Command> {
 impl Default for Config {
     /// Sin archivos de configuración quedan los subagentes integrados (`explore` y `general`).
     fn default() -> Self {
-        Config { instructions: Vec::new(), skills: Vec::new(), agents: builtin_agents(), commands: builtin_commands(), memory: Vec::new(), memory_store: None, hooks: Default::default(), mcp: Default::default() }
+        Config {
+            instructions: Vec::new(),
+            skills: Vec::new(),
+            agents: builtin_agents(),
+            commands: builtin_commands(),
+            memory: Vec::new(),
+            memory_store: None,
+            hooks: Default::default(),
+            mcp: Default::default(),
+        }
     }
 }
 
@@ -410,7 +425,16 @@ impl Config {
     }
 
     pub fn load_with_home(root: &Path, home: Option<&Path>) -> Config {
-        Config { instructions: load_instructions(root, home), skills: load_skills(root, home), agents: load_agents(root, home), commands: load_commands(root, home), memory: Vec::new(), memory_store: None, hooks: crate::agenthooks::Hooks::load(root, home), mcp: crate::agentmcp::McpConfig::load(root, home) }
+        Config {
+            instructions: load_instructions(root, home),
+            skills: load_skills(root, home),
+            agents: load_agents(root, home),
+            commands: load_commands(root, home),
+            memory: Vec::new(),
+            memory_store: None,
+            hooks: crate::agenthooks::Hooks::load(root, home),
+            mcp: crate::agentmcp::McpConfig::load(root, home),
+        }
     }
 
     /// Deja solo lo de la carpeta personal y lo integrado: lo que viene del proyecto (AGENTS.md, skills, subagentes y
@@ -502,7 +526,10 @@ pub fn skill_files(skill: &Skill) -> Vec<String> {
 pub fn read_skill_file(skill: &Skill, rel: &str) -> Result<String, String> {
     let rel = rel.trim().replace('\\', "/");
     let p = Path::new(&rel);
-    if rel.is_empty() || p.is_absolute() || p.components().any(|c| matches!(c, std::path::Component::ParentDir | std::path::Component::Prefix(_) | std::path::Component::RootDir)) {
+    if rel.is_empty()
+        || p.is_absolute()
+        || p.components().any(|c| matches!(c, std::path::Component::ParentDir | std::path::Component::Prefix(_) | std::path::Component::RootDir))
+    {
         return Err("The file must be inside the skill folder.".into());
     }
     let full = skill.dir.join(p);
@@ -556,7 +583,9 @@ mod tests {
 
     #[test]
     fn lee_la_cabecera_en_sus_formas_habituales() {
-        let (fm, body) = parse_frontmatter("---\nname: revisor\ndescription: \"Revisa código: con dos puntos\"\ntools: Read, Grep\nmodel: openai/gpt-x\n---\n\nCuerpo\nde dos líneas\n");
+        let (fm, body) = parse_frontmatter(
+            "---\nname: revisor\ndescription: \"Revisa código: con dos puntos\"\ntools: Read, Grep\nmodel: openai/gpt-x\n---\n\nCuerpo\nde dos líneas\n",
+        );
         assert_eq!(fm["name"], "revisor");
         assert_eq!(fm["description"], "Revisa código: con dos puntos");
         assert_eq!(fm["tools"], "Read, Grep");
@@ -629,7 +658,11 @@ mod tests {
     #[test]
     fn carga_subagentes_con_herramientas_modelo_y_los_integrados() {
         let root = tmp("ag");
-        put(&root, ".pulso/agents/revisor.md", "---\nname: revisor\ndescription: Revisa cambios\ntools: Read, Grep, Glob\nmodel: openai/gpt-x\n---\nEres un revisor estricto.");
+        put(
+            &root,
+            ".pulso/agents/revisor.md",
+            "---\nname: revisor\ndescription: Revisa cambios\ntools: Read, Grep, Glob\nmodel: openai/gpt-x\n---\nEres un revisor estricto.",
+        );
         put(&root, ".claude/agents/probador.md", "---\ndescription: Corre pruebas\ntools: Bash\nmodel: inherit\n---\nCorre las pruebas.");
         put(&root, ".claude/agents/explore.md", "---\ndescription: Mi explorador\n---\nExplora a mi manera.");
         put(&root, ".claude/agents/sin-cuerpo.md", "---\nname: vacio\n---\n");
@@ -684,7 +717,12 @@ mod tests {
         put(&root, ".pulso/skills/deploy/SKILL.md", "---\ndescription: Publica la app\n---\nx");
         let cfg = Config::load_with_home(&root, None);
         let with_tasks = cfg.prompt_addendum(true);
-        assert!(with_tasks.contains("Usa pnpm.") && with_tasks.contains("- deploy: Publica la app") && with_tasks.contains("- explore:") && with_tasks.contains("use_skill"));
+        assert!(
+            with_tasks.contains("Usa pnpm.")
+                && with_tasks.contains("- deploy: Publica la app")
+                && with_tasks.contains("- explore:")
+                && with_tasks.contains("use_skill")
+        );
         // A un subagente no se le ofrece delegar.
         assert!(!cfg.prompt_addendum(false).contains("task tool"));
         assert!(Config::load_with_home(&tmp("txt2"), None).prompt_addendum(false).is_empty());

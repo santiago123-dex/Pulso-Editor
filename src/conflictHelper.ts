@@ -75,11 +75,15 @@ function paintBar() {
   const b = blocks[activeIdx];
   el.hidden = false;
 
-  const label = h("span", "conflict-label", t("Conflicto {n}/{total} (línea {line})", {
-    n: activeIdx + 1,
-    total: blocks.length,
-    line: b.startLine,
-  }));
+  const label = h(
+    "span",
+    "conflict-label",
+    t("Conflicto {n}/{total} (línea {line})", {
+      n: activeIdx + 1,
+      total: blocks.length,
+      line: b.startLine,
+    }),
+  );
   const btnCur = h("button", "diff-btn primary", t("Aceptar actual ({name})", { name: b.currentLabel }));
   btnCur.onclick = () => applyChoice("current");
   const btnInc = h("button", "diff-btn", t("Aceptar entrante ({name})", { name: b.incomingLabel }));
@@ -98,14 +102,16 @@ function paintBar() {
   const btnCmp = h("button", "diff-btn", t("Comparar"));
   btnCmp.onclick = () => {
     const p = activePath() ?? "conflicto.txt";
-    const original = b.baseLine !== undefined
-      ? `--- ${b.baseLabel ?? "base"} ---\n${b.baseText ?? ""}\n\n--- ${b.currentLabel} ---\n${b.currentText}`
-      : b.currentText;
+    const original =
+      b.baseLine !== undefined
+        ? `--- ${b.baseLabel ?? "base"} ---\n${b.baseText ?? ""}\n\n--- ${b.currentLabel} ---\n${b.currentText}`
+        : b.currentText;
     void openDiffRequest({
       title: `${baseName(p)} (${t("Conflicto {n}/{total}", { n: activeIdx + 1, total: blocks.length })})`,
-      sub: b.baseLine !== undefined
-        ? `${b.baseLabel ?? "base"} / ${b.currentLabel} ↔ ${b.incomingLabel}`
-        : `${b.currentLabel} ↔ ${b.incomingLabel}`,
+      sub:
+        b.baseLine !== undefined
+          ? `${b.baseLabel ?? "base"} / ${b.currentLabel} ↔ ${b.incomingLabel}`
+          : `${b.currentLabel} ↔ ${b.incomingLabel}`,
       path: p,
       load: async () => ({ original, modified: b.incomingText, binary: false }),
     });
@@ -138,7 +144,7 @@ function refresh() {
             activeIdx = idx;
             paintBar();
           }
-        })
+        }),
       );
     }
   }

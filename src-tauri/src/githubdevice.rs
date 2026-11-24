@@ -228,7 +228,9 @@ mod tests {
 
     #[test]
     fn lee_el_codigo_que_devuelve_github() {
-        let s = parse_start(r#"{"device_code":"dc1","user_code":"ABCD-1234","verification_uri":"https://github.com/login/device","expires_in":899,"interval":5}"#).unwrap();
+        let s =
+            parse_start(r#"{"device_code":"dc1","user_code":"ABCD-1234","verification_uri":"https://github.com/login/device","expires_in":899,"interval":5}"#)
+                .unwrap();
         assert_eq!(s.user_code, "ABCD-1234");
         assert_eq!(s.device_code, "dc1");
         assert_eq!(s.interval, 5);
@@ -250,8 +252,10 @@ mod tests {
 
     #[test]
     fn codifica_el_formulario() {
-        assert_eq!(form(&[("scope", "repo read:user"), ("grant_type", "urn:ietf:params:oauth:grant-type:device_code")]),
-            "scope=repo+read%3Auser&grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code");
+        assert_eq!(
+            form(&[("scope", "repo read:user"), ("grant_type", "urn:ietf:params:oauth:grant-type:device_code")]),
+            "scope=repo+read%3Auser&grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code"
+        );
     }
 
     /// GitHub simulado: entrega un código, contesta «pendiente» una vez y después el token.
@@ -272,8 +276,12 @@ mod tests {
                 loop {
                     let mut line = String::new();
                     reader.read_line(&mut line).unwrap();
-                    if line == "\r\n" || line.is_empty() { break; }
-                    if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") { len = v.trim().parse().unwrap(); }
+                    if line == "\r\n" || line.is_empty() {
+                        break;
+                    }
+                    if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        len = v.trim().parse().unwrap();
+                    }
                 }
                 let mut body = vec![0; len];
                 reader.read_exact(&mut body).unwrap();
@@ -286,7 +294,12 @@ mod tests {
                 } else {
                     r#"{"access_token":"gho_prueba","token_type":"bearer","scope":"repo,read:user"}"#
                 };
-                let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", reply.len(), reply);
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    reply.len(),
+                    reply
+                );
             }
         });
         (base, seen)

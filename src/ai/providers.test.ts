@@ -1,11 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { providerDetail, sortProviders, validateKey, type ProviderBrief } from "./providers";
 
-const p = (o: Partial<ProviderBrief>): ProviderBrief => ({ id: "x", name: "X", doc: "", env: [], models: 3, configured: false, from_env: false, ...o });
+const p = (o: Partial<ProviderBrief>): ProviderBrief => ({
+  id: "x",
+  name: "X",
+  doc: "",
+  env: [],
+  models: 3,
+  configured: false,
+  from_env: false,
+  ...o,
+});
 
 describe("proveedores de modelos", () => {
   it("ordena los conectados primero y luego por nombre", () => {
-    const list = [p({ id: "b", name: "Beta" }), p({ id: "z", name: "zeta", configured: true }), p({ id: "a", name: "Alfa" }), p({ id: "c", name: "Cohere", configured: true })];
+    const list = [
+      p({ id: "b", name: "Beta" }),
+      p({ id: "z", name: "zeta", configured: true }),
+      p({ id: "a", name: "Alfa" }),
+      p({ id: "c", name: "Cohere", configured: true }),
+    ];
     expect(sortProviders(list).map((x) => x.id)).toEqual(["c", "z", "a", "b"]);
   });
 

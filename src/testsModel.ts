@@ -44,7 +44,9 @@ export function groupTestsByFile(cases: readonly TestCaseResult[], onlyFailed = 
   }
   const out: FileTestGroup[] = [];
   for (const [file, list] of by) {
-    let passed = 0, failed = 0, skipped = 0;
+    let passed = 0,
+      failed = 0,
+      skipped = 0;
     for (const c of list) {
       if (c.status === "passed") passed++;
       else if (c.status === "failed") failed++;

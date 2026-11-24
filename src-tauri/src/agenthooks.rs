@@ -93,7 +93,11 @@ pub fn parse_hooks(text: &str, project: bool) -> Vec<Hook> {
 
 fn short(s: &str, max: usize) -> String {
     let s = s.trim();
-    if s.chars().count() <= max { s.to_string() } else { format!("{}…", s.chars().take(max).collect::<String>()) }
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        format!("{}…", s.chars().take(max).collect::<String>())
+    }
 }
 
 impl Hooks {
@@ -267,7 +271,11 @@ mod tests {
     fn el_gancho_recibe_la_herramienta_y_su_entrada_por_variables() {
         let root = dir("env");
         let cancel = Arc::new(AtomicBool::new(false));
-        let cmd = if cfg!(windows) { "echo $env:PULSO_HOOK_EVENT $env:PULSO_TOOL $env:PULSO_TOOL_INPUT" } else { "echo $PULSO_HOOK_EVENT $PULSO_TOOL $PULSO_TOOL_INPUT" };
+        let cmd = if cfg!(windows) {
+            "echo $env:PULSO_HOOK_EVENT $env:PULSO_TOOL $env:PULSO_TOOL_INPUT"
+        } else {
+            "echo $PULSO_HOOK_EVENT $PULSO_TOOL $PULSO_TOOL_INPUT"
+        };
         let h = hooks(&serde_json::json!({ "hooks": { "PostToolUse": [{ "command": cmd }] } }).to_string());
         let extra = block(h.post(&root, "write_file", &serde_json::json!({ "path": "nuevo.ts" }), &cancel));
         assert!(extra.contains("PostToolUse") && extra.contains("write_file") && extra.contains("nuevo.ts"), "{extra:?}");

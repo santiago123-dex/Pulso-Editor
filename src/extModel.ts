@@ -66,10 +66,6 @@ export function filterExtensions(list: readonly InstalledExtension[], query: str
   if (!q) return [...list];
   return list.filter((item) => {
     const m = item.manifest;
-    return (
-      m.name.toLowerCase().includes(q) ||
-      m.id.toLowerCase().includes(q) ||
-      m.description.toLowerCase().includes(q)
-    );
+    return m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q) || m.description.toLowerCase().includes(q);
   });
 }

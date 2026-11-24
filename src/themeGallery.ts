@@ -9,12 +9,36 @@ type Filter = "all" | "dark" | "light" | "custom";
 
 /** Líneas de código de ejemplo: cada bloque usa el color de un rol de la sintaxis del tema. */
 const SAMPLE: [keyof SyntaxColors, number][][] = [
-  [["keyword", 14], ["variable", 26], ["operator", 5], ["string", 36]],
-  [["keyword", 14], ["fn", 30], ["operator", 5], ["number", 14]],
+  [
+    ["keyword", 14],
+    ["variable", 26],
+    ["operator", 5],
+    ["string", 36],
+  ],
+  [
+    ["keyword", 14],
+    ["fn", 30],
+    ["operator", 5],
+    ["number", 14],
+  ],
   [["comment", 66]],
-  [["tag", 12], ["attr", 24], ["operator", 5], ["string", 30]],
-  [["type", 22], ["variable", 18], ["operator", 5], ["constant", 18]],
-  [["keyword", 12], ["fn", 26], ["variable", 16]],
+  [
+    ["tag", 12],
+    ["attr", 24],
+    ["operator", 5],
+    ["string", 30],
+  ],
+  [
+    ["type", 22],
+    ["variable", 18],
+    ["operator", 5],
+    ["constant", 18],
+  ],
+  [
+    ["keyword", 12],
+    ["fn", 26],
+    ["variable", 16],
+  ],
 ];
 
 const box = (style: Partial<CSSStyleDeclaration>, cls = "") => {
@@ -121,19 +145,31 @@ export function openThemeGallery() {
   const paintChips = () => {
     chips.replaceChildren();
     const hasCustom = Object.values(allThemes()).some((t) => t.custom);
-    const defs: [Filter, string][] = [["all", tr("Todos")], ["dark", tr("Oscuros")], ["light", tr("Claros")]];
+    const defs: [Filter, string][] = [
+      ["all", tr("Todos")],
+      ["dark", tr("Oscuros")],
+      ["light", tr("Claros")],
+    ];
     if (hasCustom) defs.push(["custom", tr("Importados")]);
     for (const [f, label] of defs) {
       const c = h("button", "tg-chip" + (filter === f ? " on" : ""), label);
       c.onmousedown = (e) => e.preventDefault();
-      c.onclick = () => { filter = f; index = 0; paint(); input.focus(); };
+      c.onclick = () => {
+        filter = f;
+        index = 0;
+        paint();
+        input.focus();
+      };
       chips.append(c);
     }
   };
 
   const paintGrid = () => {
     grid.replaceChildren();
-    if (!entries.length) { grid.append(h("div", "tg-empty", tr("No hay temas que coincidan"))); return; }
+    if (!entries.length) {
+      grid.append(h("div", "tg-empty", tr("No hay temas que coincidan")));
+      return;
+    }
     entries.forEach(([id, t], i) => {
       const card = h("div", "tg-card" + (i === index ? " on" : "") + (id === original ? " current" : ""));
       card.setAttribute("role", "option");
@@ -150,17 +186,25 @@ export function openThemeGallery() {
         del.onclick = (e) => {
           e.stopPropagation();
           delete state.settings.customThemes[id];
-          if (state.settings.theme === id) setTheme("pulso-dark"); else commit();
+          if (state.settings.theme === id) setTheme("pulso-dark");
+          else commit();
           paint();
         };
         card.append(del);
       }
       card.onmousedown = (e) => e.preventDefault();
       card.onclick = () => apply(id);
-      card.onmouseenter = () => { index = i; markOn(); preview(id); };
+      card.onmouseenter = () => {
+        index = i;
+        markOn();
+        preview(id);
+      };
       grid.append(card);
     });
-    grid.onmouseleave = () => { clearTimeout(hoverTimer); applyTheme(state.settings); };
+    grid.onmouseleave = () => {
+      clearTimeout(hoverTimer);
+      applyTheme(state.settings);
+    };
   };
 
   const markOn = () => {
@@ -190,23 +234,52 @@ export function openThemeGallery() {
   };
 
   const onKey = (e: KeyboardEvent) => {
-    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(true); }
-    else if (e.key === "ArrowRight") { e.preventDefault(); move(index + 1); }
-    else if (e.key === "ArrowLeft") { e.preventDefault(); move(index - 1); }
-    else if (e.key === "ArrowDown") { e.preventDefault(); move(index + columns()); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); move(index - columns()); }
-    else if (e.key === "Enter") { e.preventDefault(); if (entries[index]) apply(entries[index][0]); }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      close(true);
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      move(index + 1);
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      move(index - 1);
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      move(index + columns());
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      move(index - columns());
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (entries[index]) apply(entries[index][0]);
+    }
   };
   document.addEventListener("keydown", onKey, true);
 
-  input.oninput = () => { query = input.value; index = 0; paint(); };
-  back.onmousedown = (e) => { if (e.target === back) close(true); };
-  importBtn.onclick = () => { close(true); importInstalled(); };
-  fileBtn.onclick = () => { close(true); void importFromFile(); };
+  input.oninput = () => {
+    query = input.value;
+    index = 0;
+    paint();
+  };
+  back.onmousedown = (e) => {
+    if (e.target === back) close(true);
+  };
+  importBtn.onclick = () => {
+    close(true);
+    importInstalled();
+  };
+  fileBtn.onclick = () => {
+    close(true);
+    void importFromFile();
+  };
 
   // Empieza resaltando el tema en uso.
   refreshEntries();
-  index = Math.max(0, entries.findIndex(([id]) => id === original));
+  index = Math.max(
+    0,
+    entries.findIndex(([id]) => id === original),
+  );
   paint();
   input.focus();
   grid.querySelectorAll(".tg-card")[index]?.scrollIntoView({ block: "center" });

@@ -32,7 +32,9 @@ export function writeStorage(key: string, value: string): boolean {
 export function removeStorage(key: string): void {
   try {
     storage()?.removeItem(key);
-  } catch { /* sin acceso */ }
+  } catch {
+    /* sin acceso */
+  }
 }
 
 export function readJsonStorage<T>(key: string, fallback: T): T {

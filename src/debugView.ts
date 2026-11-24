@@ -123,7 +123,9 @@ async function syncBreakpointsForFile(path: string) {
   if (!inTauri || status === "idle") return;
   try {
     await invoke("dap_set_breakpoints", { path, lines: breakpointsForFile(breakpoints, path) });
-  } catch { /* el adaptador puede estar cerrándose */ }
+  } catch {
+    /* el adaptador puede estar cerrándose */
+  }
 }
 
 async function toggleBp(path: string, line: number) {
@@ -175,7 +177,9 @@ function renderVarNode(v: DapVariable): HTMLElement {
         try {
           const list = await invoke<DapVariable[]>("dap_variables", { variablesReference: v.variablesReference });
           varsByRef.set(v.variablesReference, list);
-        } catch { /* sin detalles */ }
+        } catch {
+          /* sin detalles */
+        }
       }
       renderVariables();
     };
@@ -326,7 +330,9 @@ async function selectFrame(frame: DapStackFrame) {
           varsByRef.set(sc.variablesReference, list);
         }
       }
-    } catch { /* sin ámbitos */ }
+    } catch {
+      /* sin ámbitos */
+    }
   }
   renderDebug();
 }
@@ -490,7 +496,10 @@ export function initDebug(onOpenFile: (path: string, line?: number) => Promise<v
   }
 
   const sel = document.getElementById("dbg-config") as HTMLSelectElement | null;
-  if (sel) sel.onchange = () => { selectedConfigIdx = Number(sel.value) || 0; };
+  if (sel)
+    sel.onchange = () => {
+      selectedConfigIdx = Number(sel.value) || 0;
+    };
 
   const startBtn = document.getElementById("dbg-start");
   if (startBtn) startBtn.onclick = () => void startOrContinueDebug();

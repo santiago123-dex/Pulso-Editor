@@ -87,7 +87,13 @@ fn ai_history_set_aside(file: &Path) {
     let Some(dir) = file.parent() else { return };
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
     let _ = fs::rename(file, dir.join(format!("{AI_HISTORY_LOCKED_PREFIX}{stamp:020}.bin")));
-    let mut locked: Vec<PathBuf> = fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with(AI_HISTORY_LOCKED_PREFIX))).collect();
+    let mut locked: Vec<PathBuf> = fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with(AI_HISTORY_LOCKED_PREFIX)))
+        .collect();
     locked.sort();
     while locked.len() > AI_HISTORY_LOCKED_KEEP {
         let _ = fs::remove_file(locked.remove(0));
@@ -123,12 +129,16 @@ pub(crate) fn ai_history_read_in(file: &Path, keys: &dyn crate::chatcrypt::KeySt
 }
 
 pub(crate) fn ai_history_write_in(file: &Path, text: &str, keys: &dyn crate::chatcrypt::KeyStore) -> Result<(), String> {
-    if text.len() > AI_HISTORY_MAX { return Err(tr("El historial del asistente es demasiado grande.").into()); }
+    if text.len() > AI_HISTORY_MAX {
+        return Err(tr("El historial del asistente es demasiado grande.").into());
+    }
     if serde_json::from_str::<serde_json::Value>(text).map(|v| !v.is_array()).unwrap_or(true) {
         return Err(tr("El historial del asistente no tiene un formato válido.").into());
     }
     let _guard = AI_HISTORY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(dir) = file.parent() { fs::create_dir_all(dir).map_err(|e| e.to_string())?; }
+    if let Some(dir) = file.parent() {
+        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
     // Si no hay almacén de claves, mejor guardar en texto que perder las conversaciones.
     let bytes = ai_history_seal(text, keys).unwrap_or_else(|_| text.as_bytes().to_vec());
     write_atomic(file, &bytes).map_err(|e| e.to_string())

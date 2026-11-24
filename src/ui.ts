@@ -12,7 +12,12 @@ export const overlayOpen = () => modals > 0 || !$("quickopen").hidden;
 export function trackOverlay(): () => void {
   modals++;
   let done = false;
-  return () => { if (!done) { done = true; modals--; } };
+  return () => {
+    if (!done) {
+      done = true;
+      modals--;
+    }
+  };
 }
 
 // ---------- Barra de estado ----------
@@ -34,7 +39,12 @@ export function setStatus(text: string, ms = 5000) {
 }
 
 // ---------- Diálogos ----------
-export interface DialogButton { label: string; value: string; primary?: boolean; danger?: boolean }
+export interface DialogButton {
+  label: string;
+  value: string;
+  primary?: boolean;
+  danger?: boolean;
+}
 
 let modalSeq = 0;
 
@@ -68,7 +78,10 @@ function openModal(box: HTMLElement, onCancel: () => void): () => void {
     }
     if (e.key === "Tab") {
       const items = focusablesIn(box);
-      if (!items.length) { e.preventDefault(); return; }
+      if (!items.length) {
+        e.preventDefault();
+        return;
+      }
       const first = items[0];
       const last = items[items.length - 1];
       if (e.shiftKey && (document.activeElement === first || !box.contains(document.activeElement))) {
@@ -91,7 +104,13 @@ function openModal(box: HTMLElement, onCancel: () => void): () => void {
 
 /** Diálogo con botones; resuelve con el `value` del botón o "cancel" con Esc. */
 /** `extra` se pinta entre el mensaje y los botones; si `closeWhen` se resuelve, el diálogo se cierra con ese valor. */
-export function showDialog(o: { title: string; message?: string; buttons: DialogButton[]; extra?: HTMLElement; closeWhen?: Promise<string> }): Promise<string> {
+export function showDialog(o: {
+  title: string;
+  message?: string;
+  buttons: DialogButton[];
+  extra?: HTMLElement;
+  closeWhen?: Promise<string>;
+}): Promise<string> {
   return new Promise((resolve) => {
     const box = h("div", "modal");
     box.append(h("div", "modal-title", o.title));
@@ -100,7 +119,12 @@ export function showDialog(o: { title: string; message?: string; buttons: Dialog
     const row = h("div", "modal-btns");
     let close = () => {};
     let finished = false;
-    const done = (v: string) => { if (finished) return; finished = true; close(); resolve(v); };
+    const done = (v: string) => {
+      if (finished) return;
+      finished = true;
+      close();
+      resolve(v);
+    };
     void o.closeWhen?.then(done, () => done("cancel"));
     for (const b of o.buttons) {
       const btn = h("button", "mbtn" + (b.primary ? " primary" : "") + (b.danger ? " danger" : ""), b.label);
@@ -138,17 +162,30 @@ export function promptText(o: {
     row.append(cancel, ok);
     box.append(input, err, row);
     let close = () => {};
-    const done = (v: string | null) => { close(); resolve(v); };
+    const done = (v: string | null) => {
+      close();
+      resolve(v);
+    };
     const submit = () => {
       const v = input.value.trim();
       const msg = o.validate ? o.validate(v) : v ? null : t("Escribe un nombre");
-      if (msg) { err.textContent = msg; return; }
+      if (msg) {
+        err.textContent = msg;
+        return;
+      }
       done(v);
     };
     cancel.onclick = () => done(null);
     ok.onclick = submit;
-    input.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } };
-    input.oninput = () => { err.textContent = ""; };
+    input.onkeydown = (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        submit();
+      }
+    };
+    input.oninput = () => {
+      err.textContent = "";
+    };
     close = openModal(box, () => done(null));
     input.focus();
     const dot = input.value.lastIndexOf(".");
@@ -156,10 +193,22 @@ export function promptText(o: {
   });
 }
 
-export interface FormField { key: string; label: string; value?: string; multiline?: boolean; placeholder?: string; required?: boolean }
+export interface FormField {
+  key: string;
+  label: string;
+  value?: string;
+  multiline?: boolean;
+  placeholder?: string;
+  required?: boolean;
+}
 
 /** Formulario con varios campos; devuelve los valores (sin espacios en los extremos) o null si se cancela. */
-export function showForm(o: { title: string; fields: FormField[]; submitLabel?: string; hint?: string }): Promise<Record<string, string> | null> {
+export function showForm(o: {
+  title: string;
+  fields: FormField[];
+  submitLabel?: string;
+  hint?: string;
+}): Promise<Record<string, string> | null> {
   return new Promise((resolve) => {
     const box = h("div", "modal modal-form");
     box.append(h("div", "modal-title", o.title));
@@ -185,12 +234,19 @@ export function showForm(o: { title: string; fields: FormField[]; submitLabel?: 
     row.append(cancel, ok);
     box.append(err, row);
     let close = () => {};
-    const done = (v: Record<string, string> | null) => { close(); resolve(v); };
+    const done = (v: Record<string, string> | null) => {
+      close();
+      resolve(v);
+    };
     const submit = () => {
       const values: Record<string, string> = {};
       for (const f of o.fields) {
         const v = inputs.get(f.key)!.value.trim();
-        if (f.required && !v) { err.textContent = t("Falta: {field}", { field: f.label }); inputs.get(f.key)!.focus(); return; }
+        if (f.required && !v) {
+          err.textContent = t("Falta: {field}", { field: f.label });
+          inputs.get(f.key)!.focus();
+          return;
+        }
         values[f.key] = v;
       }
       done(values);
@@ -198,10 +254,15 @@ export function showForm(o: { title: string; fields: FormField[]; submitLabel?: 
     cancel.onclick = () => done(null);
     ok.onclick = submit;
     for (const input of inputs.values()) {
-      input.oninput = () => { err.textContent = ""; };
+      input.oninput = () => {
+        err.textContent = "";
+      };
       input.onkeydown = (e) => {
         const multiline = input instanceof HTMLTextAreaElement;
-        if (e.key === "Enter" && (!multiline || e.ctrlKey || e.metaKey)) { e.preventDefault(); submit(); }
+        if (e.key === "Enter" && (!multiline || e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          submit();
+        }
       };
     }
     close = openModal(box, () => done(null));
@@ -210,9 +271,7 @@ export function showForm(o: { title: string; fields: FormField[]; submitLabel?: 
 }
 
 // ---------- Menú contextual ----------
-export type MenuItem =
-  | { label: string; hint?: string; run: () => void; danger?: boolean; disabled?: boolean }
-  | "sep";
+export type MenuItem = { label: string; hint?: string; run: () => void; danger?: boolean; disabled?: boolean } | "sep";
 
 let closeMenu = () => {};
 
@@ -223,12 +282,18 @@ export function showMenu(x: number, y: number, items: MenuItem[], opts: { onClos
   closeMenu();
   const menu = h("div", "ctxmenu");
   for (const it of items) {
-    if (it === "sep") { menu.append(h("div", "ctx-sep")); continue; }
+    if (it === "sep") {
+      menu.append(h("div", "ctx-sep"));
+      continue;
+    }
     const row = h("div", "ctx-item" + (it.danger ? " danger" : "") + (it.disabled ? " disabled" : ""));
     row.append(h("span", "", it.label));
     if (it.hint) row.append(h("kbd", "", it.hint));
     if (!it.disabled) {
-      row.onclick = () => { closeMenu(); it.run(); };
+      row.onclick = () => {
+        closeMenu();
+        it.run();
+      };
     }
     menu.append(row);
   }
@@ -236,8 +301,12 @@ export function showMenu(x: number, y: number, items: MenuItem[], opts: { onClos
   const r = menu.getBoundingClientRect();
   menu.style.left = `${Math.max(4, Math.min(x, innerWidth - r.width - 4))}px`;
   menu.style.top = `${Math.max(4, Math.min(y, innerHeight - r.height - 4))}px`;
-  const onDown = (e: MouseEvent) => { if (!menu.contains(e.target as Node)) closeMenu(); };
-  const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeMenu(); };
+  const onDown = (e: MouseEvent) => {
+    if (!menu.contains(e.target as Node)) closeMenu();
+  };
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape") closeMenu();
+  };
   closeMenu = () => {
     menu.remove();
     document.removeEventListener("mousedown", onDown, true);
@@ -270,7 +339,9 @@ export function score(q: string, it: PickItem): number {
   const label = it.label.toLowerCase();
   const kw = (it.keywords ?? "").toLowerCase();
   const text = ((it.detail ? it.detail + "/" : "") + it.label + (kw ? " " + kw : "")).toLowerCase();
-  let s = 0, pos = -1, prev = -2;
+  let s = 0,
+    pos = -1,
+    prev = -2;
   for (const ch of q) {
     const idx = text.indexOf(ch, pos + 1);
     if (idx < 0) return -1;
@@ -311,12 +382,18 @@ export function quickPick(o: {
     input.oninput = null;
     input.onkeydown = null;
     root.onmousedown = null;
-    if (refocus) { o.onCancel?.(); hooks.focusEditor(); }
+    if (refocus) {
+      o.onCancel?.();
+      hooks.focusEditor();
+    }
   };
 
   const paint = (preview = false) => {
     list.replaceChildren();
-    if (!shown.length) { list.append(h("li", "none", items.length ? t("Sin resultados") : o.empty ?? t("Sin resultados"))); return; }
+    if (!shown.length) {
+      list.append(h("li", "none", items.length ? t("Sin resultados") : (o.empty ?? t("Sin resultados"))));
+      return;
+    }
     shown.forEach((it, i) => {
       const li = h("li", i === index ? "on" : "");
       if (it.icon) li.append(it.icon);
@@ -332,11 +409,21 @@ export function quickPick(o: {
 
   const filter = () => {
     const q = input.value.trim().toLowerCase();
-    shown = (q
-      ? items.map((it) => ({ it, s: score(q, it) })).filter((x) => x.s >= 0).sort((a, b) => b.s - a.s).map((x) => x.it)
-      : items
+    shown = (
+      q
+        ? items
+            .map((it) => ({ it, s: score(q, it) }))
+            .filter((x) => x.s >= 0)
+            .sort((a, b) => b.s - a.s)
+            .map((x) => x.it)
+        : items
     ).slice(0, 60);
-    index = q ? 0 : Math.max(0, shown.findIndex((it) => it.current));
+    index = q
+      ? 0
+      : Math.max(
+          0,
+          shown.findIndex((it) => it.current),
+        );
     paint(!!q);
   };
 
@@ -350,11 +437,22 @@ export function quickPick(o: {
   input.oninput = filter;
   input.onkeydown = (e) => {
     if (e.key === "Escape") close(true);
-    else if (e.key === "ArrowDown") { e.preventDefault(); index = Math.min(shown.length - 1, index + 1); paint(true); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); index = Math.max(0, index - 1); paint(true); }
-    else if (e.key === "Enter") { e.preventDefault(); pickAt(index); }
+    else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      index = Math.min(shown.length - 1, index + 1);
+      paint(true);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      index = Math.max(0, index - 1);
+      paint(true);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      pickAt(index);
+    }
   };
-  root.onmousedown = (e) => { if (e.target === root) close(true); };
+  root.onmousedown = (e) => {
+    if (e.target === root) close(true);
+  };
 
   void Promise.resolve(o.load()).then((loaded) => {
     if (closed) return;

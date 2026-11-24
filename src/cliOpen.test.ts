@@ -3,7 +3,14 @@ import { planCliOpen } from "./cliOpen";
 
 describe("planCliOpen", () => {
   it("usa la primera carpeta como espacio de trabajo y abre los archivos en su línea", () => {
-    const p = planCliOpen([{ path: "/p/a", kind: "dir" }, { path: "/p/a/x.ts", kind: "file", line: 7, col: 2 }, { path: "/p/b", kind: "dir" }], "/otro");
+    const p = planCliOpen(
+      [
+        { path: "/p/a", kind: "dir" },
+        { path: "/p/a/x.ts", kind: "file", line: 7, col: 2 },
+        { path: "/p/b", kind: "dir" },
+      ],
+      "/otro",
+    );
     expect(p.folder).toBe("/p/a");
     expect(p.files).toEqual([{ path: "/p/a/x.ts", line: 7, col: 2 }]);
   });

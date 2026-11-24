@@ -43,9 +43,7 @@ pub fn attach_job(child: &Child) {
 pub fn kill_tree(pid: u32) {
     #[cfg(windows)]
     {
-        let _ = crate::background_command("taskkill")
-            .args(["/T", "/F", "/PID", &pid.to_string()])
-            .status();
+        let _ = crate::background_command("taskkill").args(["/T", "/F", "/PID", &pid.to_string()]).status();
     }
     #[cfg(unix)]
     {
@@ -82,16 +80,11 @@ pub fn reap_detached(mut child: Child) {
 
 #[cfg(windows)]
 mod windows_job {
-    use std::{
-        os::windows::io::AsRawHandle,
-        process::Child,
-        sync::OnceLock,
-    };
+    use std::{os::windows::io::AsRawHandle, process::Child, sync::OnceLock};
     use windows_sys::Win32::{
         Foundation::HANDLE,
         System::JobObjects::{
-            AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
-            SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+            AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation, SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
             JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
         },
     };

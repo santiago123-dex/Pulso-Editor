@@ -16,8 +16,12 @@ function memStore() {
   const data = new Map<string, string>();
   return {
     getItem: (k: string) => data.get(k) ?? null,
-    setItem: (k: string, v: string) => { data.set(k, v); },
-    removeItem: (k: string) => { data.delete(k); },
+    setItem: (k: string, v: string) => {
+      data.set(k, v);
+    },
+    removeItem: (k: string) => {
+      data.delete(k);
+    },
   };
 }
 

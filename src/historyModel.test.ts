@@ -1,12 +1,34 @@
 import { describe, expect, it } from "vitest";
-import { agoFrom, agoIso, blameText, computeGraphRows, mayHaveMore, mergeCommits, refChips, relativeToTop, type CommitInfo } from "./historyModel";
+import {
+  agoFrom,
+  agoIso,
+  blameText,
+  computeGraphRows,
+  mayHaveMore,
+  mergeCommits,
+  refChips,
+  relativeToTop,
+  type CommitInfo,
+} from "./historyModel";
 
-const c = (hash: string, subject = "x", parents: string[] = []): CommitInfo => ({ hash, short: hash.slice(0, 7), author: "a", email: "a@x", date: "2026-01-01T00:00:00Z", subject, refs: [], parents });
+const c = (hash: string, subject = "x", parents: string[] = []): CommitInfo => ({
+  hash,
+  short: hash.slice(0, 7),
+  author: "a",
+  email: "a@x",
+  date: "2026-01-01T00:00:00Z",
+  subject,
+  refs: [],
+  parents,
+});
 
 describe("refChips", () => {
   it("distingue la rama actual, ramas, remotos y etiquetas, y omite origin/HEAD", () => {
     expect(refChips(["HEAD -> main", "origin/main", "origin/HEAD", "tag: v1.0", "feature"])).toEqual([
-      { label: "main", kind: "head" }, { label: "origin/main", kind: "remote" }, { label: "v1.0", kind: "tag" }, { label: "feature", kind: "branch" },
+      { label: "main", kind: "head" },
+      { label: "origin/main", kind: "remote" },
+      { label: "v1.0", kind: "tag" },
+      { label: "feature", kind: "branch" },
     ]);
     expect(refChips(["HEAD"])).toEqual([{ label: "HEAD", kind: "head" }]);
     expect(refChips([])).toEqual([]);
@@ -56,7 +78,9 @@ describe("relativeToTop", () => {
 describe("blameText", () => {
   const NOW = 1_700_000_000_000;
   it("autor, cuándo y resumen; recorta resúmenes largos", () => {
-    expect(blameText({ line: 1, hash: "abc", author: "Ana", time: NOW / 1000 - 7200, summary: "arregla el login" }, NOW)).toBe("Ana, hace 2 h · arregla el login");
+    expect(blameText({ line: 1, hash: "abc", author: "Ana", time: NOW / 1000 - 7200, summary: "arregla el login" }, NOW)).toBe(
+      "Ana, hace 2 h · arregla el login",
+    );
     expect(blameText({ line: 1, hash: "abc", author: "Ana", time: NOW / 1000, summary: "x".repeat(80) }, NOW)).toMatch(/…$/);
   });
   it("una línea sin commit lo dice y sin datos no muestra nada", () => {

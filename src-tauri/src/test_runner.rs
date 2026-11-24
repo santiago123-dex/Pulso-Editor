@@ -70,11 +70,7 @@ fn detect_runners_sync(root: &Path) -> Vec<DetectedRunner> {
     }
 
     // Jest
-    if root.join("jest.config.ts").is_file()
-        || root.join("jest.config.js").is_file()
-        || root.join("jest.config.cjs").is_file()
-        || has_pkg_dep(root, "jest")
-    {
+    if root.join("jest.config.ts").is_file() || root.join("jest.config.js").is_file() || root.join("jest.config.cjs").is_file() || has_pkg_dep(root, "jest") {
         out.push(DetectedRunner { id: "jest".into(), label: "Jest".into(), cwd: norm_root.clone() });
     }
 
@@ -82,11 +78,7 @@ fn detect_runners_sync(root: &Path) -> Vec<DetectedRunner> {
     if root.join("Cargo.toml").is_file() {
         out.push(DetectedRunner { id: "cargo".into(), label: "Cargo test".into(), cwd: norm_root.clone() });
     } else if root.join("src-tauri").join("Cargo.toml").is_file() {
-        out.push(DetectedRunner {
-            id: "cargo".into(),
-            label: "Cargo test (src-tauri)".into(),
-            cwd: norm(&root.join("src-tauri")),
-        });
+        out.push(DetectedRunner { id: "cargo".into(), label: "Cargo test (src-tauri)".into(), cwd: norm(&root.join("src-tauri")) });
     }
 
     // Pytest
@@ -107,15 +99,9 @@ pub fn parse_js_test_output(output: &str, base: &Path) -> Vec<TestCaseResult> {
     static JEST_CASE: OnceLock<Regex> = OnceLock::new();
 
     // Vitest verbose: ` ✓ src/foo.test.ts > suite > test name 4ms` o ` × src/foo.test.ts > test`
-    let re_vitest = VITEST_LINE.get_or_init(|| {
-        Regex::new(r"^\s*([✓✔×✕↓○-])\s+([^\s>]+\.(?:test|spec)\.[jt]sx?)\s+>\s+(.+?)(?:\s+(\d+)\s*ms)?\s*$").unwrap()
-    });
-    let re_jest_file = JEST_FILE.get_or_init(|| {
-        Regex::new(r"^\s*(?:PASS|FAIL)\s+([^\s]+\.(?:test|spec)\.[jt]sx?)").unwrap()
-    });
-    let re_jest_case = JEST_CASE.get_or_init(|| {
-        Regex::new(r"^\s*([✓✔×✕○-])\s+(.+?)(?:\s+\((\d+)\s*ms\))?\s*$").unwrap()
-    });
+    let re_vitest = VITEST_LINE.get_or_init(|| Regex::new(r"^\s*([✓✔×✕↓○-])\s+([^\s>]+\.(?:test|spec)\.[jt]sx?)\s+>\s+(.+?)(?:\s+(\d+)\s*ms)?\s*$").unwrap());
+    let re_jest_file = JEST_FILE.get_or_init(|| Regex::new(r"^\s*(?:PASS|FAIL)\s+([^\s]+\.(?:test|spec)\.[jt]sx?)").unwrap());
+    let re_jest_case = JEST_CASE.get_or_init(|| Regex::new(r"^\s*([✓✔×✕○-])\s+(.+?)(?:\s+\((\d+)\s*ms\))?\s*$").unwrap());
 
     let clean = strip_ansi(output);
     let mut out = Vec::new();
@@ -172,11 +158,7 @@ pub fn parse_cargo_test_output(output: &str, cargo_dir: &Path) -> Vec<TestCaseRe
             let full = c[1].to_string();
             let module = full.split("::").next().unwrap_or("lib");
             let candidate = cargo_dir.join("src").join(format!("{module}.rs"));
-            let file = if candidate.is_file() {
-                norm(&candidate)
-            } else {
-                norm(&cargo_dir.join("src").join("lib.rs"))
-            };
+            let file = if candidate.is_file() { norm(&candidate) } else { norm(&cargo_dir.join("src").join("lib.rs")) };
             let status = match &c[2] {
                 "ok" => "passed",
                 "FAILED" => "failed",
@@ -192,9 +174,7 @@ pub fn parse_cargo_test_output(output: &str, cargo_dir: &Path) -> Vec<TestCaseRe
 /// `tests/test_math.py::test_add PASSED`
 pub fn parse_pytest_output(output: &str, base: &Path) -> Vec<TestCaseResult> {
     static RE: OnceLock<Regex> = OnceLock::new();
-    let re = RE.get_or_init(|| {
-        Regex::new(r"^([^\s:]+\.py)::(.+?)\s+(PASSED|FAILED|SKIPPED|ERROR)\b").unwrap()
-    });
+    let re = RE.get_or_init(|| Regex::new(r"^([^\s:]+\.py)::(.+?)\s+(PASSED|FAILED|SKIPPED|ERROR)\b").unwrap());
     let clean = strip_ansi(output);
     let mut out = Vec::new();
     for line in clean.lines() {
@@ -204,12 +184,7 @@ pub fn parse_pytest_output(output: &str, base: &Path) -> Vec<TestCaseResult> {
                 "SKIPPED" => "skipped",
                 _ => "failed",
             };
-            out.push(TestCaseResult {
-                file: norm(&base.join(c[1].trim())),
-                name: c[2].trim().to_string(),
-                status: status.into(),
-                duration_ms: None,
-            });
+            out.push(TestCaseResult { file: norm(&base.join(c[1].trim())), name: c[2].trim().to_string(), status: status.into(), duration_ms: None });
         }
     }
     out
@@ -267,11 +242,7 @@ fn run_tests_sync(root: &Path, runner: &str, file: Option<&str>) -> Result<TestR
             }
         }
         "cargo" => {
-            let cdir = if root.join("Cargo.toml").is_file() {
-                root.to_path_buf()
-            } else {
-                root.join("src-tauri")
-            };
+            let cdir = if root.join("Cargo.toml").is_file() { root.to_path_buf() } else { root.join("src-tauri") };
             let mut a = vec!["test".into()];
             if let Some(f) = file {
                 if let Some(stem) = Path::new(f).file_stem().and_then(|s| s.to_str()) {
@@ -290,11 +261,7 @@ fn run_tests_sync(root: &Path, runner: &str, file: Option<&str>) -> Result<TestR
         other => return Err(format!("Ejecutor de pruebas no soportado: {other}")),
     };
 
-    let out = background_command(&program)
-        .args(&args)
-        .current_dir(&cwd)
-        .output()
-        .map_err(|e| format!("No se pudo ejecutar {program}: {e}"))?;
+    let out = background_command(&program).args(&args).current_dir(&cwd).output().map_err(|e| format!("No se pudo ejecutar {program}: {e}"))?;
 
     let mut combined = String::from_utf8_lossy(&out.stdout).into_owned();
     let err = String::from_utf8_lossy(&out.stderr);
@@ -317,11 +284,7 @@ fn run_tests_sync(root: &Path, runner: &str, file: Option<&str>) -> Result<TestR
     let skipped = cases.iter().filter(|c| c.status == "skipped").count();
 
     let clean_out = strip_ansi(&combined);
-    let clipped = if clean_out.len() > 40_000 {
-        format!("{}\n…(salida recortada)", &clean_out[..40_000])
-    } else {
-        clean_out
-    };
+    let clipped = if clean_out.len() > 40_000 { format!("{}\n…(salida recortada)", &clean_out[..40_000]) } else { clean_out };
 
     Ok(TestRunResult {
         runner: runner.into(),
@@ -336,31 +299,19 @@ fn run_tests_sync(root: &Path, runner: &str, file: Option<&str>) -> Result<TestR
 }
 
 #[tauri::command]
-pub async fn test_detect(
-    root: String,
-    guard: tauri::State<'_, fsguard::WorkspaceGuard>,
-) -> Result<Vec<DetectedRunner>, String> {
+pub async fn test_detect(root: String, guard: tauri::State<'_, fsguard::WorkspaceGuard>) -> Result<Vec<DetectedRunner>, String> {
     let safe = guard.ensure_read(&root)?;
-    tauri::async_runtime::spawn_blocking(move || detect_runners_sync(&safe))
-        .await
-        .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || detect_runners_sync(&safe)).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn test_run(
-    root: String,
-    runner: String,
-    file: Option<String>,
-    guard: tauri::State<'_, fsguard::WorkspaceGuard>,
-) -> Result<TestRunResult, String> {
+pub async fn test_run(root: String, runner: String, file: Option<String>, guard: tauri::State<'_, fsguard::WorkspaceGuard>) -> Result<TestRunResult, String> {
     let safe = guard.ensure_read(&root)?;
     let safe_file = match file {
         Some(f) if !f.trim().is_empty() => Some(norm(&guard.ensure_read(&f)?)),
         _ => None,
     };
-    tauri::async_runtime::spawn_blocking(move || run_tests_sync(&safe, &runner, safe_file.as_deref()))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || run_tests_sync(&safe, &runner, safe_file.as_deref())).await.map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]

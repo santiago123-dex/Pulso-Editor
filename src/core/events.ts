@@ -14,9 +14,7 @@ type Handler<T> = (payload: T) => void;
 
 export interface EventBus {
   on<K extends keyof PulsoEvents>(event: K, handler: Handler<PulsoEvents[K]>): () => void;
-  emit<K extends keyof PulsoEvents>(
-    ...args: PulsoEvents[K] extends undefined ? [event: K] : [event: K, payload: PulsoEvents[K]]
-  ): void;
+  emit<K extends keyof PulsoEvents>(...args: PulsoEvents[K] extends undefined ? [event: K] : [event: K, payload: PulsoEvents[K]]): void;
   clear(): void;
 }
 

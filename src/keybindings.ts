@@ -1,18 +1,32 @@
 import { t } from "./i18n";
 /** Lógica de atajos de teclado (sin interfaz): conflictos, teclas reservadas y personalizaciones. */
-export interface KbCommand { id: string; label: string; key?: string }
+export interface KbCommand {
+  id: string;
+  label: string;
+  key?: string;
+}
 
 /** Teclas que el editor (Monaco) o el sistema ya usan; asignarlas a un comando las rompe dentro del editor. */
 export const RESERVED: Record<string, string> = {
-  "Ctrl+C": t("copiar"), "Ctrl+X": t("cortar"), "Ctrl+V": t("pegar"), "Ctrl+Z": t("deshacer"), "Ctrl+Y": t("rehacer"),
-  "Ctrl+A": t("seleccionar todo"), "Ctrl+F": t("buscar en el archivo"), "Ctrl+H": t("reemplazar en el archivo"),
-  "Ctrl+G": t("ir a la línea"), "Ctrl+D": t("seleccionar la siguiente aparición"), "Ctrl+/": t("comentar la línea"),
-  "Ctrl+Shift+O": t("ir a un símbolo"), "F12": t("ir a la definición"), "Alt+F4": t("cerrar la ventana"),
+  "Ctrl+C": t("copiar"),
+  "Ctrl+X": t("cortar"),
+  "Ctrl+V": t("pegar"),
+  "Ctrl+Z": t("deshacer"),
+  "Ctrl+Y": t("rehacer"),
+  "Ctrl+A": t("seleccionar todo"),
+  "Ctrl+F": t("buscar en el archivo"),
+  "Ctrl+H": t("reemplazar en el archivo"),
+  "Ctrl+G": t("ir a la línea"),
+  "Ctrl+D": t("seleccionar la siguiente aparición"),
+  "Ctrl+/": t("comentar la línea"),
+  "Ctrl+Shift+O": t("ir a un símbolo"),
+  F12: t("ir a la definición"),
+  "Alt+F4": t("cerrar la ventana"),
 };
 
 /** Atajo vigente de un comando, dadas las personalizaciones. "" = sin atajo. */
 export function effectiveKey(cmd: KbCommand, overrides: Record<string, string>): string {
-  return cmd.id in overrides ? overrides[cmd.id] : cmd.key ?? "";
+  return cmd.id in overrides ? overrides[cmd.id] : (cmd.key ?? "");
 }
 
 /** Otros comandos que ya usan esa combinación. */
@@ -32,7 +46,8 @@ export function assignKey(commands: KbCommand[], overrides: Record<string, strin
   const next = { ...overrides };
   for (const c of findConflicts(commands, next, id, key)) next[c.id] = "";
   const cmd = commands.find((c) => c.id === id);
-  if (cmd && (cmd.key ?? "") === key) delete next[id]; else next[id] = key;
+  if (cmd && (cmd.key ?? "") === key) delete next[id];
+  else next[id] = key;
   // Quien perdió la tecla y por fábrica no tenía ninguna ya no necesita personalización.
   for (const c of commands) if (next[c.id] === "" && !(c.key ?? "")) delete next[c.id];
   return next;
@@ -54,19 +69,34 @@ export function splitLabel(label: string): { category: string; name: string } {
 }
 
 const DISPLAY: Record<string, string> = {
-  ArrowLeft: "←", ArrowRight: "→", ArrowUp: "↑", ArrowDown: "↓",
-  Escape: "Esc", Space: t("Espacio"), Tab: "Tab", Enter: t("Intro"), Backspace: "⌫", Delete: t("Supr"),
+  ArrowLeft: "←",
+  ArrowRight: "→",
+  ArrowUp: "↑",
+  ArrowDown: "↓",
+  Escape: "Esc",
+  Space: t("Espacio"),
+  Tab: "Tab",
+  Enter: t("Intro"),
+  Backspace: "⌫",
+  Delete: t("Supr"),
 };
 
 /** "Ctrl+Alt+ArrowRight" -> ["Ctrl", "Alt", "→"] para dibujar cada tecla por separado. */
 export function keyParts(key: string): string[] {
   if (!key) return [];
   // El último "+" puede ser la propia tecla ("Ctrl++" no existe, pero "Ctrl+=" sí).
-  return key.split("+").filter((p) => p !== "").map((p) => DISPLAY[p] ?? p);
+  return key
+    .split("+")
+    .filter((p) => p !== "")
+    .map((p) => DISPLAY[p] ?? p);
 }
 
 /** Texto para buscar: quita símbolos para que "ctrl p" y "Ctrl+P" coincidan. */
-export const searchable = (s: string) => s.toLowerCase().replace(/[+\s]+/g, " ").trim();
+export const searchable = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[+\s]+/g, " ")
+    .trim();
 
 /**
  * Cada palabra de la búsqueda debe aparecer en el nombre del comando, ser el comienzo de una de sus

@@ -2,22 +2,29 @@
 use super::*;
 
 pub(super) fn capture_status(program: &str, args: &[String], secs: u64) -> Result<(bool, String), String> {
-    let mut child = background_command(program)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| e.to_string())?;
+    let mut child =
+        background_command(program).args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| e.to_string())?;
     let mut out = child.stdout.take().ok_or(tr("sin salida"))?;
     let mut err = child.stderr.take().ok_or(tr("sin salida de error"))?;
-    let r_out = thread::spawn(move || { let mut s = String::new(); let _ = out.read_to_string(&mut s); s });
-    let r_err = thread::spawn(move || { let mut s = String::new(); let _ = err.read_to_string(&mut s); s });
+    let r_out = thread::spawn(move || {
+        let mut s = String::new();
+        let _ = out.read_to_string(&mut s);
+        s
+    });
+    let r_err = thread::spawn(move || {
+        let mut s = String::new();
+        let _ = err.read_to_string(&mut s);
+        s
+    });
     let deadline = Instant::now() + Duration::from_secs(secs);
     let status = loop {
         match child.try_wait().map_err(|e| e.to_string())? {
             Some(st) => break st,
-            None if Instant::now() >= deadline => { let _ = child.kill(); let _ = child.wait(); return Err(tr("tardó demasiado").into()); }
+            None if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(tr("tardó demasiado").into());
+            }
             None => thread::sleep(Duration::from_millis(30)),
         }
     };
@@ -33,20 +40,23 @@ pub(super) fn capture(program: &str, args: &[&str], secs: u64) -> Result<String,
 }
 
 pub(super) fn capture_vec(program: &str, args: &[String], secs: u64) -> Result<String, String> {
-    let mut child = background_command(program)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| e.to_string())?;
+    let mut child =
+        background_command(program).args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(|e| e.to_string())?;
     let mut out = child.stdout.take().ok_or(tr("sin salida"))?;
-    let reader = thread::spawn(move || { let mut s = String::new(); let _ = out.read_to_string(&mut s); s });
+    let reader = thread::spawn(move || {
+        let mut s = String::new();
+        let _ = out.read_to_string(&mut s);
+        s
+    });
     let deadline = Instant::now() + Duration::from_secs(secs);
     loop {
         match child.try_wait().map_err(|e| e.to_string())? {
             Some(_) => break,
-            None if Instant::now() >= deadline => { let _ = child.kill(); let _ = child.wait(); return Err(tr("tardó demasiado").into()); }
+            None if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(tr("tardó demasiado").into());
+            }
             None => thread::sleep(Duration::from_millis(30)),
         }
     }
@@ -54,9 +64,7 @@ pub(super) fn capture_vec(program: &str, args: &[String], secs: u64) -> Result<S
 }
 
 pub(super) fn user_home() -> Option<PathBuf> {
-    std::env::var_os("USERPROFILE")
-        .or_else(|| std::env::var_os("HOME"))
-        .map(PathBuf::from)
+    std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from)
 }
 
 /// Busca el punto de entrada JS de un paquete npm global (`package.json` → `bin`) para ejecutarlo con `node` sin pasar por `.cmd`.
@@ -76,9 +84,7 @@ pub fn npm_bin_js(npm_dir: &Path, pkg: &str, bin_name: &str) -> Option<PathBuf> 
         _ => return None,
     };
     let rel_path = Path::new(rel);
-    if rel_path.is_absolute()
-        || rel_path.components().any(|c| matches!(c, std::path::Component::ParentDir))
-    {
+    if rel_path.is_absolute() || rel_path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
         return None;
     }
     let candidate = pkg_dir.join(rel_path);
@@ -133,7 +139,9 @@ pub fn node_program(hint_dir: &Path) -> String {
     }
     if cfg!(windows) {
         for fixed in [r"C:\nvm4w\nodejs\node.exe", r"C:\Program Files\nodejs\node.exe", r"C:\Program Files (x86)\nodejs\node.exe"] {
-            if Path::new(fixed).is_file() { return fixed.to_string(); }
+            if Path::new(fixed).is_file() {
+                return fixed.to_string();
+            }
         }
     }
     "node".to_string()
@@ -143,7 +151,9 @@ pub fn node_program(hint_dir: &Path) -> String {
 pub fn resolve_cli(name: &str, env_var: &str, npm_pkg: Option<&str>) -> (String, Vec<String>) {
     if cfg!(debug_assertions) {
         if let Ok(p) = std::env::var(env_var) {
-            if !p.trim().is_empty() { return (p, Vec::new()); }
+            if !p.trim().is_empty() {
+                return (p, Vec::new());
+            }
         }
     }
     let dirs = extra_bin_dirs();
@@ -151,7 +161,9 @@ pub fn resolve_cli(name: &str, env_var: &str, npm_pkg: Option<&str>) -> (String,
         let exe = format!("{name}.exe");
         for dir in &dirs {
             let p = dir.join(&exe);
-            if p.is_file() { return (p.to_string_lossy().into_owned(), Vec::new()); }
+            if p.is_file() {
+                return (p.to_string_lossy().into_owned(), Vec::new());
+            }
         }
         if let Some(pkg) = npm_pkg {
             for dir in &dirs {
@@ -164,13 +176,17 @@ pub fn resolve_cli(name: &str, env_var: &str, npm_pkg: Option<&str>) -> (String,
             let shim = format!("{name}.{ext}");
             for dir in &dirs {
                 let p = dir.join(&shim);
-                if p.is_file() { return (p.to_string_lossy().into_owned(), Vec::new()); }
+                if p.is_file() {
+                    return (p.to_string_lossy().into_owned(), Vec::new());
+                }
             }
         }
     } else {
         for dir in &dirs {
             let p = dir.join(name);
-            if p.is_file() { return (p.to_string_lossy().into_owned(), Vec::new()); }
+            if p.is_file() {
+                return (p.to_string_lossy().into_owned(), Vec::new());
+            }
         }
     }
     (name.to_string(), Vec::new())

@@ -20,9 +20,7 @@ export const BG_PRESETS: { name: string; color: string; swatch: string }[] = [
   { name: t("Bosque"), color: "#071410", swatch: "#071410" },
 ];
 
-export const THEME_VARS = [
-  "--bg", "--editor", "--sidebar", "--activity", "--hover", "--selected", "--border", "--fg", "--muted",
-] as const;
+export const THEME_VARS = ["--bg", "--editor", "--sidebar", "--activity", "--hover", "--selected", "--border", "--fg", "--muted"] as const;
 
 export function loadAppearance(): AiAppearance {
   const raw = readJsonStorage<Partial<AiAppearance>>(BG_KEY, {});
@@ -87,9 +85,7 @@ export function saveAppearance(view: HTMLElement, cfg: AiAppearance) {
   applyAiAppearance(view, cfg);
 }
 
-export function buildAppearancePopover(
-  view: HTMLElement,
-): HTMLElement {
+export function buildAppearancePopover(view: HTMLElement): HTMLElement {
   const pop = h("div", "ai-popover ai-theme-pop");
   const render = () => {
     const cfg = loadAppearance();
@@ -99,7 +95,10 @@ export function buildAppearancePopover(
     if (cfg.bg || cfg.pattern !== "dots" || cfg.scope !== "assistant") {
       const rst = h("button", "ai-usage-sync", t("Restablecer"));
       rst.type = "button";
-      rst.onclick = () => { saveAppearance(view, { bg: "", pattern: "dots", scope: "assistant" }); render(); };
+      rst.onclick = () => {
+        saveAppearance(view, { bg: "", pattern: "dots", scope: "assistant" });
+        render();
+      };
       head.append(rst);
     }
     pop.append(head);
@@ -113,7 +112,10 @@ export function buildAppearancePopover(
       const dot = h("span", "ai-swatch-dot");
       dot.style.background = p.swatch;
       b.append(dot, h("span", "ai-swatch-name", p.name));
-      b.onclick = () => { saveAppearance(view, { ...cfg, bg: p.color }); render(); };
+      b.onclick = () => {
+        saveAppearance(view, { ...cfg, bg: p.color });
+        render();
+      };
       grid.append(b);
     }
     pop.append(grid);
@@ -139,7 +141,10 @@ export function buildAppearancePopover(
       for (const [, text, active, fn] of opts) {
         const b = h("button", `ai-effort-pill${active ? " active" : ""}`, text);
         b.type = "button";
-        b.onclick = () => { fn(); render(); };
+        b.onclick = () => {
+          fn();
+          render();
+        };
         pills.append(b);
       }
       row.append(pills);

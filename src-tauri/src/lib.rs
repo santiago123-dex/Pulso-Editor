@@ -11,38 +11,38 @@ use std::{
 };
 use tauri::{Emitter, Manager};
 
-mod term;
-mod userconf;
-mod lsp;
-mod gitops;
-mod githubauth;
-mod githubpolicy;
-mod githubdevice;
-pub mod aichat;
-mod cli;
-pub mod termchat;
-pub mod termui;
-pub mod fsguard;
-pub mod procguard;
-pub mod i18n;
-pub mod ollama;
-pub mod readtools;
-pub mod chatcrypt;
-pub mod catalog;
-pub mod llm;
 pub mod agent;
-pub mod agenttools;
-pub mod agentperms;
 pub mod agentconfig;
 pub mod agenthooks;
 pub mod agentmcp;
 pub mod agentmem;
+pub mod agentperms;
+pub mod agenttools;
+pub mod aichat;
+pub mod catalog;
+pub mod chatcrypt;
+mod cli;
 mod files;
+pub mod fsguard;
+mod githubauth;
+mod githubdevice;
+mod githubpolicy;
 mod gitinfo;
+mod gitops;
+pub mod i18n;
+pub mod llm;
+mod lsp;
+pub mod ollama;
+pub mod procguard;
+pub mod readtools;
 mod recovery;
 mod search;
 mod secrets;
+mod term;
+pub mod termchat;
+pub mod termui;
 mod themes;
+mod userconf;
 mod workspace;
 
 pub(crate) use files::*;
@@ -53,22 +53,25 @@ pub(crate) use secrets::*;
 pub(crate) use themes::*;
 pub(crate) use workspace::*;
 
-mod updates;
-mod diag;
-mod project_check;
-mod test_runner;
-mod git_hunks;
-mod inline_ai;
 mod dap;
 mod dap_config;
+mod diag;
 mod extensions;
+mod git_hunks;
+mod inline_ai;
+mod project_check;
+mod test_runner;
+mod updates;
 
 /// Los procesos auxiliares no deben abrir ventanas de consola en Windows.
 fn background_command(program: &str) -> Command {
     #[allow(unused_mut)]
     let mut command = Command::new(program);
     #[cfg(windows)]
-    { use std::os::windows::process::CommandExt; command.creation_flags(0x08000000); }
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
     command
 }
 

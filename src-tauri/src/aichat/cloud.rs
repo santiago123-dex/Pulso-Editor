@@ -81,7 +81,8 @@ pub(super) async fn start_local(
     mode: String,
 ) -> Result<(), String> {
     let prepared = async {
-        let wanted = model.map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).ok_or_else(|| tr("Elige un modelo de Ollama para conversar.").to_string())?;
+        let wanted =
+            model.map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).ok_or_else(|| tr("Elige un modelo de Ollama para conversar.").to_string())?;
         let local = crate::ollama::cloud_model(&crate::ollama::base_url(), &wanted).await?;
         let config = load_config(&app, &cwd).await?;
         Ok::<_, String>((local, config))
@@ -138,7 +139,8 @@ fn spawn_agent(
         broker.allow_all_for(&id),
     ));
     tauri::async_runtime::spawn(async move {
-        let outcome = crate::agent::run(cloud, PathBuf::from(&cwd), id.clone(), history, prompt, images, mode, cancel.clone(), emit, config, resolver, perms).await;
+        let outcome =
+            crate::agent::run(cloud, PathBuf::from(&cwd), id.clone(), history, prompt, images, mode, cancel.clone(), emit, config, resolver, perms).await;
         release_slot(&app.state::<AiState>(), &id);
         let stopped = cancel.load(std::sync::atomic::Ordering::Relaxed);
         let (code, stderr) = match outcome {

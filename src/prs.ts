@@ -6,15 +6,54 @@ import { hasToken, isAuthProblem } from "./github";
 import { connectButton } from "./githubConnect";
 import { agoIso } from "./historyModel";
 import { currentRepo } from "./core/repo";
-import { branchLabel, checkSummary, fileLetter, formatHeadForFork, newPullProblem, PR_STATE_LABEL, prState, suggestTitle, totals, type CheckRun, type MergeMethod, type PullComment, type PullFile, type PullSummary, type ReviewEvent } from "./prModel";
-import { addPullComment, createPull, defaultBranch, getPull, getRepoForkParent, listCheckRuns, listPullComments, listPulls, mergeBase, mergePull, pullFiles, pullSources, reviewPull } from "./pulls";
+import {
+  branchLabel,
+  checkSummary,
+  fileLetter,
+  formatHeadForFork,
+  newPullProblem,
+  PR_STATE_LABEL,
+  prState,
+  suggestTitle,
+  totals,
+  type CheckRun,
+  type MergeMethod,
+  type PullComment,
+  type PullFile,
+  type PullSummary,
+  type ReviewEvent,
+} from "./prModel";
+import {
+  addPullComment,
+  createPull,
+  defaultBranch,
+  getPull,
+  getRepoForkParent,
+  listCheckRuns,
+  listPullComments,
+  listPulls,
+  mergeBase,
+  mergePull,
+  pullFiles,
+  pullSources,
+  reviewPull,
+} from "./pulls";
 import { setStatus, showDialog, showForm } from "./ui";
 import { $, baseName, h } from "./util";
 import { ws } from "./workspace";
 
 /** Pull requests del repositorio de GitHub de la carpeta abierta: lista, detalle con archivos y diferencias, y crear una nueva. */
-interface Repo { owner: string; repo: string }
-interface Detail { pr: PullSummary; files: PullFile[]; base: string; checks: CheckRun[]; comments: PullComment[] }
+interface Repo {
+  owner: string;
+  repo: string;
+}
+interface Detail {
+  pr: PullSummary;
+  files: PullFile[];
+  base: string;
+  checks: CheckRun[];
+  comments: PullComment[];
+}
 
 let repo: Repo | null = null;
 let list: PullSummary[] = [];
@@ -48,8 +87,14 @@ function fail(e: unknown) {
 export async function loadPulls(silent = false) {
   if (detail && silent) return;
   const mine = ++seq;
-  if (!ws.root) { body().replaceChildren(message(tr("Abre una carpeta para ver las pull requests de su repositorio."))); return; }
-  if (!(await resolveRepo())) { body().replaceChildren(message(tr("Esta carpeta no tiene un remoto de GitHub."))); return; }
+  if (!ws.root) {
+    body().replaceChildren(message(tr("Abre una carpeta para ver las pull requests de su repositorio.")));
+    return;
+  }
+  if (!(await resolveRepo())) {
+    body().replaceChildren(message(tr("Esta carpeta no tiene un remoto de GitHub.")));
+    return;
+  }
   if (mine !== seq) return;
   if (!silent) body().replaceChildren(message(tr("Cargando…")));
   try {
@@ -64,12 +109,15 @@ export async function loadPulls(silent = false) {
   }
 }
 
-function dot(state: ReturnType<typeof prState>) { return h("span", `pr-dot ${state}`); }
+function dot(state: ReturnType<typeof prState>) {
+  return h("span", `pr-dot ${state}`);
+}
 
 function paintList() {
   detail = null;
   const nodes: HTMLElement[] = [];
-  if (!list.length) nodes.push(message(filter === "open" ? tr("No hay pull requests abiertas.") : tr("No hay pull requests con este filtro.")));
+  if (!list.length)
+    nodes.push(message(filter === "open" ? tr("No hay pull requests abiertas.") : tr("No hay pull requests con este filtro.")));
   for (const pr of list) {
     const state = prState(pr);
     const row = h("button", "pr-row");
@@ -118,7 +166,11 @@ function paintDetail() {
   back.type = "button";
   back.innerHTML = '<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>';
   back.append(tr("Pull requests"));
-  back.onclick = () => { seq++; paintList(); void loadPulls(true); };
+  back.onclick = () => {
+    seq++;
+    paintList();
+    void loadPulls(true);
+  };
   const head = h("div", "pr-title");
   head.append(dot(state), h("span", "pr-title-text", pr.title));
   const chip = h("span", `pr-chip ${state}`, PR_STATE_LABEL[state]);
@@ -126,7 +178,12 @@ function paintDetail() {
   const meta = h("div", "pr-meta", `#${pr.number} · ${pr.user?.login ?? "?"} · ${agoIso(pr.created_at)}`);
   const branch = h("div", "pr-branch", branchLabel(pr));
   const stats = h("div", "pr-stats");
-  stats.append((files.length === 1 ? tr("1 archivo") : tr("{count} archivos", { count: files.length })) + " · ", h("span", "pr-add", `+${t.additions}`), " ", h("span", "pr-del", `−${t.deletions}`));
+  stats.append(
+    (files.length === 1 ? tr("1 archivo") : tr("{count} archivos", { count: files.length })) + " · ",
+    h("span", "pr-add", `+${t.additions}`),
+    " ",
+    h("span", "pr-del", `−${t.deletions}`),
+  );
   const text = h("div", "pr-body", pr.body?.trim() ? pr.body : tr("Sin descripción."));
 
   // Acciones de PR: Ver en GitHub, Fusionar y Revisar
@@ -159,7 +216,11 @@ function paintDetail() {
         setStatus(tr("Pull request #{number} fusionada", { number: pr.number }), 5000);
         await openDetail(pr);
       } catch (e) {
-        await showDialog({ title: tr("No se pudo fusionar"), message: e instanceof Error ? e.message : String(e), buttons: [{ label: tr("Entendido"), value: "ok" }] });
+        await showDialog({
+          title: tr("No se pudo fusionar"),
+          message: e instanceof Error ? e.message : String(e),
+          buttons: [{ label: tr("Entendido"), value: "ok" }],
+        });
       }
     };
 
@@ -178,7 +239,12 @@ function paintDetail() {
       });
       if (action !== "APPROVE" && action !== "REQUEST_CHANGES" && action !== "COMMENT") return;
       const form = await showForm({
-        title: action === "APPROVE" ? tr("Aprobar #{number}", { number: pr.number }) : action === "REQUEST_CHANGES" ? tr("Pedir cambios en #{number}", { number: pr.number }) : tr("Comentar revisión en #{number}", { number: pr.number }),
+        title:
+          action === "APPROVE"
+            ? tr("Aprobar #{number}", { number: pr.number })
+            : action === "REQUEST_CHANGES"
+              ? tr("Pedir cambios en #{number}", { number: pr.number })
+              : tr("Comentar revisión en #{number}", { number: pr.number }),
         submitLabel: tr("Enviar revisión"),
         fields: [{ key: "body", label: tr("Comentario"), value: "", multiline: true, required: action !== "APPROVE" }],
       });
@@ -188,7 +254,11 @@ function paintDetail() {
         setStatus(tr("Revisión enviada"), 4000);
         await openDetail(pr);
       } catch (e) {
-        await showDialog({ title: tr("No se pudo enviar la revisión"), message: e instanceof Error ? e.message : String(e), buttons: [{ label: tr("Entendido"), value: "ok" }] });
+        await showDialog({
+          title: tr("No se pudo enviar la revisión"),
+          message: e instanceof Error ? e.message : String(e),
+          buttons: [{ label: tr("Entendido"), value: "ok" }],
+        });
       }
     };
     actionBar.append(mergeBtn, reviewBtn);
@@ -200,7 +270,12 @@ function paintDetail() {
     const sum = checkSummary(checks);
     checksWrap.append(h("div", "pr-files-title", tr("Comprobaciones ({passed}/{total})", { passed: sum.passed, total: sum.total })));
     for (const c of checks) {
-      const statusCls = c.status !== "completed" ? "pending" : (c.conclusion === "success" || c.conclusion === "neutral" || c.conclusion === "skipped") ? "ok" : "fail";
+      const statusCls =
+        c.status !== "completed"
+          ? "pending"
+          : c.conclusion === "success" || c.conclusion === "neutral" || c.conclusion === "skipped"
+            ? "ok"
+            : "fail";
       const icon = statusCls === "ok" ? "✓" : statusCls === "fail" ? "✕" : "●";
       const item = h("button", `pr-check-row ${statusCls}`);
       item.type = "button";
@@ -220,13 +295,14 @@ function paintDetail() {
     const counts = h("span", "pr-counts");
     counts.append(h("span", "pr-add", `+${f.additions}`), " ", h("span", "pr-del", `−${f.deletions}`));
     b.append(counts);
-    b.onclick = () => void openDiffRequest({
-      title: baseName(f.filename),
-      sub: `${f.filename} — #${pr.number} ${pr.title}`,
-      path: f.filename,
-      note: `+${f.additions} −${f.deletions}`,
-      load: () => pullSources(repo!.owner, repo!.repo, pr, base, f),
-    });
+    b.onclick = () =>
+      void openDiffRequest({
+        title: baseName(f.filename),
+        sub: `${f.filename} — #${pr.number} ${pr.title}`,
+        path: f.filename,
+        note: `+${f.additions} −${f.deletions}`,
+        load: () => pullSources(repo!.owner, repo!.repo, pr, base, f),
+      });
     fileBox.append(b);
   }
 
@@ -265,16 +341,47 @@ function paintDetail() {
     commentsWrap.append(formBox);
   }
 
-  wrap.append(back, head, chip, meta, branch, stats, text, actionBar, checksWrap, h("div", "pr-files-title", tr("Archivos cambiados")), fileBox, commentsWrap);
+  wrap.append(
+    back,
+    head,
+    chip,
+    meta,
+    branch,
+    stats,
+    text,
+    actionBar,
+    checksWrap,
+    h("div", "pr-files-title", tr("Archivos cambiados")),
+    fileBox,
+    commentsWrap,
+  );
   body().replaceChildren(wrap);
 }
 
 /** «Nueva pull request»: la rama actual contra la rama principal (o la que se indique). */
 export async function newPull(prefill?: { title?: string; body?: string; issueNumber?: number }): Promise<PullSummary | null> {
-  if (!ws.root) { setStatus(tr("Abre una carpeta para crear una pull request")); return null; }
+  if (!ws.root) {
+    setStatus(tr("Abre una carpeta para crear una pull request"));
+    return null;
+  }
   const found = await resolveRepo();
-  if (!found) { await showDialog({ title: tr("Sin repositorio de GitHub"), message: tr("Esta carpeta no tiene un remoto de GitHub."), buttons: [{ label: tr("Entendido"), value: "ok" }] }); return null; }
-  if (!hasToken()) { body().replaceChildren(message(tr("Conecta tu cuenta de GitHub para crear pull requests."), connectButton(() => void loadPulls()))); return null; }
+  if (!found) {
+    await showDialog({
+      title: tr("Sin repositorio de GitHub"),
+      message: tr("Esta carpeta no tiene un remoto de GitHub."),
+      buttons: [{ label: tr("Entendido"), value: "ok" }],
+    });
+    return null;
+  }
+  if (!hasToken()) {
+    body().replaceChildren(
+      message(
+        tr("Conecta tu cuenta de GitHub para crear pull requests."),
+        connectButton(() => void loadPulls()),
+      ),
+    );
+    return null;
+  }
   try {
     const [branches, base, log, forkParent] = await Promise.all([
       invoke<{ name: string; current: boolean; upstream: string | null }[]>("git_branches", { root: ws.root }),
@@ -288,23 +395,42 @@ export async function newPull(prefill?: { title?: string; body?: string; issueNu
     const targetBase = forkParent ? forkParent.defaultBranch : base;
     const headValue = forkParent ? formatHeadForFork(current?.name ?? "", found.owner) : (current?.name ?? "");
     const problem = newPullProblem({ title: "x", head: current?.name ?? "", base: targetBase, hasUpstream: !!current?.upstream });
-    if (problem && !forkParent) { await showDialog({ title: tr("Aún no se puede crear"), message: problem, buttons: [{ label: tr("Entendido"), value: "ok" }] }); return null; }
+    if (problem && !forkParent) {
+      await showDialog({ title: tr("Aún no se puede crear"), message: problem, buttons: [{ label: tr("Entendido"), value: "ok" }] });
+      return null;
+    }
     const values = await showForm({
       title: prefill?.issueNumber ? tr("Nueva pull request para #{number}", { number: prefill.issueNumber }) : tr("Nueva pull request"),
       submitLabel: tr("Crear"),
       fields: [
-        { key: "title", label: tr("Título"), value: prefill?.title ?? suggestTitle(log[0]?.subject ?? null, current!.name), required: true },
+        {
+          key: "title",
+          label: tr("Título"),
+          value: prefill?.title ?? suggestTitle(log[0]?.subject ?? null, current!.name),
+          required: true,
+        },
         { key: "body", label: tr("Descripción (opcional)"), value: prefill?.body ?? "", multiline: true },
         { key: "head", label: tr("Rama de origen (o usuario:rama si es fork)"), value: headValue, required: true },
         { key: "base", label: tr("Rama de destino"), value: targetBase, required: true },
       ],
-      hint: tr("Se propondrán los cambios de «{branch}» hacia la rama de destino. Se crea en GitHub, en {repo}.", { branch: headValue, repo: `${targetOwner}/${targetRepo}` }),
+      hint: tr("Se propondrán los cambios de «{branch}» hacia la rama de destino. Se crea en GitHub, en {repo}.", {
+        branch: headValue,
+        repo: `${targetOwner}/${targetRepo}`,
+      }),
     });
     if (!values) return null;
     const finalProblem = newPullProblem({ title: values.title, head: values.head, base: values.base, hasUpstream: true });
-    if (finalProblem) { await showDialog({ title: tr("Aún no se puede crear"), message: finalProblem, buttons: [{ label: tr("Entendido"), value: "ok" }] }); return null; }
+    if (finalProblem) {
+      await showDialog({ title: tr("Aún no se puede crear"), message: finalProblem, buttons: [{ label: tr("Entendido"), value: "ok" }] });
+      return null;
+    }
     setStatus(tr("Creando la pull request en GitHub…"), 30000);
-    const made = await createPull(targetOwner, targetRepo, { title: values.title, head: values.head, base: values.base, body: values.body });
+    const made = await createPull(targetOwner, targetRepo, {
+      title: values.title,
+      head: values.head,
+      base: values.base,
+      body: values.body,
+    });
     setStatus(tr("Pull request #{number} creada", { number: made.number }));
     filter = "open";
     syncFilter();
@@ -313,13 +439,19 @@ export async function newPull(prefill?: { title?: string; body?: string; issueNu
     return made;
   } catch (e) {
     setStatus(tr("No se pudo crear la pull request"), 4000);
-    await showDialog({ title: tr("No se pudo crear la pull request"), message: e instanceof Error ? e.message : String(e), buttons: [{ label: tr("Entendido"), value: "ok" }] });
+    await showDialog({
+      title: tr("No se pudo crear la pull request"),
+      message: e instanceof Error ? e.message : String(e),
+      buttons: [{ label: tr("Entendido"), value: "ok" }],
+    });
     return null;
   }
 }
 
 function syncFilter() {
-  document.querySelectorAll<HTMLButtonElement>("#prs-filter button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.v === filter)));
+  document
+    .querySelectorAll<HTMLButtonElement>("#prs-filter button")
+    .forEach((b) => b.setAttribute("aria-selected", String(b.dataset.v === filter)));
 }
 
 /** Al cambiar o cerrar carpeta se descartan los PRs y el detalle del repositorio anterior. */
@@ -343,11 +475,23 @@ export function setPrsVisible(v: boolean) {
 }
 
 export function initPrs() {
-  $("prs-refresh").onclick = () => { if (detail) void openDetail(detail.pr); else void loadPulls(); };
+  $("prs-refresh").onclick = () => {
+    if (detail) void openDetail(detail.pr);
+    else void loadPulls();
+  };
   $("prs-new").onclick = () => void newPull();
   document.querySelectorAll<HTMLButtonElement>("#prs-filter button").forEach((b) => {
-    b.onclick = () => { filter = b.dataset.v as typeof filter; syncFilter(); detail = null; void loadPulls(); };
+    b.onclick = () => {
+      filter = b.dataset.v as typeof filter;
+      syncFilter();
+      detail = null;
+      void loadPulls();
+    };
   });
-  window.setInterval(() => { if (ws.root && visible && !detail && document.visibilityState === "visible" && Date.now() - lastLoad > 20_000) void loadPulls(true); }, 5_000);
-  window.addEventListener("focus", () => { if (ws.root && visible && !detail && Date.now() - lastLoad > 10_000) void loadPulls(true); });
+  window.setInterval(() => {
+    if (ws.root && visible && !detail && document.visibilityState === "visible" && Date.now() - lastLoad > 20_000) void loadPulls(true);
+  }, 5_000);
+  window.addEventListener("focus", () => {
+    if (ws.root && visible && !detail && Date.now() - lastLoad > 10_000) void loadPulls(true);
+  });
 }

@@ -23,10 +23,16 @@ export async function openImageLightbox(img: UserImage) {
     backdrop.remove();
   };
   const onEsc = (e: KeyboardEvent) => {
-    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+    }
   };
   closeBtn.onclick = close;
-  backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
+  backdrop.onclick = (e) => {
+    if (e.target === backdrop) close();
+  };
   window.addEventListener("keydown", onEsc, true);
   head.append(closeBtn);
   const pic = document.createElement("img");
@@ -41,6 +47,8 @@ export async function openImageLightbox(img: UserImage) {
     try {
       const full = await invoke<string>("ai_read_image_data_url", { path: img.path });
       if (document.body.contains(pic)) pic.src = full;
-    } catch { /* se queda la miniatura */ }
+    } catch {
+      /* se queda la miniatura */
+    }
   }
 }
