@@ -34,6 +34,6 @@
     "@tauri-apps/cli": "^2",
     "prettier": "^3.10.1",
     "vite": "^6.0.0",
-    "vitest": "^5.1.0"
+    "vitest": "^5.1.1"
   }
 }
