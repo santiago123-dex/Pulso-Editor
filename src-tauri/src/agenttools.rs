@@ -732,6 +732,33 @@ pub fn prune_context(msgs: &mut [crate::llm::Msg], context_tokens: u64) -> usize
     pruned
 }
 
+fn msg_size(m: &crate::llm::Msg) -> usize {
+    use crate::llm::Msg;
+    match m {
+        Msg::User { text, .. } => text.len(),
+        Msg::Assistant { text, calls } => text.len() + calls.iter().map(|c| c.args.to_string().len()).sum::<usize>(),
+        Msg::Tool { content, .. } => content.len(),
+    }
+}
+
+/// Cuántos mensajes se conservan tal cual al resumir la conversación.
+const KEEP_TAIL: usize = 8;
+
+/// Si, tras vaciar los resultados viejos, la conversación sigue por encima del presupuesto de contexto, devuelve hasta qué
+/// mensaje (sin incluirlo) hay que resumir. El corte cae siempre al inicio de un mensaje de la persona o del asistente, nunca en
+/// medio de una llamada a herramienta y sus resultados.
+pub fn compaction_cut(msgs: &[crate::llm::Msg], context_tokens: u64) -> Option<usize> {
+    use crate::llm::Msg;
+    if context_tokens == 0 || msgs.len() < KEEP_TAIL + 3 {
+        return None;
+    }
+    let budget = (context_tokens as usize).saturating_mul(4) * 6 / 10;
+    if msgs.iter().map(msg_size).sum::<usize>() <= budget {
+        return None;
+    }
+    (2..=msgs.len() - KEEP_TAIL).rev().find(|&k| !matches!(msgs[k], Msg::Tool { .. }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1008,5 +1035,24 @@ mod tests {
         assert!(run(&mut s, "memory_save", json!({ "note": "  " })).is_error);
         assert_eq!(s.memory.as_ref().unwrap().load(), vec!["Usa pnpm".to_string()]);
         let _ = std::fs::remove_file(file);
+    }
+
+    #[test]
+    fn el_resumen_corta_en_un_limite_seguro_y_solo_si_hace_falta() {
+        let grande = "x".repeat(4_000);
+        let mut m: Vec<Msg> = vec![Msg::User { text: "pide algo".into(), images: vec![] }];
+        for i in 0..12 {
+            m.push(Msg::Assistant { text: grande.clone(), calls: vec![Call { id: format!("c{i}"), name: "read_file".into(), args: json!({ "path": "a" }) }] });
+            m.push(Msg::Tool { id: format!("c{i}"), name: "read_file".into(), content: grande.clone() });
+        }
+        // Cabe: no se resume.
+        assert_eq!(compaction_cut(&m, 1_000_000), None);
+        assert_eq!(compaction_cut(&m, 0), None);
+        // No cabe: el corte deja al menos 8 mensajes y no cae sobre un resultado de herramienta.
+        let cut = compaction_cut(&m, 4_000).expect("debe resumir");
+        assert!(cut >= 2 && m.len() - cut >= 8);
+        assert!(!matches!(m[cut], Msg::Tool { .. }), "no se separa una llamada de su resultado");
+        // Con pocos mensajes no hay nada que resumir.
+        assert_eq!(compaction_cut(&m[..6], 100), None);
     }
 }

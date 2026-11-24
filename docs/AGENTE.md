@@ -80,7 +80,7 @@ Hecho en `src-tauri/src/agenttools.rs`. Los permisos siguen los tres modos que e
 - [x] **Memoria entre sesiones** (`src-tauri/src/agentmem.rs`). La herramienta `memory_save` guarda notas cortas del proyecto (hasta 40 de 400 caracteres; al llegar al límite se descartan las más viejas) y se le vuelven a dar al modelo en las conversaciones siguientes, como apuntes que no mandan sobre las reglas de seguridad. Se guardan **fuera del proyecto** (`agent-memory.json` en la carpeta de datos), solo las usa el agente principal y solo en proyectos de confianza. «IA: Memoria del agente en este proyecto…» las muestra y deja borrarlas.
 - [ ] **Escribir reglas de denegar desde la interfaz:** hoy se editan en el archivo `agent-permissions.json` de la carpeta de datos.
 - [ ] **Aprobar también las ediciones directas** del modo Agente (hoy se aplican sin preguntar; se pueden deshacer con Git). Quien quiera revisarlas antes puede usar el modo «Puede editar», que las muestra como diferencias.
-- [ ] **Resumir la conversación** al llegar al límite, en vez de solo podar resultados.
+- [x] **Resumir la conversación** al llegar al límite. Primero se vacían los resultados de herramientas más viejos; si aun así pasa del 60 % del contexto del modelo, el modelo resume lo anterior en un solo mensaje y se conservan los 8 últimos. El corte nunca separa una llamada a herramienta de su resultado, el resumen se cobra como el resto de la respuesta y el panel avisa («La conversación era larga: resumí lo anterior para seguir»). Si el resumen falla, la conversación sigue sin resumir.
 - [ ] **Modo de plan** propiamente dicho. «Solo leer» ya impide tocar nada, pero no guarda el plan para aprobarlo.
 
 ### Fase 3: instrucciones, skills, subagentes y comandos
