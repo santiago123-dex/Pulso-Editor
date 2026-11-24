@@ -78,6 +78,7 @@ function createGroup(at: number): Group {
 
   const editor = monaco.editor.create(code, {
     automaticLayout: true,
+    glyphMargin: true,
     padding: { top: 8 },
     renderLineHighlight: "all",
     smoothScrolling: true,

@@ -377,6 +377,25 @@ const EN: &[(&str, &str)] = &[
     ("No se encontró gopls. Instálalo con `go install golang.org/x/tools/gopls@latest`.", "gopls wasn't found. Install it with `go install golang.org/x/tools/gopls@latest`."),
     ("No se encontró clangd. Instala LLVM/clangd para activar la inteligencia de C y C++.", "clangd wasn't found. Install LLVM/clangd to enable C and C++ intelligence."),
     ("Servidor de lenguaje no soportado", "Unsupported language server"),
+    ("Error al leer launch.json: {e}", "Failed to read launch.json: {e}"),
+    ("launch.json no contiene una lista «configurations».", "launch.json does not contain a \"configurations\" array."),
+    ("Python: Archivo actual", "Python: Current file"),
+    ("No se encontró Python en el sistema. Instala Python y `pip install debugpy` para depurar.", "Python wasn't found on the system. Install Python and `pip install debugpy` to debug."),
+    ("Tipo de depurador «{kind}» no soportado todavía. Usa «python» (debugpy) o indica «adapterCommand» en .pulso/launch.json.", "Debugger type \"{kind}\" is not supported yet. Use \"python\" (debugpy) or set \"adapterCommand\" in .pulso/launch.json."),
+    ("No se puede confiar en esta carpeta para depurar porque {why}.", "Cannot trust this folder for debugging because {why}."),
+    ("No se pudo localizar el archivo de carpetas de confianza.", "Could not locate the trusted folders file."),
+    ("Mensaje DAP sin cabecera Content-Length.", "DAP message missing Content-Length header."),
+    ("Mensaje DAP demasiado grande.", "DAP message is too large."),
+    ("La sesión de depuración terminó inesperadamente.", "The debug session ended unexpectedly."),
+    ("El depurador no respondió a «{command}» a tiempo.", "The debugger did not respond to \"{command}\" in time."),
+    ("No hay ninguna sesión de depuración activa.", "There is no active debug session."),
+    ("No se pudo iniciar el adaptador de depuración ({program}): {e}", "Could not start the debug adapter ({program}): {e}"),
+    ("El adaptador de depuración no abrió entrada estándar.", "The debug adapter did not open standard input."),
+    ("El adaptador de depuración no abrió salida estándar.", "The debug adapter did not open standard output."),
+    ("Abre una carpeta antes de usar el depurador.", "Open a folder before using the debugger."),
+    ("Esta carpeta no es de confianza. Confía en el proyecto antes de depurar código.", "This folder is not trusted. Trust the project before debugging code."),
+    ("Indica un archivo de programa para depurar o abre un archivo en el editor.", "Specify a program file to debug or open a file in the editor."),
+    ("El directorio de trabajo de depuración no es una carpeta válida.", "The debug working directory is not a valid folder."),
 ];
 
 #[cfg(test)]
@@ -404,6 +423,8 @@ mod tests {
         ("termui.rs", include_str!("termui.rs")),
         ("updates.rs", include_str!("updates.rs")),
         ("bin/pulso.rs", include_str!("bin/pulso.rs")),
+        ("dap.rs", include_str!("dap.rs")),
+        ("dap_config.rs", include_str!("dap_config.rs")),
     ];
 
     /// Lee el literal de cadena que empieza en `s` (justo después de la comilla de apertura).
