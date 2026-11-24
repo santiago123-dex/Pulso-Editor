@@ -104,6 +104,9 @@
           <svg viewBox="0 0 24 24"><path d="M8 7a4 4 0 0 1 8 0v1h-8V7z"/><rect x="7" y="8" width="10" height="10" rx="5"/><path d="M4 11h3M17 11h3M4 15h3M17 15h3M5.5 7.5l2 1.5M18.5 7.5l-2 1.5"/></svg>
           <span id="debug-badge" class="act-badge" hidden></span>
         </button>
+        <button class="act" data-view="extensions" title="Extensiones" aria-label="Extensiones">
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><path d="M17 13v8M13 17h8"/></svg>
+        </button>
         <div class="spacer"></div>
         <button class="act" data-view="settings" title="Configuración (Ctrl+,)" aria-label="Configuración">
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
@@ -264,6 +267,22 @@
           <div class="dbg-eval-row">
             <input id="dbg-eval-input" type="text" placeholder="Evaluar expresión en consola…" aria-label="Evaluar expresión" spellcheck="false" autocomplete="off" />
           </div>
+        </section>
+
+        <section id="view-extensions" class="view" hidden>
+          <header>
+            <span class="title">Extensiones</span>
+            <button class="icon-btn" id="ext-install" title="Instalar desde carpeta…" aria-label="Instalar extensión">
+              <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            </button>
+            <button class="icon-btn" id="ext-refresh" title="Actualizar" aria-label="Actualizar extensiones">
+              <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg>
+            </button>
+          </header>
+          <div class="ext-search">
+            <input id="ext-search" type="text" placeholder="Filtrar extensiones…" aria-label="Filtrar extensiones" spellcheck="false" autocomplete="off" />
+          </div>
+          <div id="ext-list"></div>
         </section>
 
         <section id="view-ai" class="view ai-docked" hidden></section>

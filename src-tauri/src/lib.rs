@@ -41,6 +41,7 @@ mod git_hunks;
 mod inline_ai;
 mod dap;
 mod dap_config;
+mod extensions;
 
 /// Los procesos auxiliares no deben abrir ventanas de consola en Windows.
 fn background_command(program: &str) -> Command {
@@ -1199,6 +1200,7 @@ pub fn run() {
         .manage(catalog::CatalogState::default())
         .manage(std::sync::Arc::new(agentperms::Broker::default()))
         .manage(dap::DapState::default())
+        .manage(extensions::ExtensionState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .on_window_event(|window, event| {
@@ -1326,7 +1328,12 @@ pub fn run() {
             dap::dap_stack_trace,
             dap::dap_scopes,
             dap::dap_variables,
-            dap::dap_evaluate
+            dap::dap_evaluate,
+            extensions::ext_list,
+            extensions::ext_set_enabled,
+            extensions::ext_uninstall,
+            extensions::ext_pick_for_install,
+            extensions::ext_confirm_install
         ])
         .build(app_context())
         .expect("error al iniciar Pulso Editor")

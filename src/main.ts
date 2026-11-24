@@ -36,6 +36,7 @@ import { initIssues, loadIssues } from "./issues";
 import { initProblems, resetProjectProblems, runProjectProblemsCheck, setProblemsVisible } from "./problems";
 import { initTestsView, resetTestsView, runAllTests, setTestsVisible } from "./testsView";
 import { initDebug, setDebugVisible, startOrContinueDebug, stepIntoDebug, stepOutDebug, stepOverDebug, stopDebug, toggleCurrentBreakpoint } from "./debugView";
+import { initExtensions, installExtensionFromFolder, setExtensionsVisible } from "./extView";
 import { initConflictHelper } from "./conflictHelper";
 import { initInlineCompletions, resetInlineAiBackoff } from "./inlineCompletion";
 import { pickScript } from "./scripts";
@@ -101,21 +102,22 @@ const inTauri = "__TAURI_INTERNALS__" in window;
 hooks.focusEditor = () => focusedEditor()?.focus();
 
 // ---------- Vistas de la barra lateral ----------
-type View = "explorer" | "search" | "git" | "issues" | "problems" | "tests" | "debug" | "chat" | "prs" | "ai";
+type View = "explorer" | "search" | "git" | "issues" | "problems" | "tests" | "debug" | "extensions" | "chat" | "prs" | "ai";
 let currentView: View = "explorer";
 
 function showView(view: View | "settings") {
   if (view === "settings") { toggleSettings(); return; }
   closeSettings();
   const app = $("app");
-  if (view === currentView && !app.classList.contains("no-sidebar")) { app.classList.add("no-sidebar"); setProblemsVisible(false); setTestsVisible(false); setDebugVisible(false); setChatVisible(false); setPrsVisible(false); setAiVisible(false); return; }
+  if (view === currentView && !app.classList.contains("no-sidebar")) { app.classList.add("no-sidebar"); setProblemsVisible(false); setTestsVisible(false); setDebugVisible(false); setExtensionsVisible(false); setChatVisible(false); setPrsVisible(false); setAiVisible(false); return; }
   app.classList.remove("no-sidebar");
   currentView = view;
   document.querySelectorAll<HTMLElement>(".act[data-view]").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
-  for (const v of ["explorer", "search", "git", "issues", "problems", "tests", "debug", "chat", "prs", "ai"] as View[]) $(`view-${v}`).hidden = v !== view;
+  for (const v of ["explorer", "search", "git", "issues", "problems", "tests", "debug", "extensions", "chat", "prs", "ai"] as View[]) $(`view-${v}`).hidden = v !== view;
   setProblemsVisible(view === "problems");
   setTestsVisible(view === "tests");
   setDebugVisible(view === "debug");
+  setExtensionsVisible(view === "extensions");
   setChatVisible(view === "chat");
   setPrsVisible(view === "prs");
   setAiVisible(view === "ai");
@@ -616,6 +618,8 @@ register(
   { id: "debug.stepInto", label: t("Depurador: Entrar en función"), key: "Shift+F10", keywords: "debug step into entrar", run: () => void stepIntoDebug() },
   { id: "debug.stepOut", label: t("Depurador: Salir de función"), key: "Shift+F11", keywords: "debug step out salir", run: () => void stepOutDebug() },
   { id: "debug.toggleBreakpoint", label: t("Depurador: Alternar punto de interrupción"), key: "F9", keywords: "debug breakpoint punto interrupcion", run: toggleCurrentBreakpoint },
+  { id: "view.extensions", label: t("Ver: Extensiones"), keywords: "extensions plugins complementos temas", run: () => showView("extensions") },
+  { id: "extensions.install", label: t("Extensiones: Instalar desde carpeta…"), keywords: "extensions install instalar manifest", run: () => { showView("extensions"); void installExtensionFromFolder(); } },
 );
 
 initKeys();
@@ -828,6 +832,7 @@ bus.on("issue-workflow-start", () => showView("ai"));
 initProblems(() => showView("problems"));
 initTestsView();
 initDebug((path, line) => openFile(path, line ? { line } : undefined));
+initExtensions();
 initConflictHelper();
 initInlineCompletions();
 initSettingsPage(() => void loadIssues());
