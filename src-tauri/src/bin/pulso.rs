@@ -8,9 +8,10 @@ use pulso_editor_lib::aichat::{
 use pulso_editor_lib::i18n::{tr, trf};
 use pulso_editor_lib::termchat::{normalize_provider, route, Action, Ev, Parser, Settings, HELP};
 use pulso_editor_lib::termui::{
-    add_trusted, broad_dir_reason, git_branch, header_banner, is_trusted, paint, provider_color,
-    provider_label, render_line, rule, slash_matches, tool_badge, trust_card, trusted_list,
-    AMBER, BG_SEL, BRIGHT, CYAN, DIM, INDIGO, MINT, ROSE, RULE, SLATE, VIOLET,
+    add_trusted, broad_dir_reason, clip_text, git_branch, header_banner, is_trusted, paint,
+    provider_color, provider_label, render_line, rule, slash_matches, tool_badge, trust_card,
+    trusted_list, AMBER, BG_SEL, BRIGHT, CYAN, DIM, INDIGO, LAVENDER, MINT, ROSE, RULE, SLATE,
+    VIOLET,
 };
 use std::collections::HashMap;
 use std::io::{BufRead, IsTerminal, Read, Write};
@@ -596,99 +597,109 @@ fn draw_composer(
     let color = chat.color;
 
     if *drawn {
-        // El cursor descansa siempre en la fila 2 (línea del prompt).
-        let _ = write!(out, "\x1b[?25l\x1b[2A\r\x1b[0J");
+        // El cursor descansa siempre en la fila 1 (línea del prompt).
+        let _ = write!(out, "\x1b[?25l\x1b[1A\r\x1b[0J");
     } else {
         let _ = write!(out, "\x1b[?25l\n");
     }
 
-    // Fila 0: telemetría alineada a la derecha (como Claude Code / Codex).
-    let effort_lbl = chat.settings.effort.as_deref().unwrap_or("normal");
-    let p_lbl = provider_label(&chat.settings.provider);
-    let p_col = provider_color(&chat.settings.provider);
-    let model_part = chat.settings.model.as_deref().map(|m| format!("{m} · ")).unwrap_or_default();
-    let meta_plain = format!("◐ {model_part}{effort_lbl} · /effort  ·  ✦ {p_lbl} · /provider");
-    let meta_styled = format!(
-        "{} {}  {}  {} {}",
-        paint(color, DIM, &format!("◐ {model_part}{effort_lbl}")),
-        paint(color, RULE, "· /effort"),
-        paint(color, RULE, "·"),
-        paint(color, p_col, &format!("✦ {p_lbl}")),
-        paint(color, RULE, "· /provider"),
-    );
-    let pad0 = width.saturating_sub(meta_plain.chars().count());
-    let _ = writeln!(out, "{}{}", " ".repeat(pad0), meta_styled);
-
-    // Fila 1: separador superior.
+    // Fila 0: separador superior en grafito neutro.
     let _ = writeln!(out, "{}", rule(width, color));
 
-    // Fila 2: caja de entrada con ventana deslizante horizontal (nunca desborda de línea).
-    let prompt_col = if chat.settings.edit { AMBER } else { CYAN };
+    // Fila 1: caja de entrada con ventana deslizante horizontal (nunca desborda de línea).
+    let prompt_col = if chat.settings.edit { AMBER } else { VIOLET };
     let prompt_sym = paint(color, &format!("1;{prompt_col}"), "❯");
-    let max_vis = width.saturating_sub(4).max(16);
+    let max_vis = width.saturating_sub(5).max(12);
     let chars: Vec<char> = buf.chars().collect();
     let (visible_text, cursor_col) = if chars.is_empty() {
         let ph = tr("Escribe una instrucción o \"/\" para comandos…");
-        let clipped: String = ph.chars().take(max_vis).collect();
-        (paint(color, DIM, &clipped), 2usize)
+        let clipped = clip_text(ph, max_vis);
+        (paint(color, DIM, &clipped), 4usize)
     } else {
         let start = cursor_chars.saturating_sub(max_vis.saturating_sub(2));
         let end = (start + max_vis).min(chars.len());
         let slice: String = chars[start..end].iter().collect();
-        let col = 2 + (cursor_chars - start);
+        let col = 4 + (cursor_chars - start);
         (paint(color, BRIGHT, &slice), col)
     };
-    let _ = writeln!(out, "{prompt_sym} {visible_text}");
+    let _ = writeln!(out, "  {prompt_sym} {visible_text}");
 
-    // Fila 3: separador inferior.
+    // Fila 2: separador inferior.
     let _ = writeln!(out, "{}", rule(width, color));
 
-    // Fila 4: barra de modo y atajos.
-    let (mode_plain, mode_styled) = if chat.settings.edit {
-        (
-            tr("  ▸▸ edición activa (Shift+Tab solo lectura)"),
-            format!("  {} {}", paint(color, AMBER, tr("▸▸ edición activa")), paint(color, DIM, tr("(Shift+Tab solo lectura)"))),
-        )
-    } else {
-        (
-            "  ▸▸ solo lectura (Shift+Tab editar)",
-            format!("  {} {}", paint(color, CYAN, "▸▸ solo lectura"), paint(color, DIM, "(Shift+Tab editar)")),
-        )
-    };
-    let (right_plain, right_styled) = if ctrl_c_armed {
-        (tr("Pulsa Ctrl+C de nuevo para salir"), paint(color, AMBER, tr("Pulsa Ctrl+C de nuevo para salir")))
-    } else {
-        (tr("/help · /model · Ctrl+C salir"), paint(color, DIM, tr("/help · /model · Ctrl+C salir")))
-    };
-    let gap = width.saturating_sub(mode_plain.chars().count() + right_plain.chars().count());
-    let _ = write!(out, "{mode_styled}{}{right_styled}", if gap > 1 { " ".repeat(gap) } else { "  ".into() });
+    // Fila 3: barra de estado compacta y sin duplicar información (siempre cabe en 1 línea).
+    let p_lbl = provider_label(&chat.settings.provider);
+    let p_col = provider_color(&chat.settings.provider);
+    let model_suffix = chat
+        .settings
+        .model
+        .as_deref()
+        .map(|m| format!(" · {m}"))
+        .unwrap_or_default();
+    let mode_tag = if chat.settings.edit { "⚡ edición" } else { "● solo lectura" };
+    let mode_col = if chat.settings.edit { AMBER } else { CYAN };
 
-    // Filas 5..: menú desplegable de comandos `/` si aplica.
+    let left_plain_full = format!("  {mode_tag} · ✦ {p_lbl}{model_suffix}");
+    let left_plain = clip_text(&left_plain_full, width.saturating_sub(2));
+    let left_styled = if left_plain == left_plain_full {
+        format!(
+            "  {} {} {}{}",
+            paint(color, mode_col, mode_tag),
+            paint(color, RULE, "·"),
+            paint(color, p_col, &format!("✦ {p_lbl}")),
+            paint(color, DIM, &model_suffix),
+        )
+    } else {
+        paint(color, mode_col, &left_plain)
+    };
+
+    let (right_plain, right_styled) = if ctrl_c_armed {
+        let t = tr("Pulsa Ctrl+C de nuevo para salir");
+        (t.to_string(), paint(color, AMBER, t))
+    } else {
+        let t = "/model · /provider · /doctor · /help  ";
+        (t.to_string(), paint(color, DIM, t))
+    };
+
+    let left_len = left_plain.chars().count();
+    let right_len = right_plain.chars().count();
+    if left_len + right_len + 2 <= width {
+        let gap = width - left_len - right_len;
+        let _ = write!(out, "{left_styled}{}{right_styled}", " ".repeat(gap));
+    } else {
+        let _ = write!(out, "{left_styled}");
+    }
+
+    // Filas 4..: menú desplegable de comandos `/` si aplica (estrictamente recortado a `width`).
     let matches = slash_matches(buf);
     let shown_menu = matches.len().min(6);
     for (idx, cmd) in matches.iter().take(shown_menu).enumerate() {
         let selected = idx == menu_sel.min(shown_menu.saturating_sub(1));
         let _ = write!(out, "\n");
-        let text = format!("  {:<11} {}", cmd.name, tr(cmd.desc));
-        let clipped: String = text.chars().take(width.saturating_sub(2)).collect();
+        let desc = tr(cmd.desc);
+        let max_line = width.saturating_sub(4).max(12);
+        let full_text = format!("{:<11} {desc}", cmd.name);
+        let clipped = clip_text(&full_text, max_line);
         if selected {
-            let pad = width.saturating_sub(clipped.chars().count() + 2);
+            let pad = width.saturating_sub(clipped.chars().count() + 4);
             let _ = write!(
                 out,
-                "{}",
-                paint(color, &format!("{BG_SEL};{CYAN}"), &format!("▸ {clipped}{}", " ".repeat(pad)))
+                "  {}",
+                paint(color, &format!("{BG_SEL};{LAVENDER}"), &format!("❯ {clipped}{}", " ".repeat(pad)))
             );
         } else {
+            let desc_max = width.saturating_sub(16);
+            let desc_clip = clip_text(desc, desc_max);
             let _ = write!(
                 out,
-                "  {} {}",
+                "    {} {}",
                 paint(color, SLATE, &format!("{:<11}", cmd.name)),
-                paint(color, DIM, tr(cmd.desc))
+                paint(color, DIM, &desc_clip)
             );
         }
     }
 
-    // Volver el cursor a la fila 2 (línea de entrada), columna `cursor_col`.
+    // Volver el cursor a la fila 1 (línea de entrada), columna `cursor_col`.
     let lines_below_input = 2 + shown_menu;
     let _ = write!(out, "\x1b[{lines_below_input}A\r\x1b[{cursor_col}C\x1b[?25h");
     let _ = out.flush();
@@ -698,13 +709,13 @@ fn draw_composer(
 fn clear_composer(drawn: &mut bool) {
     if *drawn {
         let mut out = std::io::stdout();
-        let _ = write!(out, "\x1b[2A\r\x1b[0J\x1b[?25h");
+        let _ = write!(out, "\x1b[1A\r\x1b[0J\x1b[?25h");
         let _ = out.flush();
         *drawn = false;
     }
 }
 
-fn read_composer(chat: &mut Chat, history: &[String]) -> PromptEvent {
+fn read_composer(chat: &mut Chat, history: &[String], fresh_screen: bool) -> PromptEvent {
     let Some(raw) = RawConsole::enter() else {
         // Modo no interactivo (pipe/redirección).
         print!("\n{} ", paint(chat.color, &format!("1;{CYAN}"), "❯"));
@@ -898,6 +909,15 @@ fn read_composer(chat: &mut Chat, history: &[String]) -> PromptEvent {
                 cursor += 1;
                 menu_sel = 0;
                 ctrl_c_armed = false;
+            }
+            Key::Resize => {
+                if fresh_screen && chat.color {
+                    print!("\x1b[2J\x1b[H");
+                    print_header(chat);
+                    drawn = false;
+                } else {
+                    clear_composer(&mut drawn);
+                }
             }
             Key::None => {}
         }
@@ -1125,11 +1145,12 @@ fn repl(settings: Settings) {
     let mut history: Vec<String> = Vec::new();
     let mut model_cache: HashMap<String, Vec<AiModelInfo>> = HashMap::new();
     let mut provider_cache: Option<Vec<(&'static str, AiTool)>> = None;
+    let mut fresh_screen = true;
 
     loop {
-        let line = match read_composer(&mut chat, &history) {
+        let line = match read_composer(&mut chat, &history, fresh_screen) {
             PromptEvent::Exit => {
-                println!("\n  {} {}\n", paint(color, CYAN, "◈"), paint(color, DIM, tr("Sesión de Pulso CLI cerrada.")));
+                println!("\n  {} {}\n", paint(color, VIOLET, "◈"), paint(color, DIM, tr("Sesión de Pulso CLI cerrada.")));
                 break;
             }
             PromptEvent::ClearScreen => {
@@ -1137,6 +1158,7 @@ fn repl(settings: Settings) {
                     print!("\x1b[2J\x1b[H");
                 }
                 print_header(&chat);
+                fresh_screen = true;
                 continue;
             }
             PromptEvent::Submit(s) => s,
@@ -1145,6 +1167,7 @@ fn repl(settings: Settings) {
         if line.is_empty() {
             continue;
         }
+        fresh_screen = false;
         if history.last().map(|s| s.as_str()) != Some(line.as_str()) {
             history.push(line.clone());
         }
@@ -1164,6 +1187,7 @@ fn repl(settings: Settings) {
                         print!("\x1b[2J\x1b[H");
                     }
                     print_header(&chat);
+                    fresh_screen = true;
                 }
                 "help" | "ayuda" => {
                     println!();
@@ -1382,6 +1406,7 @@ enum Key {
     CtrlL,
     CtrlU,
     CtrlW,
+    Resize,
     None,
 }
 
@@ -1398,10 +1423,12 @@ mod console {
     const ENABLE_PROCESSED_INPUT: u32 = 0x0001;
     const ENABLE_LINE_INPUT: u32 = 0x0002;
     const ENABLE_ECHO_INPUT: u32 = 0x0004;
+    const ENABLE_WINDOW_INPUT: u32 = 0x0008;
     const ENABLE_VIRTUAL_TERMINAL_INPUT: u32 = 0x0200;
     const ENABLE_VIRTUAL_TERMINAL_PROCESSING: u32 = 0x0004;
 
     const KEY_EVENT: u16 = 0x0001;
+    const WINDOW_BUFFER_SIZE_EVENT: u16 = 0x0004;
     const RIGHT_ALT_PRESSED: u32 = 0x0001;
     const LEFT_ALT_PRESSED: u32 = 0x0002;
     const RIGHT_CTRL_PRESSED: u32 = 0x0004;
@@ -1479,8 +1506,8 @@ mod console {
             let mut info: ConsoleScreenBufferInfo = std::mem::zeroed();
             if !h.is_null() && GetConsoleScreenBufferInfo(h, &mut info) != 0 {
                 let w = (info.sr_window.right - info.sr_window.left + 1) as isize;
-                if w >= 40 {
-                    return (w as usize).min(180);
+                if w > 0 {
+                    return (w as usize).max(24);
                 }
             }
         }
@@ -1506,7 +1533,9 @@ mod console {
                 if GetConsoleMode(handle, &mut orig_mode) == 0 {
                     return None;
                 }
-                let raw = orig_mode & !(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT | ENABLE_VIRTUAL_TERMINAL_INPUT);
+                let raw = (orig_mode
+                    & !(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT | ENABLE_VIRTUAL_TERMINAL_INPUT))
+                    | ENABLE_WINDOW_INPUT;
                 if SetConsoleMode(handle, raw) == 0 {
                     return None;
                 }
@@ -1521,6 +1550,32 @@ mod console {
                 let ok = unsafe { ReadConsoleInputW(self.handle, &mut rec, 1, &mut read) };
                 if ok == 0 || read == 0 {
                     return Key::None;
+                }
+                if rec.event_type == WINDOW_BUFFER_SIZE_EVENT {
+                    // Agrupa múltiples eventos consecutivos de redimensionado para evitar parpadeo.
+                    let mut pending = 0u32;
+                    unsafe {
+                        let _ = GetNumberOfConsoleInputEvents(self.handle, &mut pending);
+                    }
+                    while pending > 0 {
+                        let mut next: InputRecord = unsafe { std::mem::zeroed() };
+                        let mut nread = 0u32;
+                        let ok2 = unsafe { ReadConsoleInputW(self.handle, &mut next, 1, &mut nread) };
+                        if ok2 == 0 || nread == 0 {
+                            break;
+                        }
+                        if next.event_type == KEY_EVENT && next.key.b_key_down != 0 {
+                            let k = decode_key(next.key);
+                            if k != Key::None {
+                                return k;
+                            }
+                        }
+                        if next.event_type != WINDOW_BUFFER_SIZE_EVENT {
+                            break;
+                        }
+                        pending = pending.saturating_sub(1);
+                    }
+                    return Key::Resize;
                 }
                 if rec.event_type != KEY_EVENT || rec.key.b_key_down == 0 {
                     continue;

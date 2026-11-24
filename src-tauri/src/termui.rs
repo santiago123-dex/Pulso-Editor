@@ -3,19 +3,21 @@
 use crate::i18n::{tr};
 use std::path::Path;
 
-pub const ACCENT: &str = "38;2;56;189;248";
-pub const CYAN: &str = "38;2;56;189;248";
-pub const INDIGO: &str = "38;2;99;102;241";
+// Paleta oficial de Pulso (grafito neutro + púrpura de marca #7c3aed/#a78bfa + acento azul #5b9cf5).
+pub const ACCENT: &str = "38;2;167;139;250";
+pub const CYAN: &str = "38;2;91;156;245";
+pub const INDIGO: &str = "38;2;124;58;237";
 pub const VIOLET: &str = "38;2;167;139;250";
+pub const LAVENDER: &str = "38;2;196;181;253";
 pub const MINT: &str = "38;2;52;211;153";
-pub const AMBER: &str = "38;2;251;191;36";
+pub const AMBER: &str = "38;2;233;188;67";
 pub const CORAL: &str = "38;2;249;115;22";
 pub const ROSE: &str = "38;2;244;63;94";
-pub const BRIGHT: &str = "1;38;2;248;250;252";
-pub const SLATE: &str = "38;2;148;163;184";
-pub const DIM: &str = "38;2;100;116;139";
-pub const RULE: &str = "38;2;51;65;85";
-pub const BG_SEL: &str = "48;2;30;41;59";
+pub const BRIGHT: &str = "1;38;2;244;244;245";
+pub const SLATE: &str = "38;2;212;212;216";
+pub const DIM: &str = "38;2;138;138;146";
+pub const RULE: &str = "38;2;58;58;66";
+pub const BG_SEL: &str = "48;2;43;29;74";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SlashCmd {
@@ -141,7 +143,23 @@ pub fn tool_badge(tool: &str, color: bool) -> String {
     format!("  {} {} {}", paint(color, RULE, "├─"), paint(color, tone, icon), paint(color, SLATE, tool))
 }
 
-/// Cabecera futurista de Pulso CLI: emblema de pulso en gradiente + telemetría de sesión.
+pub fn clip_text(text: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+    let count = text.chars().count();
+    if count <= max_chars {
+        return text.to_string();
+    }
+    if max_chars == 1 {
+        return "…".into();
+    }
+    let mut s: String = text.chars().take(max_chars - 1).collect();
+    s.push('…');
+    s
+}
+
+/// Cabecera oficial de Pulso CLI: wordmark PULSO + tarjeta compacta y responsiva al ancho de la terminal.
 #[allow(clippy::too_many_arguments)]
 pub fn header_banner(
     version: &str,
@@ -155,58 +173,142 @@ pub fn header_banner(
     width: usize,
     color: bool,
 ) -> String {
+    let w = width.max(36);
     let p_label = provider_label(provider);
     let p_col = provider_color(provider);
-    let model_txt = model.unwrap_or("modelo predeterminado");
+    let model_txt = model.unwrap_or("predeterminado");
     let effort_txt = effort.unwrap_or("normal");
-    let mode_badge = if edit {
-        paint(color, AMBER, tr("⚡ edición activa"))
-    } else {
-        paint(color, CYAN, "● solo lectura")
-    };
     let path_txt = short_path(dir, home);
-    let branch_txt = branch
-        .map(|b| format!("  {}  {}", paint(color, RULE, "·"), paint(color, VIOLET, &format!("git:{b}"))))
-        .unwrap_or_default();
 
-    // Emblema de pulso cardíaco con bloques Unicode estándar (100% compatible con todas las fuentes).
-    let logo1 = format!("{}{}{}", paint(color, CYAN, "  ▄▄"), paint(color, INDIGO, "  █▄  "), paint(color, VIOLET, "  "));
-    let logo2 = format!("{}{}{}", paint(color, CYAN, "▀▀█▄"), paint(color, INDIGO, "▄█▀█▄"), paint(color, VIOLET, "▄ "));
-    let logo3 = format!("{}{}{}", paint(color, CYAN, "   ▀"), paint(color, INDIGO, "▀   ▀▀"), paint(color, VIOLET, "  "));
+    // Modo compacto para terminales estrechas (< 64 cols) para que nunca se rompa el diseño.
+    if w < 64 {
+        let mode_short = if edit { paint(color, AMBER, "⚡ edit") } else { paint(color, CYAN, "● read") };
+        let path_clip = clip_text(&path_txt, w.saturating_sub(6));
+        let top = format!(
+            "  {} {} · {} · {}",
+            paint(color, &format!("1;{VIOLET}"), "◈ PULSO"),
+            paint(color, DIM, &format!("v{version}")),
+            paint(color, p_col, p_label),
+            mode_short,
+        );
+        let sub = format!("  {}", paint(color, DIM, &path_clip));
+        return format!("\n{top}\n{sub}\n");
+    }
 
-    let info1 = format!(
-        "{} {}  {}  {}",
-        paint(color, BRIGHT, "Pulso CLI"),
+    // Wordmark PULSO con gradiente púrpura → lavanda → azul Pulso.
+    let w1 = format!(
+        "  {} {} {} {} {}",
+        paint(color, INDIGO, "█▀█"),
+        paint(color, INDIGO, "█ █"),
+        paint(color, VIOLET, "█  "),
+        paint(color, LAVENDER, "█▀▀"),
+        paint(color, CYAN, "█▀█"),
+    );
+    let w2 = format!(
+        "  {} {} {} {} {}   {} {}",
+        paint(color, INDIGO, "█▀▀"),
+        paint(color, INDIGO, "█▄█"),
+        paint(color, VIOLET, "█▄▄"),
+        paint(color, LAVENDER, "▄▄█"),
+        paint(color, CYAN, "█▄█"),
+        paint(color, BRIGHT, "CLI"),
         paint(color, DIM, &format!("v{version}")),
-        paint(color, RULE, "·"),
-        paint(color, &format!("1;{p_col}"), &format!("✦ {p_label}")),
-    );
-    let info2 = format!(
-        "{} {} {}  {}  {}",
-        paint(color, SLATE, model_txt),
-        paint(color, RULE, "·"),
-        paint(color, DIM, &format!("esfuerzo {effort_txt}")),
-        paint(color, RULE, "·"),
-        mode_badge,
-    );
-    let info3 = format!("{}{}", paint(color, DIM, &path_txt), branch_txt);
-
-    let tip = format!(
-        "  {} {}  {}  {}  {}  {}  {}  {}",
-        paint(color, CYAN, "▸"),
-        paint(color, DIM, tr("Shift+Tab alternar edición")),
-        paint(color, RULE, "·"),
-        paint(color, DIM, "/ comandos"),
-        paint(color, RULE, "·"),
-        paint(color, DIM, "Ctrl+L limpiar"),
-        paint(color, RULE, "·"),
-        paint(color, DIM, "Ctrl+C salir"),
     );
 
-    format!(
-        "\n{logo1}  {info1}\n{logo2}  {info2}\n{logo3}  {info3}\n\n{tip}\n{}\n",
-        rule(width, color)
-    )
+    // Tarjeta de sesión con ancho controlado (máx. 86 cols, siempre cabe en la ventana).
+    let card_w = w.saturating_sub(4).min(86);
+    let inner = card_w.saturating_sub(4); // espacio interior entre "│ " y " │"
+    let val_max = inner.saturating_sub(12); // columna de etiqueta = 12 chars
+
+    let prov_plain = format!("✦ {p_label} · {model_txt} · {effort_txt}");
+    let prov_clip = clip_text(&prov_plain, val_max);
+    let prov_styled = if prov_clip == prov_plain {
+        format!(
+            "{} {} {} {} {}",
+            paint(color, &format!("1;{p_col}"), &format!("✦ {p_label}")),
+            paint(color, RULE, "·"),
+            paint(color, SLATE, model_txt),
+            paint(color, RULE, "·"),
+            paint(color, DIM, effort_txt),
+        )
+    } else {
+        paint(color, p_col, &prov_clip)
+    };
+
+    let proj_plain = match branch {
+        Some(b) => format!("{path_txt} · git:{b}"),
+        None => path_txt.clone(),
+    };
+    let proj_clip = clip_text(&proj_plain, val_max);
+    let proj_styled = if proj_clip == proj_plain {
+        match branch {
+            Some(b) => format!(
+                "{} {} {}",
+                paint(color, SLATE, &path_txt),
+                paint(color, RULE, "·"),
+                paint(color, VIOLET, &format!("git:{b}")),
+            ),
+            None => paint(color, SLATE, &path_txt),
+        }
+    } else {
+        paint(color, SLATE, &proj_clip)
+    };
+
+    let (mode_plain, mode_styled) = if edit {
+        let p = "⚡ edición activa  (Shift+Tab solo lectura)";
+        let c = clip_text(p, val_max);
+        let s = if c == p {
+            format!("{}  {}", paint(color, AMBER, "⚡ edición activa"), paint(color, DIM, "(Shift+Tab solo lectura)"))
+        } else {
+            paint(color, AMBER, &c)
+        };
+        (c, s)
+    } else {
+        let p = "● solo lectura  (Shift+Tab editar)";
+        let c = clip_text(p, val_max);
+        let s = if c == p {
+            format!("{}  {}", paint(color, CYAN, "● solo lectura"), paint(color, DIM, "(Shift+Tab editar)"))
+        } else {
+            paint(color, CYAN, &c)
+        };
+        (c, s)
+    };
+
+    let make_row = |label: &str, plain_val: &str, styled_val: &str| -> String {
+        let lbl_pad = format!("{label:<11} ");
+        let used = 12 + plain_val.chars().count();
+        let pad = inner.saturating_sub(used);
+        format!(
+            "  {} {}{}{} {}",
+            paint(color, RULE, "│"),
+            paint(color, DIM, &lbl_pad),
+            styled_val,
+            " ".repeat(pad),
+            paint(color, RULE, "│"),
+        )
+    };
+
+    let title_tag = " Sesión ";
+    let top_fill = card_w.saturating_sub(3 + title_tag.chars().count());
+    let top_border = format!(
+        "  {}{}{}{}",
+        paint(color, RULE, "╭─"),
+        paint(color, LAVENDER, title_tag),
+        paint(color, RULE, &"─".repeat(top_fill)),
+        paint(color, RULE, "╮"),
+    );
+    let bot_border = format!(
+        "  {}{}{}",
+        paint(color, RULE, "╰"),
+        paint(color, RULE, &"─".repeat(card_w.saturating_sub(2))),
+        paint(color, RULE, "╯"),
+    );
+
+    let r1 = make_row("Proveedor", &prov_clip, &prov_styled);
+    let r2 = make_row("Proyecto", &proj_clip, &proj_styled);
+    let r3 = make_row("Modo", &mode_plain, &mode_styled);
+
+    format!("\n{w1}\n{w2}\n\n{top_border}\n{r1}\n{r2}\n{r3}\n{bot_border}\n")
 }
 
 /// Tarjeta de confirmación de carpeta de proyecto.
@@ -439,10 +541,14 @@ mod tests {
     #[test]
     fn cabecera_y_herramientas_se_renderizan_sin_panico() {
         let h = header_banner("0.1.0", "antigravity", Some("gemini-4-hydrogen-high"), Some("high"), true, Path::new("C:\\Users\\ASUS\\Documents\\pulso"), Some(Path::new("C:\\Users\\ASUS")), Some("main"), 80, false);
-        assert!(h.contains("Pulso CLI"));
+        assert!(h.contains("CLI v0.1.0"));
         assert!(h.contains("Antigravity"));
         assert!(h.contains("edición activa"));
         assert!(h.contains("git:main"));
+        // Modo compacto en terminal estrecha: ninguna línea excede el ancho.
+        let narrow = header_banner("0.1.0", "claude", None, None, false, Path::new("C:\\Users\\ASUS\\Documents\\Pulso Editor"), Some(Path::new("C:\\Users\\ASUS")), Some("feat/pulso-cli"), 48, false);
+        assert!(narrow.contains("PULSO"));
+        assert!(narrow.lines().all(|l| l.chars().count() <= 48));
         assert!(tool_badge("Read src/main.ts", false).contains("Read src/main.ts"));
         assert!(trust_card(Path::new("C:\\Users\\ASUS\\Documents\\pulso"), Some(Path::new("C:\\Users\\ASUS")), false).contains("Pulso CLI"));
     }
