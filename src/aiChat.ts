@@ -12,7 +12,6 @@ import {
 import { addRequest, buildPermissionCard, clearConversation, parsePermissionEvent, pendingFor, resolveRequest } from "./ai/permissions";
 import { connectProvider } from "./ai/providers";
 import { applyAiAppearance, buildAppearancePopover } from "./ai/appearance";
-import { linkTarget, parseInline, parseMarkdown } from "./aiMarkdown";
 import { buildPrompt, chipLabels, fileMentionAt, filterProjectFiles, type ContextNote, type EditorContext } from "./aiContext";
 import {
   activitySummary, createProviderNormalizer, elapsedLabel, emptyConversation, exitEvent, mergeAssistantRuns, formatModelName, isAuthError, needsCommandPermission, parseUsageText, planLabel, pruneUsage,
@@ -36,7 +35,13 @@ import { rel, ws } from "./workspace";
 import { openExternal } from "./external";
 import { extractProposedEdits } from "./workflow/issueWorkflowModel";
 import { clearActiveIssueWork, createPrForActiveIssue, getActiveIssueWork, reviewProposedEdit } from "./workflow/issueWorkflow";
+import { ICON_EXPAND, ICON_SHRINK, ICON_PLUS, ICON_CLOCK, ICON_SEND, ICON_STOP, ICON_IMAGE, PULSE_SVG, ICON_GAUGE, ICON_PALETTE, iconBtn } from "./ai/icons";
+import { LEGACY_CODEX, splitLabelLevel, titleFromId, tierFromNote } from "./ai/modelLabels";
+import { MAX_IMAGES, MAX_IMAGE_BYTES, ALLOWED_IMAGE_MIME, readAsDataUrl, makeThumbnail } from "./ai/images";
+import { copy, insertCode, linkNode, inline, markdown, setLeaveFullscreenHook } from "./ai/markdownView";
 import "./aiChat.css";
+
+setLeaveFullscreenHook(() => { if (isFull()) setFull(false); });
 
 /**
  * Asistente de IA: conversa en la carpeta del proyecto con Claude Code, ChatGPT/Codex (`codex app-server`) o Antigravity (`agy`).
@@ -126,45 +131,6 @@ const seconds = (ms: number) => (ms / 1000).toLocaleString(lang(), { minimumFrac
 const viewEl = () => $("view-ai");
 const q = <T extends HTMLElement>(sel: string) => viewEl().querySelector<T>(sel);
 
-const ICON_EXPAND = '<svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
-const ICON_SHRINK = '<svg viewBox="0 0 24 24"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>';
-const ICON_PLUS = '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>';
-const ICON_CLOCK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2"/></svg>';
-const ICON_SEND = '<svg viewBox="0 0 24 24"><path d="M12 19V6M6 11l6-6 6 6"/></svg>';
-const ICON_STOP = '<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>';
-const ICON_IMAGE = '<svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.4"/><path d="M4.5 17l4.5-4.5 3.5 3.5 2.5-2.5 4.5 4.5"/></svg>';
-
-const iconBtn = (svg: string, title: string, cls = ""): HTMLButtonElement => {
-  const b = h("button", `icon-btn ${cls}`.trim());
-  b.type = "button"; b.title = title; b.setAttribute("aria-label", title); b.innerHTML = svg;
-  return b;
-};
-
-const LEGACY_CODEX = /\blegacy\b|previous generation/i;
-
-/** «Gemini 4 Hydrogen (High)» → { name: «Gemini 4 Hydrogen», tier: «High» }. */
-function splitLabelLevel(raw: string): { name: string; tier: string } {
-  const m = /^(.*?)\s*\(([^)]+)\)\s*$/.exec(raw.trim());
-  if (m && /^(Low|Medium|High|XHigh|Max)$/i.test(m[2])) {
-    return { name: m[1].trim(), tier: m[2].trim() };
-  }
-  return { name: raw.trim(), tier: "" };
-}
-
-function titleFromId(id: string): string {
-  return id.split("-").map((p) => (/^\d/.test(p) ? p : p.charAt(0).toUpperCase() + p.slice(1))).join(" ");
-}
-
-function tierFromNote(note: string): string {
-  if (/legacy/i.test(note)) return tr("Legado");
-  if (/previous generation/i.test(note)) return tr("Anterior");
-  if (/most capable|complex/i.test(note)) return tr("Más capaz");
-  if (/affordable|easier|simpler/i.test(note)) return tr("Ligero");
-  if (/visual/i.test(note)) return tr("Visión");
-  if (/fast|go-to/i.test(note)) return tr("Rápido");
-  if (/^(Low|Medium|High|XHigh|Max)$/i.test(note)) return note;
-  return tr("Disponible");
-}
 
 function providerCatalog(prov: AiProvider): { models: ModelOption[]; specific: ModelOption[] } {
   const meta = PROVIDERS[prov];
@@ -448,83 +414,6 @@ function renderChips() {
 }
 
 // ---------- Pintado ----------
-function copy(text: string, btn?: HTMLButtonElement) {
-  void navigator.clipboard.writeText(text).then(() => {
-    setStatus(tr("Copiado"), 2000);
-    if (!btn) return;
-    const prev = btn.textContent ?? tr("Copiar");
-    btn.textContent = tr("Copiado");
-    btn.classList.add("copied");
-    window.setTimeout(() => { btn.textContent = prev; btn.classList.remove("copied"); }, 1400);
-  }, () => setStatus(tr("No se pudo copiar")));
-}
-
-function insertCode(text: string) {
-  const ed = focusedEditor();
-  const sel = ed?.getSelection();
-  if (!ed || !sel) { setStatus(tr("Abre un archivo en el editor para insertar el código")); return; }
-  if (isFull()) setFull(false);
-  ed.executeEdits("pulso-ai", [{ range: sel, text, forceMoveMarkers: true }]);
-  ed.focus();
-  setStatus(tr("Código insertado en el editor"), 2500);
-}
-
-/** Enlace de una respuesta: los archivos se abren en el editor en su línea; las páginas, en el navegador. */
-function linkNode(text: string, href: string): Node {
-  const target = linkTarget(href);
-  if (!target) return document.createTextNode(text);
-  const b = h("button", "ai-link", text);
-  b.type = "button";
-  b.title = target.kind === "file" ? (target.line > 1 ? tr("Abrir {path} en la línea {line}", { path: target.path, line: target.line }) : tr("Abrir {path}", { path: target.path })) : target.url;
-  b.onclick = () => {
-    if (target.kind === "web") { void invoke("open_external", { url: target.url }).catch((e) => setStatus(String(e))); return; }
-    if (isFull()) setFull(false);
-    void openFile(target.path, { line: target.line, col: 1 });
-  };
-  return b;
-}
-
-function inline(parent: HTMLElement, text: string) {
-  for (const p of parseInline(text)) {
-    if (p.kind === "code") parent.append(h("code", "ai-icode", p.text));
-    else if (p.kind === "bold") parent.append(h("strong", "", p.text));
-    else if (p.kind === "link") parent.append(linkNode(p.text, p.href ?? ""));
-    else parent.append(document.createTextNode(p.text));
-  }
-}
-
-function markdown(text: string): HTMLElement[] {
-  return parseMarkdown(text).map((b) => {
-    if (b.type === "code") {
-      const box = h("div", "ai-code");
-      const head = h("div", "ai-code-head");
-      head.append(h("span", "", b.lang || "código"));
-      const acts = h("div", "ai-code-acts");
-      if (focusedEditor()) {
-        const ins = h("button", "ai-code-copy", tr("Insertar"));
-        ins.type = "button";
-        ins.title = tr("Insertar en la posición actual del editor");
-        ins.onclick = () => insertCode(b.text);
-        acts.append(ins);
-      }
-      const c = h("button", "ai-code-copy", tr("Copiar"));
-      c.type = "button";
-      c.onclick = () => copy(b.text, c);
-      acts.append(c);
-      head.append(acts);
-      const pre = h("pre", "");
-      pre.append(h("code", "", b.text));
-      box.append(head, pre);
-      return box;
-    }
-    if (b.type === "h") { const e = h("div", `ai-h ai-h${b.level}`); inline(e, b.text); return e; }
-    if (b.type === "li") { const e = h("div", "ai-li"); e.append(h("span", "ai-li-m", b.marker)); const t = h("span", "ai-li-t"); inline(t, b.text); e.append(t); return e; }
-    const p = h("p", "ai-p");
-    inline(p, b.text);
-    return p;
-  });
-}
-
 function resolveToolFile(raw: unknown): string | null {
   if (typeof raw !== "string" || !raw.trim()) return null;
   const p = norm(raw.trim());
@@ -572,7 +461,6 @@ let activityTimer = 0;
 let waitingSince = 0;
 
 /** Traza del pulso (el mismo gesto del logotipo): late mientras la IA trabaja y queda quieta al terminar. */
-const PULSE_SVG = '<svg viewBox="0 0 44 14" aria-hidden="true"><path class="ai-pulse-base" d="M0 7h44"/><path class="ai-pulse-beat" d="M0 7h12l2.5-5 3.5 10 3-12 3 12 2.5-5H44"/></svg>';
 
 /** Mantiene vivo el contador de segundos de las tarjetas en curso sin volver a pintar la conversación. */
 function tickActivityClocks() {
@@ -877,7 +765,6 @@ function openAccountsPopover(anchor: HTMLElement) {
   openPopover(anchor, pop, "below");
 }
 
-const ICON_GAUGE = '<svg viewBox="0 0 24 24"><path d="M12 14l4-4M4.93 17a9 9 0 1 1 14.14 0"/><path d="M7 17h10"/></svg>';
 
 function openModelPopover(anchor: HTMLElement) {
   const dockWrap = h("div", "ai-popover-pair");
@@ -1277,43 +1164,6 @@ function openQuickPromptsPopover(anchor: HTMLElement) {
     pop.append(row);
   }
   openPopover(anchor, pop, "above");
-}
-
-const MAX_IMAGES = 5;
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const ALLOWED_IMAGE_MIME = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"]);
-
-function readAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload = () => resolve(typeof fr.result === "string" ? fr.result : "");
-    fr.onerror = () => reject(fr.error ?? new Error("read failed"));
-    fr.readAsDataURL(file);
-  });
-}
-
-function makeThumbnail(dataUrl: string): Promise<string> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      const maxDim = 320;
-      const scale = Math.min(1, maxDim / Math.max(img.width || 1, img.height || 1));
-      const w = Math.max(1, Math.round(img.width * scale));
-      const h = Math.max(1, Math.round(img.height * scale));
-      try {
-        const canvas = document.createElement("canvas");
-        canvas.width = w; canvas.height = h;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) { resolve(dataUrl.length <= 35_000 ? dataUrl : ""); return; }
-        ctx.drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL("image/jpeg", 0.78));
-      } catch {
-        resolve(dataUrl.length <= 35_000 ? dataUrl : "");
-      }
-    };
-    img.onerror = () => resolve("");
-    img.src = dataUrl;
-  });
 }
 
 async function openImageLightbox(img: UserImage) {
@@ -2260,7 +2110,6 @@ function openAppearancePopover(anchor: HTMLElement) {
   openPopover(anchor, buildAppearancePopover(viewEl()), "below");
 }
 
-const ICON_PALETTE = '<svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0 0 18c1.1 0 1.8-.7 1.8-1.6 0-.4-.2-.8-.4-1.1-.3-.3-.4-.6-.4-1a1.5 1.5 0 0 1 1.5-1.5h2A4.5 4.5 0 0 0 21 11.3C21 6.7 17 3 12 3z"/><circle cx="7.5" cy="11.5" r="1"/><circle cx="10.5" cy="7.5" r="1"/><circle cx="15.5" cy="8.5" r="1"/></svg>';
 
 // ---------- Construcción de la vista ----------
 function build() {

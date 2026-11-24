@@ -83,7 +83,30 @@ pub fn check_request(method: &str, path: &str, body: Option<&str>) -> Result<(),
         "POST" | "PATCH" | "PUT" => body.is_none_or(|b| serde_json::from_str::<Value>(b).is_ok()),
         _ => body.is_none(),
     };
-    if ok && body_ok { Ok(()) } else { Err(()) }
+    if ok && body_ok && body_shape_ok(method, &segs, body) { Ok(()) } else { Err(()) }
+}
+
+/// Fusionar y revisar solo admiten los campos que usa el panel, con valores conocidos: nada de `sha` ajeno ni de eventos raros.
+fn body_shape_ok(method: &str, segs: &[&str], body: Option<&str>) -> bool {
+    let kind = match (method, segs) {
+        ("PUT", ["repos", _, _, "pulls", _, "merge"]) => "merge",
+        ("POST", ["repos", _, _, "pulls", _, "reviews"]) => "review",
+        _ => return true,
+    };
+    let Some(v) = body.and_then(|b| serde_json::from_str::<Value>(b).ok()) else { return false };
+    let Some(obj) = v.as_object() else { return false };
+    let (allowed, enum_key, enum_values): (&[&str], &str, &[&str]) = if kind == "merge" {
+        (&["merge_method", "commit_title", "commit_message"], "merge_method", &["merge", "squash", "rebase"])
+    } else {
+        (&["event", "body"], "event", &["COMMENT", "APPROVE", "REQUEST_CHANGES"])
+    };
+    if obj.keys().any(|k| !allowed.contains(&k.as_str())) || obj.values().any(|x| !x.is_string()) {
+        return false;
+    }
+    match obj.get(enum_key).and_then(Value::as_str) {
+        Some(x) => enum_values.contains(&x),
+        None => kind == "merge", // fusionar sin método usa el de GitHub; una revisión necesita su `event`
+    }
 }
 
 fn repo_route(method: &str, rest: &[&str]) -> bool {
@@ -98,6 +121,7 @@ fn repo_route(method: &str, rest: &[&str]) -> bool {
         ("GET", ["pulls", n]) => is_number(n),
         ("GET", ["pulls", n, "files"]) => is_number(n),
         ("GET", ["compare", spec]) => is_encoded_segment(spec),
+        ("GET", ["commits", sha, "check-runs"]) => is_encoded_segment(sha),
         ("GET", ["collaborators"]) | ("GET", ["contributors"]) => true,
         ("GET", ["contents", path @ ..]) => !path.is_empty() && path.iter().all(|s| is_encoded_segment(s)),
         // Escritura
@@ -108,6 +132,9 @@ fn repo_route(method: &str, rest: &[&str]) -> bool {
         ("POST", ["issues", n, "comments"]) => is_number(n),
         ("POST", ["labels"]) => true,
         ("POST", ["pulls"]) => true,
+        // Fusionar y revisar una pull request: lo ofrece el panel de pull requests, con cuerpo acotado (ver `body_shape_ok`).
+        ("PUT", ["pulls", n, "merge"]) => is_number(n),
+        ("POST", ["pulls", n, "reviews"]) => is_number(n),
         _ => false,
     }
 }
@@ -150,6 +177,12 @@ mod tests {
         assert!(ok("POST", "/repos/ana/app/issues/5/comments", Some(r#"{"body":"hola"}"#)));
         assert!(ok("POST", "/repos/ana/app/labels", Some(r#"{"name":"x","color":"fff"}"#)));
         assert!(ok("POST", "/repos/ana/app/pulls", Some(r#"{"title":"x","head":"a","base":"main"}"#)));
+        // Panel de pull requests: fusionar, revisar y ver las comprobaciones.
+        assert!(ok("PUT", "/repos/ana/app/pulls/3/merge", Some(r#"{"merge_method":"squash","commit_title":"Arregla x"}"#)));
+        assert!(ok("PUT", "/repos/ana/app/pulls/3/merge", Some("{}")));
+        assert!(ok("POST", "/repos/ana/app/pulls/3/reviews", Some(r#"{"event":"APPROVE","body":"bien"}"#)));
+        assert!(ok("POST", "/repos/ana/app/pulls/3/reviews", Some(r#"{"event":"REQUEST_CHANGES","body":"revisa esto"}"#)));
+        assert!(ok("GET", "/repos/ana/app/commits/0123abc/check-runs?per_page=50", None));
     }
 
     #[test]
@@ -162,7 +195,14 @@ mod tests {
         assert!(!ok("POST", "/repos/ana/app/hooks", Some("{}")));
         assert!(!ok("PUT", "/repos/ana/app/collaborators/mala", Some("{}")));
         assert!(!ok("DELETE", "/repos/ana/app/issues/5", None));
-        assert!(!ok("PUT", "/repos/ana/app/pulls/3/merge", Some("{}")));
+        assert!(!ok("PUT", "/repos/ana/app/pulls/x/merge", Some("{}")));
+        assert!(!ok("PUT", "/repos/ana/app/pulls/3/merge", None));
+        assert!(!ok("PUT", "/repos/ana/app/pulls/3/merge", Some(r#"{"merge_method":"force"}"#)));
+        assert!(!ok("PUT", "/repos/ana/app/pulls/3/merge", Some(r#"{"merge_method":"squash","sha":"abc"}"#)));
+        assert!(!ok("POST", "/repos/ana/app/pulls/3/reviews", Some(r#"{"body":"sin evento"}"#)));
+        assert!(!ok("POST", "/repos/ana/app/pulls/3/reviews", Some(r#"{"event":"DISMISS","body":"x"}"#)));
+        assert!(!ok("PUT", "/repos/ana/app/pulls/3/reviews/9/dismissals", Some("{}")));
+        assert!(!ok("GET", "/repos/ana/app/commits/abc/statuses", None));
         // Cosas de la cuenta y de otras organizaciones.
         assert!(!ok("GET", "/user/repos", None));
         assert!(!ok("DELETE", "/user", None));
