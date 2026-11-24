@@ -1,5 +1,4 @@
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
-import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
 import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
 import cssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker";
 import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
@@ -80,7 +79,7 @@ window.setTimeout(revealApp, 12000);
 
 (self as any).MonacoEnvironment = {
   getWorker(_: unknown, label: string) {
-    if (label === "typescript" || label === "javascript") return new tsWorker();
+    // TypeScript/JavaScript usan el servidor LSP nativo de Pulso (evita cargar los ~6 MB de ts.worker).
     if (label === "json") return new jsonWorker();
     if (label === "css" || label === "scss" || label === "less") return new cssWorker();
     if (label === "html") return new htmlWorker();
@@ -88,18 +87,15 @@ window.setTimeout(revealApp, 12000);
   },
 };
 
-// Monaco no conoce node_modules ni tsconfig: ocultamos los errores de módulos que no puede resolver.
+// La validación de TypeScript/JavaScript corre en el servidor LSP propio de Pulso.
 const ts = monaco.languages.typescript;
 for (const defaults of [ts.typescriptDefaults, ts.javascriptDefaults]) {
-  defaults.setCompilerOptions({
-    target: ts.ScriptTarget.ESNext,
-    module: ts.ModuleKind.ESNext,
-    moduleResolution: ts.ModuleResolutionKind.NodeJs,
-    allowNonTsExtensions: true,
-    allowJs: true,
-    jsx: ts.JsxEmit.Preserve,
+  defaults.setEagerModelSync(false);
+  defaults.setDiagnosticsOptions({
+    noSemanticValidation: true,
+    noSyntaxValidation: true,
+    noSuggestionDiagnostics: true,
   });
-  defaults.setDiagnosticsOptions({ diagnosticCodesToIgnore: [2307, 2792, 7016, 2688] });
 }
 
 const inTauri = "__TAURI_INTERNALS__" in window;

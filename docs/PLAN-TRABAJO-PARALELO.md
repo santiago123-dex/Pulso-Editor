@@ -77,13 +77,13 @@ Dos agentes trabajan a la vez: **Claude** y **Antigravity**. Cada uno hace solo 
 
 ## B. CI y calidad de ingeniería
 
-- [ ] Añadir a la CI: `cargo fmt --check`, `cargo clippy`, `cargo audit` (o `cargo deny`) y ESLint. **Primero solo en modo aviso** para no bloquear los PR de los demás frentes.
-- [ ] Decidir el formato (Prettier para TypeScript) y escribir `rustfmt.toml`/`.prettierrc`. **No formatear todo el proyecto en este frente**: se hace al final (ver «Orden recomendado»), porque 853 diferencias de `rustfmt` chocarían con todas las ramas.
-- [ ] Las dos pruebas de Ctrl+C de `term.rs` fallan fuera de una terminal normal: marcarlas para saltarlas con una variable de entorno en entornos sin consola real, sin quitarlas.
+- [x] Añadir a la CI, en un trabajo aparte «Calidad (aviso)» que no bloquea: `cargo fmt --check`, `cargo clippy`, `cargo audit`, `npm audit` y Prettier. **Falta ESLint:** `typescript-eslint` no admite todavía TypeScript 7 (`peer typescript <6`), así que no se puede instalar sin forzar las dependencias.
+- [x] Decidir el formato y escribir `src-tauri/rustfmt.toml` (ancho 160, el que menos cambia: 385 diferencias en vez de 853) y `.prettierrc.json`. **No formatear todo el proyecto en este frente**: se hace al final (ver «Orden recomendado»), porque 853 diferencias de `rustfmt` chocarían con todas las ramas.
+- [x] Las dos pruebas de Ctrl+C de `term.rs` se saltan con `PULSO_SKIP_CTRL_C=1` en entornos sin consola real (documentado en `CONTRIBUTING.md`); en la CI siguen corriendo.
 - [ ] Ejecutar las 68 comprobaciones e2e en la CI (necesitan WebView2; evaluar un ejecutor de Windows) o dejar documentado por qué no.
 - [ ] Pruebas para los 29 módulos de la interfaz sin prueba propia (sobre todo vistas), empezando por `main.ts` y los de seguridad.
-- [ ] Crear `SECURITY.md` (cómo reportar una vulnerabilidad) y `CODE_OF_CONDUCT.md`.
-- [ ] Dependabot o equivalente para npm y Cargo.
+- [x] `SECURITY.md` (cómo reportar una vulnerabilidad) y `CODE_OF_CONDUCT.md`.
+- [x] Dependabot para npm, Cargo y GitHub Actions.
 
 ## C. Confianza y distribución
 
@@ -145,11 +145,11 @@ Lo ya hecho (proveedores de models.dev, herramientas, subagentes, skills, comand
 
 ## I. Rendimiento y tamaño
 
-- [ ] Quitar o cargar a demanda el servicio de TypeScript propio de Monaco (`ts.worker`, 6 MB) ahora que hay LSP.
-- [ ] Revisar Monaco (3,9 MB) y la fuente de símbolos (2,6 MB): subconjunto de glifos o carga diferida.
-- [ ] **Medir en compilación de producción** y con proyectos reales (hasta ahora es una compilación de depuración y un proyecto sintético), incluida la memoria con el TypeScript nativo.
-- [ ] Búsqueda que respete `.gitignore` y evite recorrer el disco entero cada vez.
-- [ ] Perfilar los picos al escribir en archivos muy grandes y acotar la memoria del servidor de lenguaje.
+- [x] Quitar o cargar a demanda el servicio de TypeScript propio de Monaco (`ts.worker`, 6 MB) ahora que hay LSP.
+- [x] Revisar Monaco (3,9 MB) y la fuente de símbolos (2,6 MB): subconjunto de glifos o carga diferida.
+- [x] **Medir en compilación de producción** y con proyectos reales (hasta ahora es una compilación de depuración y un proyecto sintético), incluida la memoria con el TypeScript nativo.
+- [x] Búsqueda que respete `.gitignore` y evite recorrer el disco entero cada vez.
+- [x] Perfilar los picos al escribir en archivos muy grandes y acotar la memoria del servidor de lenguaje.
 
 ## J. Comunidad y producto (sin código)
 

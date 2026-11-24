@@ -39,3 +39,11 @@ Condiciones: compilación **de depuración** (sin optimizar), servidor de desarr
 ## Compilación de producción (versión instalada)
 
 Misma medición contra la aplicación instalada, sin servidor de desarrollo: arranque 0,9–1,2 s; abrir 5 MB en 0,36 s; escribir en 5 MB 35 ms de mediana (p95 ≈ 185 ms, peor ≈ 370 ms, así que los picos no vienen del modo de depuración); pegado de 20.000 líneas 40 ms; buscar con un solo resultado 1,2 s (limitado por la lectura de disco, el análisis antivirus de Windows puede influir); memoria total ≈ 3,5 GB, con WebView2 ≈ 1,6 GB y el servidor de lenguaje ≈ 1,8 GB.
+
+## Optimizaciones aplicadas (Frente I)
+
+- **Retirado `ts.worker` de Monaco (−6,01 MB en `dist/assets/`):** al usar el servidor LSP propio de Pulso (TypeScript 7 nativo o compatible), se eliminó el worker duplicado de TypeScript de Monaco y su validación redundante en WebView2.
+- **Límite de memoria del LSP (`src-tauri/src/lsp.rs`):** `GOMEMLIMIT=1536MiB` para TypeScript 7 nativo y `--max-old-space-size=1536` para el modo compatible Node (configurable con `PULSO_LSP_MAX_MB` entre 256 y 8192 MiB).
+- **Archivos grandes (`src/largeFile.ts`, `src/docs.ts`):** además de desactivar corchetes/coincidencias, se desactivan `folding` y `links`, y las copias de recuperación pasan a un debounce de 8 s para no serializar varios MB en mitad de la escritura.
+- **Búsqueda y listado rápido respetando `.gitignore` (`src-tauri/src/lib.rs`):** tanto `search_files` como `list_files` usan `ignore::WalkBuilder` con `.gitignore` y `.git/info/exclude`.
+- **Revisión de Monaco y fuente de símbolos:** `index.js` queda en ~478 KB (~161 KB gzip); `monaco.js` (~3,9 MB) y `SymbolsNerdFontMono-Regular.ttf` (~2,6 MB) se conservan íntegros porque la terminal integrada depende de los glifos completos de Nerd Font y dividir `monaco-editor` internamente introduce chunks circulares en Rollup.

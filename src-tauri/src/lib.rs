@@ -243,10 +243,30 @@ async fn list_files(guard: tauri::State<'_, fsguard::WorkspaceGuard>, path: Stri
 
 fn list_files_sync(path: String) -> Result<Vec<String>, String> {
     let mut out = Vec::new();
-    walk(&path, |p| {
-        out.push(norm(&p));
-        out.len() < 20_000
-    });
+    let mut builder = ignore::WalkBuilder::new(&path);
+    builder
+        .hidden(false)
+        .git_ignore(true)
+        .git_global(false)
+        .git_exclude(true)
+        .require_git(false)
+        .filter_entry(|entry| {
+            if entry.depth() == 0 {
+                return true;
+            }
+            if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                return !SKIP_DIRS.contains(&entry.file_name().to_string_lossy().as_ref());
+            }
+            true
+        });
+    for entry in builder.build().flatten() {
+        if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+            out.push(norm(entry.path()));
+            if out.len() >= 20_000 {
+                break;
+            }
+        }
+    }
     Ok(out)
 }
 
