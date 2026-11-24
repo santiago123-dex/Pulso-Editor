@@ -420,6 +420,22 @@ const EN: &[(&str, &str)] = &[
     ("Rebase detenido por conflictos. Resuélvelos, prepáralos y continúa o aborta.", "Rebase stopped due to conflicts. Resolve them, stage them, and continue or abort."),
     ("Acción de Git no válida", "Invalid Git action"),
     ("No hay ninguna fusión ni rebase en curso", "There is no merge or rebase in progress"),
+    // CLI: selectores interactivos, doctor y modelos
+    ("Equilibrado y rápido para uso diario", "Balanced and fast for everyday coding"),
+    ("Máxima capacidad para tareas complejas", "Maximum capability for complex tasks"),
+    ("Ultrarrápido y ligero", "Ultra-fast and lightweight"),
+    ("Alias más reciente del plan", "Latest plan alias"),
+    ("↑/↓ mover · Enter elegir · Esc cancelar", "↑/↓ move · Enter select · Esc cancel"),
+    ("Número (Enter cancela):", "Number (Enter to cancel):"),
+    ("Proveedores de IA", "AI Providers"),
+    ("no instalado", "not installed"),
+    ("Entorno", "Environment"),
+    ("Modo solo lectura activado.", "Read-only mode enabled."),
+    ("Modelo restablecido al predeterminado del proveedor.", "Model reset to provider default."),
+    ("No se pudo abrir la carpeta {dir}: {e}", "Could not open folder {dir}: {e}"),
+    ("Elegir o cambiar IA (claude | codex | antigravity)", "Choose or switch AI (claude | codex | antigravity)"),
+    ("Elegir modelo del proveedor activo", "Choose active provider model"),
+    ("Comprobar proveedores instalados y entorno", "Check installed providers and environment"),
 ];
 
 #[cfg(test)]
