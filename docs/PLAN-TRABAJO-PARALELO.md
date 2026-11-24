@@ -166,7 +166,7 @@ Dividir por responsabilidad facilita revisar y evita que las ramas choquen. **Ha
 | Archivo | Líneas | Propuesta |
 | --- | --- | --- |
 | `src/aiChat.ts` | 2572 | panel de mensajes, tarjetas (actividad, permisos), proveedores, entrada |
-| `src-tauri/src/aichat.rs` | 1561 | detección de proveedores, sesiones, comandos de Tauri |
+| `src-tauri/src/aichat.rs` | 1750 | **Hecho:** `aichat/` con `mod.rs` (estado y comandos de Tauri), `detect.rs`, `cli.rs`, `codex.rs`, `antigravity.rs`, `args.rs`, `stream.rs`, `images.rs`, `cloud.rs` y `tests.rs` |
 | `src-tauri/src/bin/pulso.rs` | 1295 | enrutado, trabajo de ventana, terminal |
 | `src-tauri/src/gitops.rs` | 1222 | estado, diferencias, ramas, remoto |
 | `src-tauri/src/lib.rs` | 1191 | comandos agrupados por módulo, `run()` mínimo |
