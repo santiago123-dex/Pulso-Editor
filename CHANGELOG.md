@@ -4,6 +4,9 @@ Todos los cambios notables en Pulso Editor se documentan en este archivo.
 
 ## [Sin publicar]
 
+### Corregido
+- «IA: Servidores MCP…» sin una carpeta abierta solo mostraba un aviso pequeño en la barra de estado y parecía que no hacía nada. Ahora abre la lista y explica que hace falta abrir una carpeta de proyecto.
+
 ### Seguridad
 - **El historial del chat de IA se guarda cifrado** (AES-256-GCM). La clave vive en el almacén de credenciales del sistema, no junto al archivo; el historial antiguo en texto se cifra solo al leerlo. Si la clave desaparece, el archivo se aparta (`ai-chats.locked-….bin`) en vez de perderse. Sin almacén de credenciales se guarda en texto, como antes. Las imágenes adjuntas y las copias de recuperación siguen sin cifrar. Ver [PRIVACY.md](PRIVACY.md).
 

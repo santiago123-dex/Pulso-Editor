@@ -1141,6 +1141,7 @@ export const en: Record<string, string> = {
   "IA: Servidores MCP…": "AI: MCP servers…",
   "Bloqueado: es del proyecto y no se arranca hasta que confíes en él": "Blocked: it belongs to the project and won't start until you trust it",
   "No arrancó": "Did not start",
+  "Abre una carpeta de proyecto para ver sus servidores MCP (se arrancan en esa carpeta).": "Open a project folder to see its MCP servers (they start in that folder).",
   "Conectado · 1 herramienta": "Connected · 1 tool",
   "Conectado · {n} herramientas": "Connected · {n} tools",
   "Herramientas de {name}": "Tools of {name}",
