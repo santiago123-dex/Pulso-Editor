@@ -4,6 +4,10 @@ Todos los cambios notables en Pulso Editor se documentan en este archivo.
 
 ## [Sin publicar]
 
+### Seguridad
+- Al abrir un proyecto que trae `AGENTS.md`, skills, subagentes o comandos y en el que todavía no se confía, la barra de estado avisa de que no se cargan y de cómo confiar («IA: Confiar en este proyecto…»).
+- Dos pruebas fijan que la búsqueda y el reemplazo no atraviesan enlaces simbólicos que salen de la carpeta abierta.
+
 ### Interno
 - `lib.rs` (1352 líneas) se divide: carpeta de trabajo, archivos, copias de recuperación, credenciales, búsqueda, temas y estado de Git pasan a su propio módulo, y `lib.rs` queda con el registro de comandos y `run()`. Sin cambios de comportamiento.
 - `aichat.rs` (1750 líneas) se divide en `aichat/`: detección de herramientas, programas externos, Codex, Antigravity, argumentos, salida en streaming, imágenes y agente en la nube, con las pruebas en su propio archivo. Sin cambios de comportamiento.

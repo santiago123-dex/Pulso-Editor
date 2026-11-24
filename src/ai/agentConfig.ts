@@ -86,3 +86,17 @@ export async function trustProject(): Promise<void> {
     setStatus(tr("No se pudo guardar la confianza en la carpeta.") + " " + String(e), 8000);
   }
 }
+
+/**
+ * Al abrir un proyecto, avisa si trae instrucciones para la IA (AGENTS.md, skills, subagentes o comandos) que no se cargan porque
+ * todavía no se confió en él. Es solo un aviso en la barra de estado: no abre ningún diálogo ni cambia nada.
+ */
+export async function noticeUntrustedProject(root: string): Promise<void> {
+  try {
+    const list = await invoke<ConfigEntry[]>("agent_config", { cwd: root });
+    if (ws.root !== root || !list.some((e) => e.blocked)) return;
+    setStatus(tr("Este proyecto trae instrucciones para la IA que no se cargan hasta que confíes en él (IA: Confiar en este proyecto…)"), 12000);
+  } catch {
+    /* sin aviso: la configuración no se pudo leer */
+  }
+}
