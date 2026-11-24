@@ -13,12 +13,14 @@ pub struct Commit {
     pub subject: String,
     /// Ramas y etiquetas que apuntan a este commit.
     pub refs: Vec<String>,
+    /// Hashes de los commits padres (para el grafo de ramas).
+    pub parents: Vec<String>,
 }
 
 pub(super) const REC: char = '\u{1e}';
 pub(super) const FLD: char = '\u{1f}';
 
-/// Lee la salida de `git log --format=%x1e%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%D`.
+/// Lee la salida de `git log --format=%x1e%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%D%x1f%P`.
 pub fn parse_log(out: &str) -> Vec<Commit> {
     out.split(REC)
         .filter(|r| !r.trim().is_empty())
@@ -26,7 +28,8 @@ pub fn parse_log(out: &str) -> Vec<Commit> {
             let f: Vec<&str> = r.trim_end_matches('\n').split(FLD).collect();
             if f.len() < 6 { return None; }
             let refs = f.get(6).map(|d| d.split(", ").map(|x| x.trim()).filter(|x| !x.is_empty()).map(|x| x.to_string()).collect()).unwrap_or_default();
-            Some(Commit { hash: f[0].trim().to_string(), short: f[1].to_string(), author: f[2].to_string(), email: f[3].to_string(), date: f[4].to_string(), subject: f[5].to_string(), refs })
+            let parents = f.get(7).map(|p| p.split_whitespace().map(|x| x.to_string()).collect()).unwrap_or_default();
+            Some(Commit { hash: f[0].trim().to_string(), short: f[1].to_string(), author: f[2].to_string(), email: f[3].to_string(), date: f[4].to_string(), subject: f[5].to_string(), refs, parents })
         })
         .collect()
 }
@@ -37,14 +40,24 @@ pub(super) fn valid_hash(h: &str) -> bool {
 
 pub(super) const MAX_LOG: u32 = 200;
 
-/// Historial de commits de HEAD (o de un archivo, siguiendo sus renombrados), de `limit` en `limit`.
-pub(super) fn log_sync(root: &str, path: Option<&str>, skip: u32, limit: u32) -> Result<Vec<Commit>, String> {
+/// Historial de commits de HEAD (o de todas las ramas / de un archivo), con búsqueda opcional por texto.
+pub(super) fn log_sync(root: &str, path: Option<&str>, skip: u32, limit: u32, query: Option<&str>, all: bool) -> Result<Vec<Commit>, String> {
     let top = top_of(root)?;
     if !has_head(&top) { return Ok(Vec::new()); }
     if let Some(p) = path { if !safe_relative(p) { return Err(tr("Ruta no válida").into()); } }
     let limit = limit.clamp(1, MAX_LOG).to_string();
     let skip = skip.to_string();
-    let mut args: Vec<&str> = vec!["log", "--format=%x1e%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%D", "-n", &limit, "--skip", &skip];
+    let grep_arg = query.map(|q| q.trim()).filter(|q| !q.is_empty()).map(|q| format!("--grep={q}"));
+    let mut args: Vec<&str> = vec!["log", "--format=%x1e%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%D%x1f%P", "-n", &limit, "--skip", &skip];
+    if all && path.is_none() {
+        args.push("--all");
+        args.push("--topo-order");
+    }
+    if let Some(ref g) = grep_arg {
+        args.push("--regexp-ignore-case");
+        args.push("--fixed-strings");
+        args.push(g.as_str());
+    }
     if path.is_some() { args.push("--follow"); }
     args.push("--");
     if let Some(p) = path { args.push(p); }

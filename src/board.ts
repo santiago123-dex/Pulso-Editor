@@ -1,11 +1,11 @@
 import { lang, t } from "./i18n";
-import { applyMove, COLUMNS, columnOf, groupIssues, labelsForNew, labelsText, parseLabels, planMove, refreshDue, REVIEW_LABEL, sameIssues, upsertIssue, type Column } from "./boardModel";
+import { applyMove, COLUMNS, columnOf, groupIssues, hasLabel, labelsForNew, labelsText, moveInOrder, orderColumnIssues, parseCustomColumns, parseLabels, planMove, refreshDue, REVIEW_LABEL, sameIssues, upsertIssue, type Column, type CustomColumnDef } from "./boardModel";
 import { ensureBoardLabel } from "./boardLabels";
 import { isChatRoom } from "./chatModel";
 import { addLabel, createIssue, deleteIssue, fetchAllIssues, hasToken, isAuthProblem, removeLabel, setIssueState, updateIssue, type Issue } from "./github";
 import { bus } from "./core/events";
 import { currentRepo } from "./core/repo";
-import { readStorage, writeStorage } from "./core/storage";
+import { readJsonStorage, readStorage, writeJsonStorage, writeStorage } from "./core/storage";
 import { openExternal } from "./external";
 import { connectButton } from "./githubConnect";
 import { state } from "./settings";
@@ -36,6 +36,48 @@ const minGap = () => Number(readStorage("pulso.boardMinGap")) || MIN_GAP_MS;
 
 const progressLabel = () => state.settings.boardProgressLabel;
 const confirmKey = (r: Repo) => `pulso.boardWriteOk:${r.owner}/${r.repo}`;
+const customColsKey = (r: Repo) => `pulso.boardCustomCols:${r.owner}/${r.repo}`;
+const orderKey = (r: Repo) => `pulso.boardOrder:${r.owner}/${r.repo}`;
+
+function getCustomColumns(): CustomColumnDef[] {
+  if (!repo) return [];
+  return parseCustomColumns(readStorage(customColsKey(repo)) ?? "");
+}
+
+function getColumnOrder(): Record<string, number[]> {
+  if (!repo) return {};
+  return readJsonStorage<Record<string, number[]>>(orderKey(repo), {});
+}
+
+function reorderInColumn(colId: string, issueNumber: number, delta: -1 | 1, colNumbers: number[]) {
+  if (!repo) return;
+  const map = getColumnOrder();
+  map[colId] = moveInOrder(map[colId] ?? [], issueNumber, delta, colNumbers);
+  writeJsonStorage(orderKey(repo), map);
+  paint();
+}
+
+async function configureCustomColumns() {
+  if (!repo) return;
+  const current = readStorage(customColsKey(repo)) ?? "";
+  const form = await showForm({
+    title: t("Columnas personalizadas del tablero"),
+    submitLabel: t("Guardar"),
+    fields: [
+      {
+        key: "cols",
+        label: t("Columnas extra (Título=etiqueta, una por línea o separadas por coma)"),
+        value: current,
+        placeholder: "Bloqueado=blocked\nQA=qa",
+        multiline: true,
+      },
+    ],
+    hint: t("Las issues abiertas con esa etiqueta aparecerán en su columna personalizada."),
+  });
+  if (!form) return;
+  writeStorage(customColsKey(repo), form.cols.trim());
+  paint();
+}
 
 export const isBoardOpen = () => !$("board-view").hidden;
 
@@ -256,7 +298,17 @@ function card(i: Issue): HTMLElement {
   el.onkeydown = (e) => {
     if (e.target !== el) return;
     if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void editCard(i.number); return; }
-    // Alt+←/→ mueve la tarjeta a la columna vecina (alternativa al arrastre).
+    // Alt+←/→ mueve la tarjeta a la columna vecina; Alt+↑/↓ cambia su orden dentro de la columna.
+    if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      e.preventDefault();
+      const colEl = el.closest<HTMLElement>(".board-col");
+      const colId = colEl?.dataset.col;
+      if (colId) {
+        const colNums = Array.from(colEl!.querySelectorAll<HTMLElement>(".board-card")).map((n) => Number(n.dataset.num)).filter((n) => !Number.isNaN(n));
+        reorderInColumn(colId, i.number, e.key === "ArrowUp" ? -1 : 1, colNums);
+      }
+      return;
+    }
     if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
       e.preventDefault();
       const here = columnOf(i, progressLabel());
@@ -264,6 +316,7 @@ function card(i: Issue): HTMLElement {
       if (at >= 0 && at < COLUMNS.length) void move(i.number, COLUMNS[at].id);
     }
   };
+  el.dataset.num = String(i.number);
   el.onpointerdown = (e) => startDrag(e, el, i.number);
   return el;
 }
@@ -277,6 +330,9 @@ function paint(loading = false) {
   // Cómo se decide la columna: útil al configurar, ruido el resto del tiempo.
   title.title = t("Columnas: «En curso» = etiqueta {progress} · «En revisión» = etiqueta {review} · «Hecho» = issue cerrada", { progress: progressLabel(), review: REVIEW_LABEL });
   head.append(title, h("span", "board-repo", `${repo.owner}/${repo.repo}`), h("span", "grow"));
+  const colsBtn = h("button", "diff-btn", t("Columnas…"));
+  colsBtn.title = t("Configurar columnas personalizadas por etiqueta");
+  colsBtn.onclick = () => void configureCustomColumns();
   const fresh = h("button", "diff-btn primary", t("+ Nueva issue"));
   fresh.title = t("Crear una issue en «Por hacer»");
   fresh.disabled = loading;
@@ -288,29 +344,67 @@ function paint(loading = false) {
   close.title = t("Cerrar (Esc)");
   close.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
   close.onclick = closeBoard;
-  head.append(fresh, reload, close);
+  head.append(colsBtn, fresh, reload, close);
 
-  const groups = groupIssues(issues, progressLabel());
+  const customCols = getCustomColumns();
+  const orderMap = getColumnOrder();
+  const customBuckets = new Map<string, Issue[]>();
+  for (const cc of customCols) customBuckets.set(cc.id, []);
+  const remaining: Issue[] = [];
+  for (const i of issues) {
+    const matched = i.state === "open" ? customCols.find((cc) => hasLabel(i, cc.label)) : undefined;
+    if (matched) customBuckets.get(matched.id)!.push(i);
+    else remaining.push(i);
+  }
+  const groups = groupIssues(remaining, progressLabel());
+  const allCols: { id: string; title: string; list: Issue[]; std?: Column; custom?: CustomColumnDef }[] = [
+    ...COLUMNS.filter((c) => c.id !== "done").map((c) => ({ id: c.id, title: c.title, list: groups[c.id], std: c.id })),
+    ...customCols.map((cc) => ({ id: cc.id, title: cc.title, list: customBuckets.get(cc.id) ?? [], custom: cc })),
+    { id: "done", title: COLUMNS.find((c) => c.id === "done")!.title, list: groups.done, std: "done" as Column },
+  ];
+
   const cols = h("div", "board-cols");
-  for (const c of COLUMNS) {
+  for (const c of allCols) {
+    const ordered = orderColumnIssues(c.list, orderMap[c.id] ?? []);
+    const colNums = ordered.map((i) => i.number);
     const col = h("div", "board-col");
     col.dataset.col = c.id;
     const ch = h("div", "board-col-head");
-    ch.append(h("span", `board-dot board-dot-${c.id}`));
-    ch.append(h("span", "board-col-title", c.title), h("span", "board-col-count", String(groups[c.id].length)));
+    ch.append(h("span", `board-dot board-dot-${c.std ?? "custom"}`));
+    ch.append(h("span", "board-col-title", c.title), h("span", "board-col-count", String(ordered.length)));
     const body = h("div", "board-col-body");
     if (loading) {
       body.append(h("div", "board-skeleton"), h("div", "board-skeleton board-skeleton-short"));
-    } else if (!groups[c.id].length) {
+    } else if (!ordered.length) {
       body.append(h("div", "board-empty", c.id === "done" ? t("Sin issues cerradas") : t("Arrastra una tarjeta aquí")));
     }
-    for (const i of groups[c.id]) body.append(card(i));
+    for (let idx = 0; idx < ordered.length; idx++) {
+      const i = ordered[idx];
+      const cardEl = card(i);
+      if (ordered.length > 1) {
+        const ordBtns = h("span", "board-order-btns");
+        if (idx > 0) {
+          const up = h("button", "icon-btn board-open", "↑");
+          up.title = t("Subir en la columna (Alt+↑)");
+          up.onclick = (e) => { e.stopPropagation(); reorderInColumn(c.id, i.number, -1, colNums); };
+          ordBtns.append(up);
+        }
+        if (idx < ordered.length - 1) {
+          const dn = h("button", "icon-btn board-open", "↓");
+          dn.title = t("Bajar en la columna (Alt+↓)");
+          dn.onclick = (e) => { e.stopPropagation(); reorderInColumn(c.id, i.number, 1, colNums); };
+          ordBtns.append(dn);
+        }
+        cardEl.querySelector(".board-card-actions")?.prepend(ordBtns);
+      }
+      body.append(cardEl);
+    }
     col.append(ch, body);
     // El botón de añadir va fijo al pie de cada columna: siempre a la vista y en el mismo sitio, aunque haya muchas tarjetas.
-    if (c.id !== "done" && !loading) {
+    if (c.std && c.std !== "done" && !loading) {
       const add = h("button", "board-add", t("+ Nueva issue"));
       add.title = t("Crear una issue en «{column}»", { column: c.title });
-      add.onclick = () => void newIssue(c.id);
+      add.onclick = () => void newIssue(c.std!);
       col.append(add);
     }
     cols.append(col);

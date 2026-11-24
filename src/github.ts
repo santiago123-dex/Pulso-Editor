@@ -303,8 +303,8 @@ export async function getJson<T>(path: string): Promise<T> {
   return data;
 }
 
-export async function fetchIssues(owner: string, repo: string, state: string): Promise<Issue[]> {
-  const data = await getJson<Issue[]>(`/repos/${owner}/${repo}/issues?state=${state}&per_page=50`);
+export async function fetchIssues(owner: string, repo: string, state: string, page = 1, perPage = 50): Promise<Issue[]> {
+  const data = await getJson<Issue[]>(`/repos/${owner}/${repo}/issues?state=${state}&per_page=${perPage}&page=${page}`);
   // La API de issues también devuelve PRs; aquí solo mostramos issues.
   return data.filter((i) => !i.pull_request);
 }

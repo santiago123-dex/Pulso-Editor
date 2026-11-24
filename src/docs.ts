@@ -329,9 +329,21 @@ export async function checkExternal() {
         message: t("{file} se modificó fuera del editor y tienes cambios sin guardar.", { file: baseName(d.path) }),
         buttons: [
           { label: t("Mantener los míos"), value: "keep" },
+          { label: t("Ver diferencias"), value: "diff" },
           { label: t("Recargar desde el disco"), value: "reload", danger: true },
         ],
       });
+      if (r === "diff") {
+        const disk = await invoke<string>("read_file", { path: d.path });
+        const { openDiffRequest } = await import("./diffView");
+        await openDiffRequest({
+          title: t("{file} (conflicto)", { file: baseName(d.path) }),
+          sub: t("Disco (externo) ↔ Editor (tus cambios sin guardar)"),
+          path: d.path,
+          openPath: d.path,
+          load: async () => ({ original: disk, modified: d.model.getValue(), binary: false }),
+        });
+      }
       // Con "mantener", guardar volverá a avisar del conflicto: la decisión final es al guardar.
       if (r === "reload") await reloadDoc(d.path);
     }

@@ -8,8 +8,8 @@ export interface PullSummary {
   merged_at: string | null;
   html_url: string;
   user: { login: string } | null;
-  head: { ref: string; sha: string };
-  base: { ref: string; sha: string };
+  head: { ref: string; sha: string; label?: string; repo?: { full_name: string; fork?: boolean } | null };
+  base: { ref: string; sha: string; label?: string; repo?: { full_name: string } | null };
   created_at: string;
   updated_at: string;
   body?: string | null;
@@ -37,7 +37,45 @@ export function prState(pr: Pick<PullSummary, "state" | "draft" | "merged_at">):
 
 export const PR_STATE_LABEL: Record<PrState, string> = { open: t("Abierta"), draft: t("Borrador"), merged: t("Fusionada"), closed: t("Cerrada") };
 
-export const branchLabel = (pr: Pick<PullSummary, "head" | "base">) => `${pr.head.ref} → ${pr.base.ref}`;
+export const branchLabel = (pr: Pick<PullSummary, "head" | "base">) => {
+  const fromFork = pr.head.repo?.full_name && pr.base.repo?.full_name && pr.head.repo.full_name !== pr.base.repo.full_name;
+  const headText = fromFork && pr.head.label ? pr.head.label : pr.head.ref;
+  return `${headText} → ${pr.base.ref}`;
+};
+
+export type MergeMethod = "merge" | "squash" | "rebase";
+export type ReviewEvent = "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
+
+export interface PullComment {
+  id: number;
+  body: string;
+  user: { login: string } | null;
+  created_at: string;
+}
+
+export interface CheckRun {
+  id: number;
+  name: string;
+  status: "queued" | "in_progress" | "completed" | string;
+  conclusion: string | null;
+  html_url?: string | null;
+}
+
+export function checkSummary(runs: readonly CheckRun[]): { total: number; passed: number; failed: number; pending: number } {
+  let passed = 0, failed = 0, pending = 0;
+  for (const r of runs) {
+    if (r.status !== "completed") pending++;
+    else if (r.conclusion === "success" || r.conclusion === "neutral" || r.conclusion === "skipped") passed++;
+    else failed++;
+  }
+  return { total: runs.length, passed, failed, pending };
+}
+
+export function formatHeadForFork(branch: string, forkOwner?: string | null): string {
+  const o = forkOwner?.trim();
+  if (!o || branch.includes(":")) return branch;
+  return `${o}:${branch}`;
+}
 
 /** Letra de estado de un archivo, la misma que usa el panel de Git. */
 export function fileLetter(status: string): "A" | "D" | "R" | "M" {

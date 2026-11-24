@@ -131,3 +131,21 @@ describe("tablero: cuándo recargar solo", () => {
     }
   });
 });
+
+describe("columnas personalizadas y orden dentro de la columna", () => {
+  it("parsea columnas personalizadas sin duplicados", async () => {
+    const { parseCustomColumns, orderColumnIssues, moveInOrder } = await import("./boardModel");
+    expect(parseCustomColumns("Bloqueado=blocked, QA=qa\nQA=qa")).toEqual([
+      { id: "custom:blocked", title: "Bloqueado", label: "blocked" },
+      { id: "custom:qa", title: "QA", label: "qa" },
+    ]);
+    const list = [
+      { number: 1, title: "a", state: "open", labels: [], user: { login: "u" }, comments: 0, html_url: "" },
+      { number: 2, title: "b", state: "open", labels: [], user: { login: "u" }, comments: 0, html_url: "" },
+      { number: 3, title: "c", state: "open", labels: [], user: { login: "u" }, comments: 0, html_url: "" },
+    ] as never[];
+    expect(orderColumnIssues(list, [3, 1]).map((i) => i.number)).toEqual([3, 1, 2]);
+    expect(moveInOrder([3, 1, 2], 1, -1, [1, 2, 3])).toEqual([1, 3, 2]);
+    expect(moveInOrder([3, 1, 2], 1, 1, [1, 2, 3])).toEqual([3, 2, 1]);
+  });
+});

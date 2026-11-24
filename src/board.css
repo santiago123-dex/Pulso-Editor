@@ -71,3 +71,6 @@ body.board-dragging, body.board-dragging * { cursor: grabbing !important; }
 #board-view .board-card-actions .board-open { opacity: 1; }
 #board-view .board-avatars { margin-left: auto; }
 @media (max-width: 900px) { #board-view .board-cols { grid-template-columns: repeat(4, 220px); } }
+
+#board-view .board-dot-custom { background: #a78bfa; }
+#board-view .board-order-btns { display: inline-flex; gap: 2px; }

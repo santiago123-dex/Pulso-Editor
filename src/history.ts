@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { bus } from "./core/events";
 import { openDiffRequest, type Sources } from "./diffView";
 import { activePath } from "./groups";
-import { agoIso, mayHaveMore, mergeCommits, PAGE, refChips, relativeToTop, STATUS_LABEL, type CommitFile, type CommitInfo } from "./historyModel";
+import { agoIso, computeGraphRows, mayHaveMore, mergeCommits, PAGE, refChips, relativeToTop, STATUS_LABEL, type CommitFile, type CommitInfo, type GraphRow } from "./historyModel";
 import { gitTop } from "./scm";
 import { setStatus } from "./ui";
 import { $, baseName, h } from "./util";
@@ -15,8 +15,51 @@ let more = false;
 let loading = false;
 let problem = "";
 let fileFilter: string | null = null;
+let searchQuery = "";
+let allBranches = true;
+let searchTimer = 0;
 let seq = 0;
 const expanded = new Map<string, CommitFile[] | "cargando" | string>();
+
+const GRAPH_COLORS = ["#60a5fa", "#34d399", "#f472b6", "#fbbf24", "#a78bfa", "#fb7185"];
+
+function renderGraphSvg(row: GraphRow): SVGSVGElement {
+  const step = 12;
+  const w = Math.max(16, row.lanes * step + 6);
+  const cy = 14;
+  const hgt = 28;
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "hist-graph");
+  svg.setAttribute("width", String(w));
+  svg.setAttribute("height", String(hgt));
+  svg.setAttribute("viewBox", `0 0 ${w} ${hgt}`);
+  svg.setAttribute("aria-hidden", "true");
+
+  const mk = (tag: string, attrs: Record<string, string>) => {
+    const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    return el;
+  };
+
+  for (const p of row.passLanes) {
+    const x = 6 + p.lane * step;
+    svg.append(mk("line", { x1: String(x), y1: "0", x2: String(x), y2: String(hgt), stroke: GRAPH_COLORS[p.color % GRAPH_COLORS.length], "stroke-width": "1.6", opacity: "0.7" }));
+  }
+  const cx = 6 + row.lane * step;
+  for (const e of row.edges) {
+    const tx = 6 + e.to * step;
+    const col = GRAPH_COLORS[e.color % GRAPH_COLORS.length];
+    if (e.from === e.to) {
+      svg.append(mk("line", { x1: String(cx), y1: String(cy), x2: String(tx), y2: String(hgt), stroke: col, "stroke-width": "1.6" }));
+    } else {
+      svg.append(mk("path", { d: `M ${cx} ${cy} C ${cx} ${cy + 8}, ${tx} ${hgt - 8}, ${tx} ${hgt}`, fill: "none", stroke: col, "stroke-width": "1.6" }));
+    }
+  }
+  // Línea superior que entra al nodo si no es la primera fila o tiene predecesor en el mismo carril
+  svg.append(mk("line", { x1: String(cx), y1: "0", x2: String(cx), y2: String(cy), stroke: GRAPH_COLORS[row.color % GRAPH_COLORS.length], "stroke-width": "1.6", opacity: "0.45" }));
+  svg.append(mk("circle", { cx: String(cx), cy: String(cy), r: "3.3", fill: GRAPH_COLORS[row.color % GRAPH_COLORS.length] }));
+  return svg;
+}
 
 const view = () => $("view-git");
 const isHistoryTab = () => view().classList.contains("history-mode");
@@ -39,7 +82,14 @@ async function loadHistory(reset: boolean, keep = false) {
   problem = "";
   paint();
   try {
-    const batch = await invoke<CommitInfo[]>("git_log", { root: ws.root, path: fileFilter, skip: reset ? 0 : commits.length, limit: PAGE });
+    const batch = await invoke<CommitInfo[]>("git_log", {
+      root: ws.root,
+      path: fileFilter,
+      skip: reset ? 0 : commits.length,
+      limit: PAGE,
+      query: searchQuery.trim() || null,
+      all: allBranches && !fileFilter,
+    });
     if (mine !== seq) return;
     commits = reset ? batch : mergeCommits(commits, batch);
     if (keep) for (const k of [...expanded.keys()]) if (!commits.some((c) => c.hash === k)) expanded.delete(k);
@@ -76,6 +126,34 @@ function openFileDiff(c: CommitInfo, f: CommitFile) {
 function paint() {
   const box = $("scm-history");
   const nodes: HTMLElement[] = [];
+
+  // Barra de búsqueda y selector de grafo (todas las ramas vs rama actual)
+  const toolbar = h("div", "hist-toolbar");
+  const input = document.createElement("input");
+  input.type = "search";
+  input.className = "hist-search";
+  input.placeholder = t("Buscar commits…");
+  input.setAttribute("aria-label", t("Buscar en el historial de commits"));
+  input.value = searchQuery;
+  input.oninput = () => {
+    searchQuery = input.value;
+    clearTimeout(searchTimer);
+    searchTimer = window.setTimeout(() => void loadHistory(true), 220);
+  };
+  input.onkeydown = (e) => {
+    if (e.key === "Enter") { clearTimeout(searchTimer); void loadHistory(true); }
+    if (e.key === "Escape" && searchQuery) { searchQuery = ""; void loadHistory(true); }
+  };
+  toolbar.append(input);
+  if (!fileFilter) {
+    const allBtn = h("button", `hist-all-btn${allBranches ? " active" : ""}`, allBranches ? t("Todas") : t("Actual"));
+    allBtn.type = "button";
+    allBtn.title = allBranches ? t("Mostrando todas las ramas (clic para ver solo HEAD)") : t("Mostrando solo la rama actual (clic para ver el grafo de todas las ramas)");
+    allBtn.onclick = () => { allBranches = !allBranches; void loadHistory(true); };
+    toolbar.append(allBtn);
+  }
+  nodes.push(toolbar);
+
   if (fileFilter) {
     const chip = h("div", "hist-filter");
     chip.append(h("span", "", t("Historial de {file}", { file: fileFilter })));
@@ -87,9 +165,13 @@ function paint() {
     nodes.push(chip);
   }
   if (problem) nodes.push(h("div", "scm-empty", problem));
-  else if (!commits.length && !loading) nodes.push(h("div", "scm-empty", fileFilter ? t("Este archivo aún no tiene commits.") : t("Aún no hay commits.")));
-  for (const c of commits) {
+  else if (!commits.length && !loading) nodes.push(h("div", "scm-empty", searchQuery.trim() ? t("No hay commits que coincidan con la búsqueda.") : fileFilter ? t("Este archivo aún no tiene commits.") : t("Aún no hay commits.")));
+  const graphRows = !searchQuery.trim() && !fileFilter ? computeGraphRows(commits) : null;
+  for (let i = 0; i < commits.length; i++) {
+    const c = commits[i];
     const row = h("div", "hist-row");
+    const lineWrap = h("div", "hist-line");
+    if (graphRows) lineWrap.append(renderGraphSvg(graphRows[i]));
     const head = h("button", "hist-head");
     head.type = "button";
     head.setAttribute("aria-expanded", String(expanded.has(c.hash)));
@@ -109,7 +191,8 @@ function paint() {
     copy.title = t("Copiar el identificador del commit");
     copy.innerHTML = '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>';
     copy.onclick = (e) => { e.stopPropagation(); void navigator.clipboard.writeText(c.hash).then(() => setStatus(t("Copiado {hash}", { hash: c.short }), 2500), () => setStatus(t("No se pudo copiar"))); };
-    row.append(head, copy);
+    lineWrap.append(head, copy);
+    row.append(lineWrap);
     const files = expanded.get(c.hash);
     if (files !== undefined) {
       const list = h("div", "hist-files");
@@ -136,7 +219,13 @@ function paint() {
     b.onclick = () => void loadHistory(false);
     nodes.push(b);
   }
+  const activeWasSearch = document.activeElement?.classList.contains("hist-search");
+  const selStart = activeWasSearch ? (document.activeElement as HTMLInputElement).selectionStart : null;
   box.replaceChildren(...nodes);
+  if (activeWasSearch) {
+    const inp = box.querySelector<HTMLInputElement>(".hist-search");
+    if (inp) { inp.focus(); if (selStart !== null) inp.setSelectionRange(selStart, selStart); }
+  }
 }
 
 /** «Git: Historial del archivo activo»: abre la pestaña de historial filtrada por ese archivo. */

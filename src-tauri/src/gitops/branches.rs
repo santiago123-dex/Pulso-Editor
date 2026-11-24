@@ -78,3 +78,116 @@ pub(super) fn switch_sync(root: &str, name: &str, create: bool) -> Result<(), St
     }
     run(&top, &["switch", name]).map(|_| ())
 }
+
+// ---------- Merge, rebase y estado de operación en curso ----------
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub struct MergeRebaseResult {
+    /// `"ok"` si terminó sin conflictos, `"conflicts"` si quedaron conflictos por resolver.
+    pub status: String,
+    pub message: String,
+}
+
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub struct OperationState {
+    /// `"merge"`, `"rebase"` o `None` si no hay operación en curso.
+    pub kind: Option<String>,
+}
+
+fn git_dir_of(top: &str) -> Result<std::path::PathBuf, String> {
+    let raw = run(top, &["rev-parse", "--git-dir"])?;
+    let trimmed = raw.trim();
+    let p = std::path::PathBuf::from(trimmed);
+    if p.is_absolute() { Ok(p) } else { Ok(std::path::PathBuf::from(top).join(p)) }
+}
+
+pub(super) fn operation_state_sync(root: &str) -> Result<OperationState, String> {
+    let top = top_of(root)?;
+    let gd = git_dir_of(&top)?;
+    if gd.join("MERGE_HEAD").exists() {
+        return Ok(OperationState { kind: Some("merge".into()) });
+    }
+    if gd.join("rebase-merge").exists() || gd.join("rebase-apply").exists() {
+        return Ok(OperationState { kind: Some("rebase".into()) });
+    }
+    Ok(OperationState { kind: None })
+}
+
+fn run_with_no_editor(dir: &str, args: &[&str]) -> Result<String, String> {
+    let o = git_command(dir)
+        .env("GIT_EDITOR", "true")
+        .args(args)
+        .output()
+        .map_err(|e| trf("No se pudo ejecutar git: {e}", &[("e", &e)]))?;
+    if o.status.success() {
+        Ok(String::from_utf8_lossy(&o.stdout).trim().to_string())
+    } else {
+        Err(text(&o))
+    }
+}
+
+pub(super) fn merge_sync(root: &str, branch: &str) -> Result<MergeRebaseResult, String> {
+    valid_branch_name(branch)?;
+    let top = top_of(root)?;
+    match run_with_no_editor(&top, &["merge", "--no-edit", branch]) {
+        Ok(msg) => Ok(MergeRebaseResult { status: "ok".into(), message: msg }),
+        Err(err) => {
+            if operation_state_sync(&top).map(|s| s.kind.as_deref() == Some("merge")).unwrap_or(false)
+                || err.contains("CONFLICT")
+            {
+                Ok(MergeRebaseResult {
+                    status: "conflicts".into(),
+                    message: tr("Fusión detenida por conflictos. Resuélvelos y continúa o aborta.").into(),
+                })
+            } else {
+                Err(err)
+            }
+        }
+    }
+}
+
+pub(super) fn rebase_sync(root: &str, branch: &str) -> Result<MergeRebaseResult, String> {
+    valid_branch_name(branch)?;
+    let top = top_of(root)?;
+    match run_with_no_editor(&top, &["rebase", branch]) {
+        Ok(msg) => Ok(MergeRebaseResult { status: "ok".into(), message: msg }),
+        Err(err) => {
+            if operation_state_sync(&top).map(|s| s.kind.as_deref() == Some("rebase")).unwrap_or(false)
+                || err.contains("CONFLICT")
+            {
+                Ok(MergeRebaseResult {
+                    status: "conflicts".into(),
+                    message: tr("Rebase detenido por conflictos. Resuélvelos, prepáralos y continúa o aborta.").into(),
+                })
+            } else {
+                Err(err)
+            }
+        }
+    }
+}
+
+pub(super) fn operation_action_sync(root: &str, action: &str) -> Result<MergeRebaseResult, String> {
+    if action != "abort" && action != "continue" {
+        return Err(tr("Acción de Git no válida").into());
+    }
+    let top = top_of(root)?;
+    let state = operation_state_sync(&top)?;
+    let Some(kind) = state.kind else {
+        return Err(tr("No hay ninguna fusión ni rebase en curso").into());
+    };
+    let flag = if action == "abort" { "--abort" } else { "--continue" };
+    match run_with_no_editor(&top, &[&kind, flag]) {
+        Ok(msg) => Ok(MergeRebaseResult { status: "ok".into(), message: msg }),
+        Err(err) => {
+            if action == "continue"
+                && (operation_state_sync(&top).map(|s| s.kind.is_some()).unwrap_or(false) || err.contains("CONFLICT"))
+            {
+                Ok(MergeRebaseResult {
+                    status: "conflicts".into(),
+                    message: err,
+                })
+            } else {
+                Err(err)
+            }
+        }
+    }
+}

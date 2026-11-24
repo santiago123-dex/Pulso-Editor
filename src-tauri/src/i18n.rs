@@ -414,6 +414,10 @@ const EN: &[(&str, &str)] = &[
     ("La carpeta elegida no contiene un archivo manifest.json.", "The selected folder does not contain a manifest.json file."),
     ("Identificador de extensión no válido.", "Invalid extension identifier."),
     ("La solicitud de instalación caducó; vuelve a seleccionar la carpeta.", "The installation request expired; select the folder again."),
+    ("Fusión detenida por conflictos. Resuélvelos y continúa o aborta.", "Merge stopped due to conflicts. Resolve them and continue or abort."),
+    ("Rebase detenido por conflictos. Resuélvelos, prepáralos y continúa o aborta.", "Rebase stopped due to conflicts. Resolve them, stage them, and continue or abort."),
+    ("Acción de Git no válida", "Invalid Git action"),
+    ("No hay ninguna fusión ni rebase en curso", "There is no merge or rebase in progress"),
 ];
 
 #[cfg(test)]

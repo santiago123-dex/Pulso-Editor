@@ -32,4 +32,31 @@ describe("gitHunksModel — conflictos", () => {
     expect(resolveConflictText(b, "incoming")).toBe("const msg = 'remoto';");
     expect(resolveConflictText(b, "both")).toBe("const msg = 'local';\nconst msg = 'remoto';");
   });
+
+  it("detecta y resuelve bloques diff3 a tres bandas (con |||||||)", () => {
+    const diff3 = [
+      "<<<<<<< HEAD",
+      "const msg = 'local';",
+      "||||||| base",
+      "const msg = 'original';",
+      "=======",
+      "const msg = 'remoto';",
+      ">>>>>>> feat",
+    ].join("\n");
+    const blocks = parseConflicts(diff3);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({
+      startLine: 1,
+      baseLine: 3,
+      sepLine: 5,
+      endLine: 7,
+      currentLabel: "HEAD",
+      baseLabel: "base",
+      incomingLabel: "feat",
+      currentText: "const msg = 'local';",
+      baseText: "const msg = 'original';",
+      incomingText: "const msg = 'remoto';",
+    });
+    expect(resolveConflictText(blocks[0], "base")).toBe("const msg = 'original';");
+  });
 });

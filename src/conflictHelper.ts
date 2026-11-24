@@ -1,9 +1,10 @@
 import * as monaco from "monaco-editor";
-import { focusedEditor, onGroupsChange } from "./groups";
+import { openDiffRequest } from "./diffView";
+import { activePath, focusedEditor, onGroupsChange } from "./groups";
 import { parseConflicts, resolveConflictText, type ConflictBlock, type ConflictChoice } from "./gitHunksModel";
 import { t } from "./i18n";
 import { setStatus } from "./ui";
-import { h } from "./util";
+import { baseName, h } from "./util";
 
 /**
  * Ayuda visual en conflictos de Git: resalta bloques `<<<<<<< / ======= / >>>>>>>`
@@ -86,7 +87,32 @@ function paintBar() {
   const btnBoth = h("button", "diff-btn", t("Aceptar ambos"));
   btnBoth.onclick = () => applyChoice("both");
 
-  el.replaceChildren(label, btnCur, btnInc, btnBoth);
+  const btns: HTMLElement[] = [label, btnCur];
+  if (b.baseLine !== undefined) {
+    const btnBase = h("button", "diff-btn", t("Aceptar base ({name})", { name: b.baseLabel ?? "base" }));
+    btnBase.onclick = () => applyChoice("base");
+    btns.push(btnBase);
+  }
+  btns.push(btnInc, btnBoth);
+
+  const btnCmp = h("button", "diff-btn", t("Comparar"));
+  btnCmp.onclick = () => {
+    const p = activePath() ?? "conflicto.txt";
+    const original = b.baseLine !== undefined
+      ? `--- ${b.baseLabel ?? "base"} ---\n${b.baseText ?? ""}\n\n--- ${b.currentLabel} ---\n${b.currentText}`
+      : b.currentText;
+    void openDiffRequest({
+      title: `${baseName(p)} (${t("Conflicto {n}/{total}", { n: activeIdx + 1, total: blocks.length })})`,
+      sub: b.baseLine !== undefined
+        ? `${b.baseLabel ?? "base"} / ${b.currentLabel} ↔ ${b.incomingLabel}`
+        : `${b.currentLabel} ↔ ${b.incomingLabel}`,
+      path: p,
+      load: async () => ({ original, modified: b.incomingText, binary: false }),
+    });
+  };
+  btns.push(btnCmp);
+
+  el.replaceChildren(...btns);
   if (blocks.length > 1) {
     const next = h("button", "diff-btn", t("Siguiente →"));
     next.onclick = () => jumpTo(activeIdx + 1);
@@ -128,10 +154,17 @@ function refresh() {
   blocks = parseConflicts(model.getValue());
   const decos: monaco.editor.IModelDeltaDecoration[] = [];
   for (const b of blocks) {
+    const curEnd = (b.baseLine ?? b.sepLine) - 1;
     decos.push({
-      range: new monaco.Range(b.startLine, 1, b.sepLine - 1, 1),
+      range: new monaco.Range(b.startLine, 1, curEnd, 1),
       options: { isWholeLine: true, className: "conflict-current-line" },
     });
+    if (b.baseLine !== undefined) {
+      decos.push({
+        range: new monaco.Range(b.baseLine, 1, b.sepLine - 1, 1),
+        options: { isWholeLine: true, className: "conflict-base-line" },
+      });
+    }
     decos.push({
       range: new monaco.Range(b.sepLine, 1, b.sepLine, 1),
       options: { isWholeLine: true, className: "conflict-sep-line" },
