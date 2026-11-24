@@ -1415,26 +1415,71 @@ pub struct ConfigEntry {
     pub path: String,
     /// De la carpeta personal, no del proyecto.
     pub user: bool,
+    /// Viene del proyecto y no se carga porque la persona todavía no confió en él.
+    pub blocked: bool,
+}
+
+fn trust_file(app: &AppHandle) -> Option<PathBuf> {
+    app.path().app_data_dir().ok().map(|d| d.join("trusted-folders.json"))
+}
+
+/// ¿Confió la persona en este proyecto? Es la misma lista que usa la terminal (`pulso`); confiar en una carpeta incluye sus subcarpetas.
+fn project_trusted(app: &AppHandle, dir: &Path) -> bool {
+    let Some(file) = trust_file(app) else { return false };
+    let text = std::fs::read_to_string(file).unwrap_or_default();
+    let dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    crate::termui::is_trusted(&crate::termui::trusted_list(&text), &dir)
+}
+
+/// Pregunta con un diálogo nativo si se confía en el proyecto y lo recuerda. La pregunta la hace Rust, no la ventana:
+/// una ventana comprometida no puede darse la confianza a sí misma.
+#[tauri::command]
+pub async fn project_trust_request(app: AppHandle, guard: State<'_, crate::fsguard::WorkspaceGuard>, cwd: String) -> Result<bool, String> {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+    let dir = guard.ensure_dir(&cwd)?;
+    if project_trusted(&app, &dir) {
+        return Ok(true);
+    }
+    let msg = trf("¿Confías en los autores de esta carpeta?\n\n{dir}\n\nSi confías, el agente de IA leerá sus AGENTS.md, skills, subagentes y comandos y los tratará como instrucciones. Si no es tu proyecto o no conoces a quien lo escribió, no confíes.", &[("dir", &dir.display())]);
+    let (yes, no) = (tr("Confiar").to_string(), tr("No confiar").to_string());
+    let handle = app.clone();
+    let ok = tauri::async_runtime::spawn_blocking(move || {
+        handle.dialog().message(msg).title("Pulso Editor").kind(MessageDialogKind::Warning).buttons(MessageDialogButtons::OkCancelCustom(yes, no)).blocking_show()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    if !ok {
+        return Ok(false);
+    }
+    let file = trust_file(&app).ok_or_else(|| tr("No se pudo guardar la confianza en la carpeta.").to_string())?;
+    let canon = std::fs::canonicalize(&dir).unwrap_or(dir);
+    let updated = crate::termui::add_trusted(&std::fs::read_to_string(&file).unwrap_or_default(), &canon);
+    if let Some(parent) = file.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::write(&file, updated).map_err(|e| e.to_string())?;
+    Ok(true)
 }
 
 /// Lo que el agente propio carga para una carpeta: instrucciones, skills, subagentes y comandos con `/`.
 #[tauri::command]
-pub async fn agent_config(guard: State<'_, crate::fsguard::WorkspaceGuard>, cwd: String) -> Result<Vec<ConfigEntry>, String> {
-    guard.ensure_dir(&cwd)?;
+pub async fn agent_config(app: AppHandle, guard: State<'_, crate::fsguard::WorkspaceGuard>, cwd: String) -> Result<Vec<ConfigEntry>, String> {
+    let dir = guard.ensure_dir(&cwd)?;
+    let trusted = project_trusted(&app, &dir);
     let cfg = tauri::async_runtime::spawn_blocking(move || crate::agentconfig::Config::load(Path::new(&cwd))).await.map_err(|e| e.to_string())?;
     let p = |path: &Path| path.to_string_lossy().replace('\\', "/");
     let mut out = Vec::new();
     for i in &cfg.instructions {
-        out.push(ConfigEntry { kind: "instruction".into(), name: i.source.clone(), description: format!("{} bytes", i.text.len()), path: p(&i.path), user: i.user });
+        out.push(ConfigEntry { kind: "instruction".into(), name: i.source.clone(), description: format!("{} bytes", i.text.len()), path: p(&i.path), user: i.user, blocked: !trusted && !i.user });
     }
     for s in &cfg.skills {
-        out.push(ConfigEntry { kind: "skill".into(), name: s.name.clone(), description: s.description.clone(), path: p(&s.dir.join("SKILL.md")), user: s.user });
+        out.push(ConfigEntry { kind: "skill".into(), name: s.name.clone(), description: s.description.clone(), path: p(&s.dir.join("SKILL.md")), user: s.user, blocked: !trusted && !s.user });
     }
     for a in &cfg.agents {
-        out.push(ConfigEntry { kind: "agent".into(), name: a.name.clone(), description: a.description.clone(), path: a.path.as_deref().map(p).unwrap_or_default(), user: a.user });
+        out.push(ConfigEntry { kind: "agent".into(), name: a.name.clone(), description: a.description.clone(), path: a.path.as_deref().map(p).unwrap_or_default(), user: a.user, blocked: !trusted && !a.user && !a.builtin });
     }
     for c in &cfg.commands {
-        out.push(ConfigEntry { kind: "command".into(), name: format!("/{}", c.name), description: c.description.clone(), path: p(&c.path), user: c.user });
+        out.push(ConfigEntry { kind: "command".into(), name: format!("/{}", c.name), description: c.description.clone(), path: p(&c.path), user: c.user, blocked: !trusted && !c.user });
     }
     Ok(out)
 }
@@ -1467,7 +1512,11 @@ async fn start_cloud(
         let key = crate::catalog::get_key(provider).ok_or_else(|| trf("Falta la clave de {provider}.", &[("provider", &provider.name)]))?;
         let cloud = crate::agent::CloudModel::from_catalog(provider, entry, key);
         // Instrucciones del proyecto, skills, subagentes y comandos (se leen de archivos).
+        let trusted = project_trusted(&app, Path::new(&cwd_for_config));
+        let cwd_for_memory = cwd_for_config.clone();
         let config = tauri::async_runtime::spawn_blocking(move || crate::agentconfig::Config::load(Path::new(&cwd_for_config))).await.map_err(|e| e.to_string())?;
+        // Sin confianza, lo del proyecto no llega al modelo: solo lo personal y los subagentes integrados.
+        let config = if trusted { config.with_memory(crate::agentmem::memory_store(&app, Path::new(&cwd_for_memory))) } else { config.without_project() };
         Ok::<_, String>((cloud, Arc::new(config), crate::agent::catalog_resolver(list.clone())))
     }
     .await;

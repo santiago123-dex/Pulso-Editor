@@ -100,6 +100,10 @@
           <svg viewBox="0 0 24 24"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-9V3"/><path d="M8.5 14h7"/></svg>
           <span id="tests-badge" class="act-badge" hidden></span>
         </button>
+        <button class="act" data-view="debug" title="Depurador" aria-label="Depurador">
+          <svg viewBox="0 0 24 24"><path d="M8 7a4 4 0 0 1 8 0v1h-8V7z"/><rect x="7" y="8" width="10" height="10" rx="5"/><path d="M4 11h3M17 11h3M4 15h3M17 15h3M5.5 7.5l2 1.5M18.5 7.5l-2 1.5"/></svg>
+          <span id="debug-badge" class="act-badge" hidden></span>
+        </button>
         <button class="act" data-view="extensions" title="Extensiones" aria-label="Extensiones">
           <svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><path d="M17 13v8M13 17h8"/></svg>
         </button>
@@ -214,6 +218,55 @@
           <select id="tests-runner" hidden aria-label="Ejecutor de pruebas"></select>
           <div id="tests-summary"></div>
           <div id="tests-list"></div>
+        </section>
+
+        <section id="view-debug" class="view" hidden>
+          <header>
+            <span class="title">Depurador</span>
+            <button class="icon-btn" id="dbg-start" title="Iniciar o continuar depuración (F5)" aria-label="Iniciar depuración">
+              <svg viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></svg>
+            </button>
+            <button class="icon-btn" id="dbg-create-cfg" title="Abrir o crear .pulso/launch.json" aria-label="Configurar launch.json">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>
+            </button>
+          </header>
+          <div class="dbg-toolbar">
+            <select id="dbg-config" aria-label="Configuración de depuración"></select>
+          </div>
+          <div id="dbg-trust" class="dbg-trust" hidden>
+            <span>Depurar ejecuta código de esta carpeta. Confía en el proyecto para continuar.</span>
+            <button type="button" class="primary" id="dbg-trust-btn">Confiar en esta carpeta</button>
+          </div>
+          <div id="dbg-controls" class="dbg-controls" hidden>
+            <button class="icon-btn" id="dbg-continue" title="Continuar (F5)" aria-label="Continuar"><svg viewBox="0 0 24 24"><path d="M6 4l12 8-12 8z"/></svg></button>
+            <button class="icon-btn" id="dbg-pause" title="Pausar" aria-label="Pausar"><svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg></button>
+            <button class="icon-btn" id="dbg-next" title="Paso por encima (F10)" aria-label="Paso por encima"><svg viewBox="0 0 24 24"><path d="M5 14a7 7 0 0 1 14 0M16 11l3 3-3 3"/><circle cx="12" cy="18" r="1.5"/></svg></button>
+            <button class="icon-btn" id="dbg-step-in" title="Entrar en función (Shift+F10)" aria-label="Entrar en función"><svg viewBox="0 0 24 24"><path d="M12 4v12M8 12l4 4 4-4"/><circle cx="12" cy="19" r="1.5"/></svg></button>
+            <button class="icon-btn" id="dbg-step-out" title="Salir de función (Shift+F11)" aria-label="Salir de función"><svg viewBox="0 0 24 24"><path d="M12 16V4M8 8l4-4 4 4"/><circle cx="12" cy="19" r="1.5"/></svg></button>
+            <button class="icon-btn" id="dbg-stop" title="Detener (Shift+F5)" aria-label="Detener"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg></button>
+            <span id="dbg-status" class="dbg-status">Detenido</span>
+          </div>
+          <div class="dbg-scroll">
+            <div class="dbg-section">
+              <div class="dbg-section-head"><span>Variables</span></div>
+              <div id="dbg-vars" class="dbg-list"></div>
+            </div>
+            <div class="dbg-section">
+              <div class="dbg-section-head"><span>Pila de llamadas</span></div>
+              <div id="dbg-stack" class="dbg-list"></div>
+            </div>
+            <div class="dbg-section">
+              <div class="dbg-section-head">
+                <span>Puntos de interrupción</span>
+                <button class="icon-btn" id="dbg-bp-clear" title="Quitar todos" aria-label="Quitar todos los puntos de interrupción">×</button>
+              </div>
+              <div id="dbg-bps" class="dbg-list"></div>
+            </div>
+          </div>
+          <div id="dbg-console" class="dbg-console"></div>
+          <div class="dbg-eval-row">
+            <input id="dbg-eval-input" type="text" placeholder="Evaluar expresión en consola…" aria-label="Evaluar expresión" spellcheck="false" autocomplete="off" />
+          </div>
         </section>
 
         <section id="view-extensions" class="view" hidden>
