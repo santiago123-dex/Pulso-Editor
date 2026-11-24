@@ -4,6 +4,9 @@ Todos los cambios notables en Pulso Editor se documentan en este archivo.
 
 ## [Sin publicar]
 
+### Interno
+- `gitops.rs` (1258 líneas) se divide en `gitops/`: cambios, ramas, remoto e historial, con las pruebas en su propio archivo. Sin cambios de comportamiento.
+
 ### Corregido
 - **El panel «Ver uso y límites» del selector de modelos ya no se abre solo ni se queda abierto.** Se abría al pasar el cursor y, al pulsar para cerrarlo, se volvía a abrir porque el botón se redibujaba bajo el cursor. Ahora solo se abre y se cierra con un clic.
 
