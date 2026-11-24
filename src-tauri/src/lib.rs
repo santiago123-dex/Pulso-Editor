@@ -32,12 +32,15 @@ pub mod agent;
 pub mod agenttools;
 pub mod agentperms;
 pub mod agentconfig;
+pub mod agentmem;
 mod updates;
 mod diag;
 mod project_check;
 mod test_runner;
 mod git_hunks;
 mod inline_ai;
+mod dap;
+mod dap_config;
 
 /// Los procesos auxiliares no deben abrir ventanas de consola en Windows.
 fn background_command(program: &str) -> Command {
@@ -76,14 +79,79 @@ struct Entry {
 const MAX_OPEN_FILE_BYTES: u64 = 50 * 1024 * 1024;
 const MAX_THEME_FILE_BYTES: u64 = 2 * 1024 * 1024;
 
+fn approved_store(app: &tauri::AppHandle) -> Result<fsguard::ApprovedStore, String> {
+    Ok(fsguard::ApprovedStore(app.path().app_data_dir().map_err(|e| e.to_string())?.join("approved-folders.json")))
+}
+
+fn user_home_dir() -> Option<PathBuf> {
+    std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from)
+}
+
+/// Aprueba una carpeta que la persona acaba de elegir (diálogo del sistema o línea de comandos): la recuerda en
+/// esta sesión y en las siguientes. Rechaza las demasiado amplias (raíz de una unidad, carpeta personal…).
+fn approve_folder(app: &tauri::AppHandle, guard: &fsguard::WorkspaceGuard, raw: &str) -> Result<PathBuf, String> {
+    let canon = guard.approve_dir(raw)?;
+    if let Some(why) = termui::broad_dir_reason(&canon, user_home_dir().as_deref()) {
+        return Err(trf("No se puede usar como carpeta de trabajo: {why}.", &[("why", &why)]));
+    }
+    if let Ok(store) = approved_store(app) {
+        let _ = store.add(&canon);
+    }
+    Ok(canon)
+}
+
+/// Fija la carpeta de trabajo de la ventana. La ventana no decide qué carpetas son válidas: solo se acepta una
+/// que la persona aprobó con el diálogo del sistema o la línea de comandos. Una carpeta reciente de una sesión
+/// anterior se reabre sin preguntar; cualquier otra pide una confirmación nativa que la ventana no puede saltarse.
 #[tauri::command]
 async fn set_workspace_root(
+    app: tauri::AppHandle,
     window: tauri::WebviewWindow,
     guard: tauri::State<'_, fsguard::WorkspaceGuard>,
     path: Option<String>,
 ) -> Result<Option<String>, String> {
-    let resolved = guard.set_root_for(window.label(), path.as_deref())?;
+    if let Some(raw) = path.as_deref() {
+        if !guard.is_dir_approved(raw) {
+            let canon = std::fs::canonicalize(raw).map_err(|e| trf("No se pudo abrir la carpeta: {e}", &[("e", &e)]))?;
+            if let Some(why) = termui::broad_dir_reason(&canon, user_home_dir().as_deref()) {
+                return Err(trf("No se puede usar como carpeta de trabajo: {why}.", &[("why", &why)]));
+            }
+            let known = approved_store(&app).map(|s| s.contains(&canon)).unwrap_or(false);
+            if !known {
+                use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+                let msg = trf("Pulso quiere abrir esta carpeta, que no abriste antes con «Abrir carpeta»:\n\n{dir}\n\n¿La abres?", &[("dir", &norm(&canon))]);
+                let (yes, no) = (tr("Abrir").to_string(), tr("Cancelar").to_string());
+                let handle = app.clone();
+                let ok = tauri::async_runtime::spawn_blocking(move || {
+                    handle.dialog().message(msg).title("Pulso Editor").kind(MessageDialogKind::Warning)
+                        .buttons(MessageDialogButtons::OkCancelCustom(yes, no)).blocking_show()
+                })
+                .await
+                .map_err(|e| e.to_string())?;
+                if !ok {
+                    return Err(tr("Esta carpeta no está autorizada: ábrela con el diálogo «Abrir carpeta».").into());
+                }
+            }
+            approve_folder(&app, &guard, &canon.to_string_lossy())?;
+        }
+    }
+    let resolved = guard.set_root_approved(window.label(), path.as_deref())?;
     Ok(resolved.map(|p| norm(&p)))
+}
+
+/// Abre el diálogo del sistema para elegir una carpeta de trabajo. Se hace aquí y no en la ventana: la carpeta
+/// elegida queda aprobada, y ninguna otra puede fijarse sin una confirmación.
+#[tauri::command]
+async fn pick_workspace_folder(app: tauri::AppHandle, guard: tauri::State<'_, fsguard::WorkspaceGuard>) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let handle = app.clone();
+    let picked = tauri::async_runtime::spawn_blocking(move || handle.dialog().file().blocking_pick_folder())
+        .await
+        .map_err(|e| e.to_string())?;
+    let Some(dir) = picked else { return Ok(None) };
+    let path = dir.into_path().map_err(|e| e.to_string())?;
+    let canon = approve_folder(&app, &guard, &path.to_string_lossy())?;
+    Ok(Some(norm(&canon)))
 }
 
 fn encode_query_value(raw: &str) -> String {
@@ -1048,19 +1116,22 @@ fn git_remote_sync(path: String) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-fn authorize_cli_targets(guard: &fsguard::WorkspaceGuard, targets: &[cli::CliTarget]) {
+fn authorize_cli_targets(app: &tauri::AppHandle, guard: &fsguard::WorkspaceGuard, targets: &[cli::CliTarget]) {
     for t in targets {
         if t.kind == "file" {
             guard.allow_file(Path::new(&t.path));
+        } else if t.kind == "dir" {
+            // Una carpeta que la persona escribió en la terminal (`pulso carpeta`) cuenta como elegida por ella.
+            let _ = approve_folder(app, guard, &t.path);
         }
     }
 }
 
 /// Argumentos con los que se lanzó este proceso (`pulso archivo`, `pulso -g archivo:línea`).
 #[tauri::command]
-fn cli_startup_targets(guard: tauri::State<'_, fsguard::WorkspaceGuard>) -> Vec<cli::CliTarget> {
+fn cli_startup_targets(app: tauri::AppHandle, guard: tauri::State<'_, fsguard::WorkspaceGuard>) -> Vec<cli::CliTarget> {
     let targets = cli::startup_targets();
-    authorize_cli_targets(&guard, &targets);
+    authorize_cli_targets(&app, &guard, &targets);
     targets
 }
 
@@ -1109,7 +1180,7 @@ pub fn run() {
         // Una sola ventana: si se vuelve a lanzar `pulso archivo`, los argumentos llegan a la que ya está abierta.
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             let targets = cli::parse_args(&args[1.min(args.len())..], std::path::Path::new(&cwd));
-            authorize_cli_targets(&app.state::<fsguard::WorkspaceGuard>(), &targets);
+            authorize_cli_targets(app, &app.state::<fsguard::WorkspaceGuard>(), &targets);
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.unminimize();
                 let _ = w.show();
@@ -1127,6 +1198,7 @@ pub fn run() {
         .manage(aichat::AiState::default())
         .manage(catalog::CatalogState::default())
         .manage(std::sync::Arc::new(agentperms::Broker::default()))
+        .manage(dap::DapState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .on_window_event(|window, event| {
@@ -1137,6 +1209,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             set_workspace_root,
+            pick_workspace_folder,
+            aichat::project_trust_request,
             open_new_window,
             list_dir,
             cli_startup_targets,
@@ -1150,6 +1224,9 @@ pub fn run() {
             agentperms::ai_permission_respond,
             agentperms::agent_rules_list,
             agentperms::agent_rules_remove,
+            agentperms::agent_rules_add_deny,
+            agentmem::agent_memory_list,
+            agentmem::agent_memory_remove,
             catalog::provider_key_set,
             catalog::provider_key_delete,
             pick_theme_file,
@@ -1234,7 +1311,22 @@ pub fn run() {
             test_runner::test_run,
             git_hunks::git_file_hunks,
             git_hunks::git_apply_hunk,
-            inline_ai::ai_inline_complete
+            inline_ai::ai_inline_complete,
+            dap::dap_list_configs,
+            dap::dap_trust_workspace,
+            dap::dap_create_launch_file,
+            dap::dap_launch,
+            dap::dap_stop,
+            dap::dap_set_breakpoints,
+            dap::dap_continue,
+            dap::dap_next,
+            dap::dap_step_in,
+            dap::dap_step_out,
+            dap::dap_pause,
+            dap::dap_stack_trace,
+            dap::dap_scopes,
+            dap::dap_variables,
+            dap::dap_evaluate
         ])
         .build(app_context())
         .expect("error al iniciar Pulso Editor")
@@ -1244,6 +1336,7 @@ pub fn run() {
                 app.state::<term::TermState>().kill_all();
                 app.state::<lsp::LspState>().stop();
                 app.state::<aichat::AiState>().stop_all();
+                app.state::<dap::DapState>().stop();
             }
         });
 }

@@ -245,6 +245,21 @@ impl RuleStore {
         self.write(&f)
     }
 
+    /// Una regla de denegar: el agente no podrá ejecutar ese comando ni preguntando. Hace al agente más prudente, nunca menos.
+    pub fn add_deny(&self, root: &Path, rule: &str) -> Result<(), String> {
+        let rule = collapse(rule);
+        if rule.is_empty() || rule == "*" {
+            return Err(tr("Escribe un comando, o un prefijo seguido de * (por ejemplo: git push *).").into());
+        }
+        let _g = FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut f = self.read();
+        let r = f.roots.entry(root_key(root)).or_default();
+        if !r.deny.contains(&rule) {
+            r.deny.push(rule);
+        }
+        self.write(&f)
+    }
+
     pub fn remove(&self, root: &Path, kind: &str, rule: &str) -> Result<(), String> {
         let _g = FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut f = self.read();
@@ -454,6 +469,14 @@ pub async fn agent_rules_list(app: AppHandle, guard: State<'_, crate::fsguard::W
     let s = store(&app)?;
     let rules = tauri::async_runtime::spawn_blocking(move || s.load(Path::new(&cwd))).await.map_err(|e| e.to_string())?;
     Ok(rules.deny.into_iter().map(|r| RuleEntry { kind: "deny".into(), rule: r }).chain(rules.allow.into_iter().map(|r| RuleEntry { kind: "allow".into(), rule: r })).collect())
+}
+
+/// Añade una regla de denegar escrita por la persona (`git push *` bloquea todo `git push`).
+#[tauri::command]
+pub async fn agent_rules_add_deny(app: AppHandle, guard: State<'_, crate::fsguard::WorkspaceGuard>, cwd: String, rule: String) -> Result<(), String> {
+    guard.ensure_dir(&cwd)?;
+    let s = store(&app)?;
+    tauri::async_runtime::spawn_blocking(move || s.add_deny(Path::new(&cwd), &rule)).await.map_err(|e| e.to_string())?
 }
 
 /// Borra una regla guardada.
@@ -693,5 +716,22 @@ mod tests {
     fn interpreta_las_respuestas_del_panel() {
         assert_eq!((Decision::parse("once"), Decision::parse("always"), Decision::parse("all")), (Decision::Once, Decision::AlwaysCommand, Decision::AllowAll));
         assert_eq!((Decision::parse("deny"), Decision::parse(""), Decision::parse("cualquier cosa")), (Decision::Deny, Decision::Deny, Decision::Deny));
+    }
+
+    #[test]
+    fn una_regla_de_denegar_escrita_a_mano_bloquea_el_comando_y_sus_variantes() {
+        let store = RuleStore::new(tmp_file("deny"));
+        let root = std::env::temp_dir();
+        assert!(store.add_deny(&root, "  ").is_err() && store.add_deny(&root, "*").is_err());
+        store.add_deny(&root, "cargo   publish *").unwrap();
+        store.add_deny(&root, "cargo publish *").unwrap();
+        let rules = store.load(&root);
+        assert_eq!(rules.deny, vec!["cargo publish *".to_string()], "sin repetir y con los espacios normalizados");
+        assert!(rules.denies("cargo publish --dry-run") && rules.denies("cargo build && cargo publish"));
+        assert!(!rules.denies("cargo build"));
+        let p = Permissions::fixed(Decision::Once).with_rules(rules);
+        assert!(matches!(block(p.check_command("cargo publish", "", |_| false)), Verdict::Deny(_)), "ni siquiera pregunta");
+        store.remove(&root, "deny", "cargo publish *").unwrap();
+        assert!(store.load(&root).deny.is_empty());
     }
 }

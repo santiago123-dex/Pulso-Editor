@@ -14,6 +14,8 @@ export interface ConfigEntry {
   description: string;
   path: string;
   user: boolean;
+  /** Del proyecto y sin cargar: la persona todavía no confió en él. */
+  blocked?: boolean;
 }
 
 const ORDER: ConfigEntry["kind"][] = ["instruction", "skill", "agent", "command"];
@@ -57,15 +59,30 @@ export async function showAgentConfig(): Promise<void> {
         setStatus(tr("No se pudo leer la configuración del agente: {error}", { error: String(e) }), 8000);
         return [];
       }
-      return sortConfig(list).map<PickItem>((e) => ({
+      const items = sortConfig(list).map<PickItem>((e) => ({
         label: `${kindLabel(e.kind)} · ${e.name}`,
-        detail: `${originLabel(e)}${e.description ? ` · ${e.description}` : ""}`,
+        detail: e.blocked ? tr("Del proyecto: no se carga hasta que confíes en él") : `${originLabel(e)}${e.description ? ` · ${e.description}` : ""}`,
         keywords: `${e.kind} ${e.name} ${e.description}`,
         run: () => {
           if (e.path && !e.user) void openFile(e.path);
           else if (e.path) setStatus(e.path, 8000);
         },
       }));
+      if (list.some((e) => e.blocked)) {
+        items.unshift({ label: tr("Confiar en este proyecto…"), detail: tr("Sin confianza no se carga nada del proyecto"), keywords: "confiar confianza trust", run: () => void trustProject() });
+      }
+      return items;
     },
   });
+}
+
+/** Pregunta (con un diálogo nativo que abre Rust) si se confía en los autores del proyecto abierto. */
+export async function trustProject(): Promise<void> {
+  if (!ws.root) { setStatus(tr("Abre una carpeta de proyecto primero."), 5000); return; }
+  try {
+    const ok = await invoke<boolean>("project_trust_request", { cwd: ws.root });
+    if (ok) setStatus(tr("Confías en este proyecto"), 5000);
+  } catch (e) {
+    setStatus(tr("No se pudo guardar la confianza en la carpeta.") + " " + String(e), 8000);
+  }
 }

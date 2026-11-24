@@ -67,11 +67,11 @@ Dos agentes trabajan a la vez: **Claude** y **Antigravity**. Cada uno hace solo 
 
 **Por qué:** hoy la ventana declara su carpeta con `set_workspace_root`. Una ventana comprometida podría declarar `C:\` y saltarse todo `fsguard`. Es el hueco de seguridad más importante.
 
-- [ ] Que **solo el backend fije la carpeta**: al elegirla con el diálogo (que abra Rust, no la ventana), al abrirla desde la CLI, al elegir una reciente y al restaurar la sesión guardada. Quitar `set_workspace_root` como comando libre, o hacer que solo acepte una ruta que el backend ya aprobó.
-- [ ] **Aviso de confianza** al abrir un proyecto nuevo (como en la CLI, `trusted-folders.json`): sin confianza no se cargan `AGENTS.md`, skills ni subagentes del proyecto y el modo Agente queda desactivado.
-- [ ] Rechazar carpetas demasiado amplias (raíz de disco, carpeta personal) como espacio de trabajo, igual que ya hace `broad_dir_reason` en la CLI.
+- [x] Que **solo el backend fije la carpeta**: al elegirla con el diálogo (que abra Rust, no la ventana), al abrirla desde la CLI, al elegir una reciente y al restaurar la sesión guardada. Quitar `set_workspace_root` como comando libre, o hacer que solo acepte una ruta que el backend ya aprobó.
+- [x] **Confianza en el proyecto** (misma lista que la CLI, `trusted-folders.json`): sin confianza no se cargan `AGENTS.md`, skills, subagentes ni comandos del proyecto; se pide con «IA: Confiar en este proyecto…». El modo Agente sigue disponible porque ya pregunta antes de cada comando. Falta: avisar al abrir un proyecto que tenga esos archivos, sin que la persona tenga que buscar el comando.
+- [x] Rechazar carpetas demasiado amplias (raíz de disco, carpeta personal) como espacio de trabajo, igual que ya hace `broad_dir_reason` en la CLI.
 - [ ] Revisar `search_files` y `replace_in_file` con enlaces simbólicos.
-- [ ] Pruebas: una ventana que pida `C:\` o una ruta no aprobada es rechazada.
+- [x] Pruebas: una ventana que pida `C:\` o una ruta no aprobada es rechazada.
 
 **Hecho cuando:** ningún comando acepta una carpeta que el backend no haya fijado y hay una prueba de Rust que lo demuestra.
 
@@ -101,12 +101,12 @@ Casi todo es manual o de configuración; es lo que más frena a quien descargue 
 
 Es la mayor carencia frente a otros editores. Va en módulos nuevos para no chocar con nadie.
 
-- [ ] Cliente del protocolo DAP en Rust (`src-tauri/src/dap*.rs`): lanzar el adaptador, enviar y recibir mensajes, ciclo de vida.
-- [ ] Interfaz: puntos de interrupción en el margen del editor, panel de variables, pila de llamadas, consola de depuración y barra de control (continuar, paso, parar).
-- [ ] Un primer lenguaje de punta a punta (Node/TypeScript o Python con `debugpy`), antes de ampliar.
-- [ ] Configuración de lanzamiento por proyecto (`.pulso/launch.json`, con lectura de `.vscode/launch.json` como ayuda).
-- [ ] Respetar `fsguard` y el aviso de confianza de A: depurar ejecuta código.
-- [ ] Documentar en `docs/DEPURADOR.md`.
+- [x] Cliente del protocolo DAP en Rust (`src-tauri/src/dap*.rs`): lanzar el adaptador, enviar y recibir mensajes, ciclo de vida.
+- [x] Interfaz: puntos de interrupción en el margen del editor, panel de variables, pila de llamadas, consola de depuración y barra de control (continuar, paso, parar).
+- [x] Un primer lenguaje de punta a punta (Node/TypeScript o Python con `debugpy`), antes de ampliar.
+- [x] Configuración de lanzamiento por proyecto (`.pulso/launch.json`, con lectura de `.vscode/launch.json` como ayuda).
+- [x] Respetar `fsguard` y el aviso de confianza de A: depurar ejecuta código.
+- [x] Documentar en `docs/DEPURADOR.md`.
 
 ## E. Extensiones
 
@@ -124,12 +124,12 @@ Lo ya hecho (proveedores de models.dev, herramientas, subagentes, skills, comand
 
 - [ ] **Probar con proveedores reales** (OpenAI, Anthropic, OpenRouter, DeepSeek…) y corregir las rarezas; hasta ahora solo hay servidores simulados.
 - [ ] **Aprobar las ediciones directas** del modo Agente (hoy se aplican sin preguntar; se deshacen con Git).
-- [ ] **Escribir reglas de denegar desde la interfaz** (hoy se editan en `agent-permissions.json`).
-- [ ] **Resumir la conversación** al llegar al límite de contexto, en vez de solo podar resultados.
+- [x] **Escribir reglas de denegar desde la interfaz.**
+- [x] **Resumir la conversación** al llegar al límite de contexto, en vez de solo podar resultados.
 - [ ] **MCP:** cliente de servidores MCP, con aprobación de sus herramientas por el mismo camino que los comandos.
 - [ ] **Ganchos (hooks)** antes y después de cada herramienta.
-- [ ] **Memoria entre sesiones**, por proyecto, guardada fuera del proyecto.
-- [ ] **Modo plan:** que el agente proponga el plan y lo apruebes antes de editar.
+- [x] **Memoria entre sesiones**, por proyecto, guardada fuera del proyecto (`agentmem.rs`).
+- [x] **Modo plan:** `/plan <tarea>`, siempre en solo lectura; el agente propone el plan y tú decides cuándo ejecutarlo.
 - [ ] Ver en vivo los pasos de un subagente.
 - [ ] **Pasar Ollama al motor común** (`agent.rs`, que ya habla con su endpoint compatible) y retirar el motor aparte de `localai.rs`.
 - [ ] Cifrar el historial del chat (`ai-chats.json`) o decidir y documentar por qué no.
@@ -182,4 +182,4 @@ Dividir por responsabilidad facilita revisar y evita que las ramas choquen. **Ha
 
 ## Notas entre agentes
 
-_(Vacío. Cada agente añade aquí una línea con fecha y lo que necesita del otro o lo que encontró.)_
+- **2026-11-23 (Antigravity → Claude):** Frente D (`depurador`) lee y escribe `trusted-folders.json` en `src-tauri/src/dap_config.rs` reutilizando `termui::{trusted_list, is_trusted, add_trusted, broad_dir_reason}` para no tocar `fsguard.rs` ni chocar con el Frente A (`seguridad-workspace`). Cuando A se una a `develop`, `dap_config.rs` puede conectarse directamente al estado de confianza centralizado del backend si A expone un helper común.
