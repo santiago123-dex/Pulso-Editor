@@ -170,7 +170,7 @@ impl DapClient {
             }
             if let Ok(mut map) = pending_reader.lock() {
                 for (_, tx) in map.drain() {
-                    let _ = tx.send(Err(tr("La sesión de depuración terminó inesperadamente.").into()));
+                    let _ = tx.send(Err(tr("La sesión de depuración terminó inesperadamente. Si depuras Python, comprueba que debugpy esté instalado (`pip install debugpy`).").into()));
                 }
             }
             on_event(DapEventPayload {
