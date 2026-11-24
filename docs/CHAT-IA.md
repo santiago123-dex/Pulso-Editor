@@ -31,7 +31,12 @@ Se abre con el icono del asistente de la barra de actividad (o «Ver: Asistente 
 - Pulso no ve tu sesión ni ningún token; no guarda tu correo (la herramienta lo informa y se descarta).
 - La respuesta se pinta siempre como texto: no se interpreta HTML.
 - Los argumentos que se pasan a la herramienta (sesión, modelo, permisos) se validan; el mensaje va por la entrada estándar, no por la línea de comandos.
-- Las conversaciones guardadas contienen el texto de tus mensajes y de las respuestas en este equipo, sin cifrar, en el archivo `ai-chats.json` de los datos de la aplicación (antes estaban en localStorage; al actualizar se mueven solas). Se guardan como máximo 30 por equipo y 1,5 MB.
+- Las conversaciones guardadas contienen el texto de tus mensajes y de las respuestas en este equipo, en el archivo `ai-chats.json` de los datos de la aplicación (antes estaban en localStorage; al actualizar se mueven solas). Se guardan como máximo 30 por equipo y 1,5 MB.
+- **El archivo va cifrado** (AES-256-GCM, `src-tauri/src/chatcrypt.rs`). La clave se genera al guardar por primera vez y se guarda en el almacén de credenciales del sistema (Administrador de credenciales de Windows, Keychain o Secret Service), no junto al archivo. Un historial antiguo en texto se cifra solo la primera vez que se lee.
+  - Protege contra copiar el archivo (copias de seguridad, carpetas sincronizadas, discos prestados). **No** protege de otro programa que corra con tu mismo usuario: puede pedirle la clave al almacén igual que Pulso.
+  - Si el sistema no tiene almacén de credenciales, se guarda en texto antes que perder las conversaciones.
+  - Si la clave desaparece (borraste las credenciales, otro equipo, otra cuenta), el archivo no se puede abrir. Pulso no lo borra: lo aparta como `ai-chats.locked-….bin` (conserva los últimos 3) y empieza un historial nuevo. Si la clave vuelve, se recupera devolviéndole el nombre `ai-chats.json`.
+  - Las imágenes adjuntas (`ai-images/`) y las copias de recuperación (`recovery/`) **no** van cifradas.
 
 ## Modelo local (Ollama)
 

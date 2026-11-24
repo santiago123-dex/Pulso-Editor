@@ -460,16 +460,129 @@ fn search_uses_unsaved_content_of_open_documents() {
     assert!(disk.is_empty(), "el contenido antiguo del disco ya no debe aparecer");
 }
 
+fn hist_dir(tag: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("pulso-ai-hist-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    dir
+}
+
+fn locked_files(dir: &Path) -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = fs::read_dir(dir).unwrap().flatten().map(|e| e.path()).filter(|p| p.file_name().unwrap().to_string_lossy().starts_with("ai-chats.locked-")).collect();
+    v.sort();
+    v
+}
+
 #[test]
-fn el_historial_de_ia_se_guarda_en_un_archivo_y_rechaza_lo_que_no_es_una_lista() {
-    let dir = std::env::temp_dir().join(format!("pulso-ai-hist-{}", std::process::id()));
+fn el_historial_de_ia_se_guarda_cifrado_y_rechaza_lo_que_no_es_una_lista() {
+    use crate::chatcrypt::{is_encrypted, testkit::MemStore};
+    let dir = hist_dir("cifrado");
     let file = dir.join("ai-chats.json");
-    assert_eq!(ai_history_read_in(&file), "");
-    ai_history_write_in(&file, r#"[{"id":"a"}]"#).unwrap();
-    assert_eq!(ai_history_read_in(&file), r#"[{"id":"a"}]"#);
-    assert!(ai_history_write_in(&file, "{}").is_err());
-    assert!(ai_history_write_in(&file, "no es json").is_err());
-    assert_eq!(ai_history_read_in(&file), r#"[{"id":"a"}]"#, "un intento inválido no pisa lo guardado");
+    let keys = MemStore::default();
+    assert_eq!(ai_history_read_in(&file, &keys), "");
+    let chats = r#"[{"id":"a","title":"secreto-visible"}]"#;
+    ai_history_write_in(&file, chats, &keys).unwrap();
+    let raw = fs::read(&file).unwrap();
+    assert!(is_encrypted(&raw), "el archivo va cifrado");
+    assert!(!String::from_utf8_lossy(&raw).contains("secreto-visible"), "el contenido no se ve en el disco");
+    assert!(keys.key.lock().unwrap().is_some(), "la primera escritura crea la clave");
+    assert_eq!(ai_history_read_in(&file, &keys), chats);
+    assert!(ai_history_write_in(&file, "{}", &keys).is_err());
+    assert!(ai_history_write_in(&file, "no es json", &keys).is_err());
+    assert_eq!(ai_history_read_in(&file, &keys), chats, "un intento inválido no pisa lo guardado");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn el_historial_antiguo_en_texto_se_lee_y_se_cifra_al_momento() {
+    use crate::chatcrypt::{is_encrypted, testkit::MemStore};
+    let dir = hist_dir("antiguo");
+    fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("ai-chats.json");
+    let old = r#"[{"id":"viejo","title":"conversacion-antigua"}]"#;
+    fs::write(&file, old).unwrap();
+    let keys = MemStore::default();
+    assert_eq!(ai_history_read_in(&file, &keys), old, "se lee tal cual");
+    let raw = fs::read(&file).unwrap();
+    assert!(is_encrypted(&raw) && !String::from_utf8_lossy(&raw).contains("conversacion-antigua"), "y queda cifrado");
+    assert_eq!(ai_history_read_in(&file, &keys), old, "y se sigue leyendo igual");
+    // Lo que no es una lista no se toca.
+    let weird = dir.join("otro.json");
+    fs::write(&weird, "no es una lista").unwrap();
+    assert_eq!(ai_history_read_in(&weird, &keys), "no es una lista");
+    assert_eq!(fs::read(&weird).unwrap(), b"no es una lista");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn si_la_clave_ya_no_esta_el_historial_cifrado_se_aparta_y_no_se_pierde() {
+    use crate::chatcrypt::testkit::MemStore;
+    let dir = hist_dir("sinclave");
+    let file = dir.join("ai-chats.json");
+    let (keys, new_keys) = (MemStore::default(), MemStore::default());
+    let chats = r#"[{"id":"a"}]"#;
+    ai_history_write_in(&file, chats, &keys).unwrap();
+    let sealed = fs::read(&file).unwrap();
+    // Otro almacén (por ejemplo, se borraron las credenciales): no se puede abrir.
+    assert_eq!(ai_history_read_in(&file, &new_keys), "");
+    assert!(!file.exists(), "el archivo ilegible ya no está en su sitio, para que no lo pise lo siguiente que se guarde");
+    let locked = locked_files(&dir);
+    assert_eq!(locked.len(), 1);
+    assert_eq!(fs::read(&locked[0]).unwrap(), sealed, "se conserva intacto");
+    // Se puede seguir usando: lo nuevo se guarda con la clave nueva.
+    ai_history_write_in(&file, r#"[{"id":"nuevo"}]"#, &new_keys).unwrap();
+    assert_eq!(ai_history_read_in(&file, &new_keys), r#"[{"id":"nuevo"}]"#);
+    // Y si la clave vuelve, lo apartado se recupera devolviéndole su nombre.
+    fs::rename(&locked[0], dir.join("recuperado.json")).unwrap();
+    assert_eq!(ai_history_read_in(&dir.join("recuperado.json"), &keys), chats);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn un_archivo_alterado_se_aparta_y_no_se_lee_como_si_nada() {
+    use crate::chatcrypt::testkit::MemStore;
+    let dir = hist_dir("alterado");
+    let file = dir.join("ai-chats.json");
+    let keys = MemStore::default();
+    ai_history_write_in(&file, r#"[{"id":"a"}]"#, &keys).unwrap();
+    let mut raw = fs::read(&file).unwrap();
+    let last = raw.len() - 1;
+    raw[last] ^= 1;
+    fs::write(&file, raw).unwrap();
+    assert_eq!(ai_history_read_in(&file, &keys), "");
+    assert_eq!(locked_files(&dir).len(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn sin_almacen_de_claves_el_historial_se_guarda_en_texto_antes_que_perderse() {
+    use crate::chatcrypt::{is_encrypted, testkit::MemStore};
+    let dir = hist_dir("sinalmacen");
+    let file = dir.join("ai-chats.json");
+    let keys = MemStore { broken: true, ..Default::default() };
+    let chats = r#"[{"id":"a"}]"#;
+    ai_history_write_in(&file, chats, &keys).unwrap();
+    assert!(!is_encrypted(&fs::read(&file).unwrap()));
+    assert_eq!(ai_history_read_in(&file, &keys), chats);
+    assert_eq!(fs::read(&file).unwrap(), chats.as_bytes(), "leer no reescribe el archivo si no se puede cifrar");
+    // Y un archivo cifrado que no se puede abrir porque el almacén falla se aparta igual (no se pisa).
+    let good = MemStore::default();
+    ai_history_write_in(&file, chats, &good).unwrap();
+    assert_eq!(ai_history_read_in(&file, &keys), "");
+    assert_eq!(locked_files(&dir).len(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn solo_se_conservan_los_ultimos_historiales_apartados() {
+    use crate::chatcrypt::testkit::MemStore;
+    let dir = hist_dir("apartados");
+    let file = dir.join("ai-chats.json");
+    for i in 0..5 {
+        ai_history_write_in(&file, &format!(r#"[{{"id":"{i}"}}]"#), &MemStore::default()).unwrap();
+        assert_eq!(ai_history_read_in(&file, &MemStore::default()), "");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_eq!(locked_files(&dir).len(), 3);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
