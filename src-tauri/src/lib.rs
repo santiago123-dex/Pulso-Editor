@@ -27,6 +27,7 @@ pub mod procguard;
 pub mod i18n;
 pub mod ollama;
 pub mod readtools;
+pub mod chatcrypt;
 pub mod catalog;
 pub mod llm;
 pub mod agent;

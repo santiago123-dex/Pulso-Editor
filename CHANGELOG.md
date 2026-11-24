@@ -4,6 +4,9 @@ Todos los cambios notables en Pulso Editor se documentan en este archivo.
 
 ## [Sin publicar]
 
+### Seguridad
+- **El historial del chat de IA se guarda cifrado** (AES-256-GCM). La clave vive en el almacén de credenciales del sistema, no junto al archivo; el historial antiguo en texto se cifra solo al leerlo. Si la clave desaparece, el archivo se aparta (`ai-chats.locked-….bin`) en vez de perderse. Sin almacén de credenciales se guarda en texto, como antes. Las imágenes adjuntas y las copias de recuperación siguen sin cifrar. Ver [PRIVACY.md](PRIVACY.md).
+
 ### Cambiado
 - **Ollama usa el mismo motor que los modelos de la nube.** El modelo local ya no es solo de lectura: tiene las mismas herramientas, modos, permisos, subagentes, skills, memoria, ganchos y MCP que el agente propio. Habla el protocolo nativo de Ollama y le pide una ventana de contexto suficiente (la del modelo con un tope de 16 384; `PULSO_OLLAMA_NUM_CTX` la cambia). Si el modelo no admite herramientas, lo avisa. El motor aparte (`localai.rs`) se retiró.
 

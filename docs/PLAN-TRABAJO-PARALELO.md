@@ -71,7 +71,7 @@ Cada PR de G dice en su descripción qué archivos movió; Antigravity no empiez
 ### Claude, paso 2 (después de G)
 
 - [x] Resto de A: aviso al abrir un proyecto con `AGENTS.md` o skills sin confianza, y revisión de enlaces simbólicos en `search_files` y `replace_in_file`.
-- [ ] Resto de F: cifrar el historial. (MCP, ganchos, ver en vivo los pasos de un subagente y Ollama al motor común ya están hechos.)
+- [x] Resto de F: MCP, ganchos, ver en vivo los pasos de un subagente, Ollama al motor común y cifrar el historial. (Falta probar el agente con proveedores reales.)
 - [ ] Probar el agente con proveedores reales cuando la persona pueda dar una clave.
 
 ### Antes de cada paso
@@ -171,7 +171,7 @@ Lo ya hecho (proveedores de models.dev, herramientas, subagentes, skills, comand
 - [x] **Modo plan:** `/plan <tarea>`, siempre en solo lectura; el agente propone el plan y tú decides cuándo ejecutarlo.
 - [x] Ver en vivo los pasos de un subagente (evento `pulso_subagent_step`, ver [Agente](AGENTE.md)).
 - [x] **Pasar Ollama al motor común** (`agent.rs`, con el protocolo nativo `/api/chat` para fijar la ventana de contexto) y retirar el motor aparte de `localai.rs` (ahora `ollama.rs` y `readtools.rs`).
-- [ ] Cifrar el historial del chat (`ai-chats.json`) o decidir y documentar por qué no.
+- [x] Cifrar el historial del chat (`ai-chats.json`): AES-256-GCM con la clave en el almacén del sistema (`chatcrypt.rs`). Quedan sin cifrar las imágenes adjuntas y las copias de recuperación.
 
 ## H. Git y GitHub avanzado
 
