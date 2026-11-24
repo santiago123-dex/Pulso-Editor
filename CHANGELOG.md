@@ -6,6 +6,9 @@ Todos los cambios notables en Pulso Editor se documentan en este archivo.
 
 ### Calidad
 - Se añaden `SECURITY.md` (cómo reportar una vulnerabilidad) y `CODE_OF_CONDUCT.md`, Dependabot y un trabajo de CI «Calidad (aviso)» con `cargo fmt`, `clippy`, `cargo audit`, `npm audit` y Prettier. Las dos pruebas de Ctrl+C de la terminal se pueden saltar con `PULSO_SKIP_CTRL_C=1`.
+### Seguridad
+- **Confianza en el proyecto para el agente propio.** Lo que viene del proyecto (`AGENTS.md`, `CLAUDE.md`, skills, subagentes y comandos) ya no llega al modelo hasta que confíes en él: sin confianza solo se cargan lo personal y los subagentes integrados. «IA: Confiar en este proyecto…» abre un diálogo nativo (lo pregunta Rust, la ventana no puede darse confianza a sí misma) y comparte la lista con la terminal `pulso`.
+- **La ventana ya no decide su carpeta de trabajo.** `set_workspace_root` solo acepta carpetas que la persona aprobó: las que elige con «Abrir carpeta» (el diálogo ahora lo abre Rust), las que escribe en la terminal (`pulso carpeta`) y las que ya aprobó en sesiones anteriores (lista en la carpeta de datos de Pulso). Cualquier otra pide una confirmación nativa que la ventana no puede saltarse, y la raíz de una unidad, la carpeta personal y las carpetas del sistema se rechazan siempre.
 
 ### Añadido
 - **Modelos en la nube de más de 300 proveedores** con el catálogo de [models.dev](https://models.dev): OpenAI, Anthropic, Google, OpenRouter, Groq, Mistral, xAI, DeepSeek y los demás que usan el protocolo compatible con OpenAI o el de Anthropic. «IA: Conectar un proveedor de modelos…» guarda la clave en el almacén seguro del sistema (la ventana nunca la recibe) o la toma de la variable de entorno del proveedor.
