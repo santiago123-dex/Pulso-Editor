@@ -115,6 +115,9 @@ export const S: ChatState = {
   extraUsageInFlight: null,
 };
 
+/** Funciones del controlador (`aiChat.ts`) que otros módulos del panel necesitan llamar; el controlador las registra al cargarse. */
+export const ctl = {} as import("../aiChat").Controller;
+
 export const isFull = () => readStorage(FULL_KEY) === "1";
 /** Segundos con un decimal, con la coma o el punto que use el idioma elegido: «3,2» o «3.2». */
 export const seconds = (ms: number) => (ms / 1000).toLocaleString(lang(), { minimumFractionDigits: 1, maximumFractionDigits: 1 });
