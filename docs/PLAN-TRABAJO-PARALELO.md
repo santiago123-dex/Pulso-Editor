@@ -116,7 +116,7 @@ Cada PR de G dice en su descripción qué archivos movió; Antigravity no empiez
 
 ## B. CI y calidad de ingeniería
 
-- [x] Añadir a la CI, en un trabajo aparte «Calidad (aviso)» que no bloquea: `cargo fmt --check`, `cargo clippy`, `cargo audit`, `npm audit` y Prettier. **Falta ESLint:** `typescript-eslint` no admite todavía TypeScript 7 (`peer typescript <6`), así que no se puede instalar sin forzar las dependencias.
+- [x] Añadir a la CI, en un trabajo aparte «Calidad»: `cargo fmt --check` y Prettier (**exigidos** desde que el proyecto quedó formateado), y `cargo clippy`, `cargo audit` y `npm audit` (que solo avisan). **Falta ESLint:** `typescript-eslint` no admite todavía TypeScript 7 (`peer typescript <6`), así que no se puede instalar sin forzar las dependencias.
 - [x] Decidir el formato y escribir `src-tauri/rustfmt.toml` (ancho 160, el que menos cambia: 385 diferencias en vez de 853) y `.prettierrc.json`. **No formatear todo el proyecto en este frente**: se hace al final (ver «Orden recomendado»), porque 853 diferencias de `rustfmt` chocarían con todas las ramas.
 - [x] Las dos pruebas de Ctrl+C de `term.rs` se saltan con `PULSO_SKIP_CTRL_C=1` en entornos sin consola real (documentado en `CONTRIBUTING.md`); en la CI siguen corriendo.
 - [ ] Ejecutar las 68 comprobaciones e2e en la CI (necesitan WebView2; evaluar un ejecutor de Windows) o dejar documentado por qué no.
@@ -211,7 +211,7 @@ Dividir por responsabilidad facilita revisar y evita que las ramas choquen. **Ha
 | `src-tauri/src/lib.rs` | 1352 | **Hecho:** `lib.rs` queda en unas 280 líneas (módulos, `run()` y el registro de comandos); el resto está en `workspace.rs`, `files.rs`, `recovery.rs`, `secrets.rs`, `search.rs`, `themes.rs` y `gitinfo.rs` |
 
 - [ ] Sin cambiar comportamiento: las pruebas existentes deben pasar sin tocarlas.
-- [x] Después, **un PR solo de formato** con `cargo fmt` y Prettier. Hecho sin otras ramas abiertas: `cargo fmt --check` y `npm run format:check` ya salen limpios. Queda decidir si se quita el `continue-on-error` de esos dos pasos de la CI para que el formato se exija en cada PR.
+- [x] Después, **un PR solo de formato** con `cargo fmt` y Prettier. Hecho sin otras ramas abiertas: `cargo fmt --check` y `npm run format:check` ya salen limpios. La CI ya exige el formato en cada PR (trabajo «Calidad»).
 
 ---
 

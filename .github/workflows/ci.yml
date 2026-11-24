@@ -58,10 +58,13 @@ jobs:
       - name: Pruebas Rust
         run: npm run test:rust
 
-  # Calidad: formato, lints y auditoría de dependencias. Por ahora solo avisan: el proyecto
-  # todavía no está formateado de forma uniforme y no debe bloquear los PR ni salir en rojo: cada paso de comprobación lleva `continue-on-error`, así que un fallo se ve como aviso en el paso pero el trabajo termina en verde. Cuando estén limpios se quita.
+  # Calidad: formato, lints y auditoría de dependencias.
+  # - El formato (Rust y TypeScript) se EXIGE: el proyecto ya está formateado de forma uniforme, así que un PR sin formatear sale en rojo.
+  #   Se arregla con `cargo fmt --manifest-path src-tauri/Cargo.toml` y `npx prettier --write "src/**/*.ts"`.
+  # - Clippy y las auditorías de dependencias solo AVISAN (`continue-on-error`): un fallo se ve en el paso pero el trabajo no se pone en rojo.
+  # Los pasos posteriores corren aunque uno anterior falle (`!cancelled()`), para que un PR vea todos los avisos de una vez.
   calidad:
-    name: Calidad (aviso)
+    name: Calidad
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -89,22 +92,24 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Formato de Rust
-        continue-on-error: true
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
 
+      - name: Formato de TypeScript
+        if: ${{ !cancelled() }}
+        run: npm run format:check
+
       - name: Clippy
+        if: ${{ !cancelled() }}
         continue-on-error: true
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets
 
-      - name: Formato de TypeScript
-        continue-on-error: true
-        run: npm run format:check
-
       - name: Auditoría de npm (producción)
+        if: ${{ !cancelled() }}
         continue-on-error: true
         run: npm audit --omit=dev --audit-level=high
 
       - name: Auditoría de crates de Rust
+        if: ${{ !cancelled() }}
         continue-on-error: true
         run: |
           cargo install cargo-audit --locked
