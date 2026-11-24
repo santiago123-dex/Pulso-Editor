@@ -6,7 +6,7 @@ Pulso Editor incluye un cliente nativo del **Debug Adapter Protocol (DAP)** en R
 
 - **Backend Rust:**
   - `src-tauri/src/dap.rs`: framing `Content-Length`, correlación de peticiones/respuestas por `seq`, hilo lector de eventos (`dap-event`) y gestión del ciclo de vida con `procguard` (`configure_child`, `attach_job`, `kill_tree`) para no dejar procesos huérfanos.
-  - `src-tauri/src/dap_config.rs`: lector JSON/JSONC de `.pulso/launch.json` y respaldo `.vscode/launch.json`, expansión de variables (`${workspaceFolder}`, `${file}`, `${fileBasename}`), detección del adaptador y comprobación de confianza (`trusted-folders.json`).
+  - `src-tauri/src/dap_config.rs`: lector JSON/JSONC de `.pulso/launch.json` y respaldo `.vscode/launch.json`, expansión de variables (`${workspaceFolder}`, `${file}`, `${fileBasename}`) y detección del adaptador.
 - **Frontend TypeScript:**
   - `src/debugModel.ts`: estado puro de puntos de interrupción, persistencia mediante `src/core/storage.ts` y consola de depuración.
   - `src/debugView.ts` + `src/debug.css`: margen de puntos de interrupción y línea activa en Monaco, vista lateral `#view-debug` (barra de control, variables expandibles, pila de llamadas, puntos de interrupción y consola con evaluación `evaluate`).
@@ -45,7 +45,8 @@ También se admite cualquier adaptador DAP estándar por stdio indicando `"adapt
 ## Seguridad y confianza
 
 - Todas las rutas (`program`, `cwd` y archivos con puntos de interrupción) se validan con `fsguard::WorkspaceGuard`.
-- Antes de ejecutar código, el depurador exige que la carpeta esté marcada como de confianza en `trusted-folders.json` (compartido con la CLI `pulso` y el aviso de confianza del espacio de trabajo) y rechaza carpetas demasiado amplias (raíz de disco, carpeta personal, etc.).
+- Antes de ejecutar código, el depurador exige que la carpeta sea **de confianza**, con la misma lista que la CLI `pulso` y el agente de IA (`trusted-folders.json`). La confianza se concede con un **diálogo nativo que abre Rust** (`project_trust_request`): la ventana no puede darse la confianza a sí misma. Las carpetas demasiado amplias (raíz de disco, carpeta personal, etc.) se rechazan.
+- `dap_launch` recibe solo **el nombre** de la configuración y la busca en `.pulso/launch.json` y `.vscode/launch.json` en el backend; la ventana no puede enviar su propio `adapterCommand` ni su propio programa.
 
 ## Atajos de teclado
 

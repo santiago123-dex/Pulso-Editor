@@ -1424,7 +1424,7 @@ fn trust_file(app: &AppHandle) -> Option<PathBuf> {
 }
 
 /// ¿Confió la persona en este proyecto? Es la misma lista que usa la terminal (`pulso`); confiar en una carpeta incluye sus subcarpetas.
-fn project_trusted(app: &AppHandle, dir: &Path) -> bool {
+pub(crate) fn project_trusted(app: &AppHandle, dir: &Path) -> bool {
     let Some(file) = trust_file(app) else { return false };
     let text = std::fs::read_to_string(file).unwrap_or_default();
     let dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
@@ -1440,7 +1440,7 @@ pub async fn project_trust_request(app: AppHandle, guard: State<'_, crate::fsgua
     if project_trusted(&app, &dir) {
         return Ok(true);
     }
-    let msg = trf("¿Confías en los autores de esta carpeta?\n\n{dir}\n\nSi confías, el agente de IA leerá sus AGENTS.md, skills, subagentes y comandos y los tratará como instrucciones. Si no es tu proyecto o no conoces a quien lo escribió, no confíes.", &[("dir", &dir.display())]);
+    let msg = trf("¿Confías en los autores de esta carpeta?\n\n{dir}\n\nSi confías, el agente de IA leerá sus AGENTS.md, skills, subagentes y comandos y los tratará como instrucciones, y podrás depurarlo (depurar ejecuta código del proyecto). Si no es tu proyecto o no conoces a quien lo escribió, no confíes.", &[("dir", &dir.display())]);
     let (yes, no) = (tr("Confiar").to_string(), tr("No confiar").to_string());
     let handle = app.clone();
     let ok = tauri::async_runtime::spawn_blocking(move || {

@@ -240,7 +240,6 @@ pub fn run() {
             git_hunks::git_apply_hunk,
             inline_ai::ai_inline_complete,
             dap::dap_list_configs,
-            dap::dap_trust_workspace,
             dap::dap_create_launch_file,
             dap::dap_launch,
             dap::dap_stop,
