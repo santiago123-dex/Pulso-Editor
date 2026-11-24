@@ -1004,8 +1004,8 @@ function openModelPopover(anchor: HTMLElement) {
     const gIcon = h("span", "ai-pop-gauge");
     gIcon.innerHTML = ICON_GAUGE;
     usageMain.append(gIcon, h("span", "ai-pop-name", tr("Ver uso y límites")));
+    viewUsage.setAttribute("aria-expanded", String(usageSideOpen));
     viewUsage.append(usageMain, h("span", "ai-pop-chev", "›"));
-    viewUsage.onmouseenter = () => openSideUsage();
     viewUsage.onclick = () => {
       if (usageSideOpen) { usageSideOpen = false; renderSideUsage(); render(); }
       else { openSideUsage(); render(); }
