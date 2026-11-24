@@ -206,7 +206,7 @@ pub fn read_codex_quota_from(home: Option<&Path>) -> Option<CodexQuota> {
     None
 }
 
-pub(super) fn detect_codex() -> AiTool {
+pub fn detect_codex() -> AiTool {
     let (program, prefix) = resolve_cli("codex", "PULSO_CODEX_BIN", Some("@openai/codex"));
     let version = match capture_vec(&program, &with_prefix(&prefix, &["--version"]), 15) {
         Ok(v) if !v.trim().is_empty() => v.trim().to_string(),

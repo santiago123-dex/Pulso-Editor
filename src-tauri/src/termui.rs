@@ -25,11 +25,12 @@ pub struct SlashCmd {
 }
 
 pub const SLASH_COMMANDS: &[SlashCmd] = &[
-    SlashCmd { name: "/provider", desc: "Cambiar IA (claude | codex | antigravity)", needs_arg: true },
-    SlashCmd { name: "/model", desc: "Elegir modelo activo (vacío = predeterminado)", needs_arg: true },
-    SlashCmd { name: "/effort", desc: "Nivel de razonamiento (low | medium | high | max)", needs_arg: true },
+    SlashCmd { name: "/provider", desc: "Elegir o cambiar IA (claude | codex | antigravity)", needs_arg: false },
+    SlashCmd { name: "/model", desc: "Elegir modelo del proveedor activo", needs_arg: false },
+    SlashCmd { name: "/effort", desc: "Nivel de razonamiento (low | medium | high | max)", needs_arg: false },
     SlashCmd { name: "/edit", desc: "Activar edición de archivos en esta carpeta", needs_arg: false },
     SlashCmd { name: "/read", desc: "Volver a modo solo lectura", needs_arg: false },
+    SlashCmd { name: "/doctor", desc: "Comprobar proveedores instalados y entorno", needs_arg: false },
     SlashCmd { name: "/new", desc: "Iniciar una conversación nueva", needs_arg: false },
     SlashCmd { name: "/clear", desc: "Limpiar la pantalla", needs_arg: false },
     SlashCmd { name: "/help", desc: "Mostrar ayuda y atajos", needs_arg: false },

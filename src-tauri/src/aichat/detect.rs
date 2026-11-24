@@ -144,13 +144,39 @@ pub fn gemini_auth_from(home: Option<&Path>, has_api_key: bool, has_vertex: bool
     (false, String::new(), String::new())
 }
 
-pub(super) fn detect_claude() -> AiTool {
+/// Modelos estándar (alias oficiales) de Claude Code para selección rápida en CLI.
+pub fn claude_default_models() -> Vec<AiModelInfo> {
+    vec![
+        AiModelInfo {
+            id: "sonnet".into(),
+            label: "Claude Sonnet".into(),
+            note: tr("Equilibrado y rápido para uso diario").into(),
+        },
+        AiModelInfo {
+            id: "opus".into(),
+            label: "Claude Opus".into(),
+            note: tr("Máxima capacidad para tareas complejas").into(),
+        },
+        AiModelInfo {
+            id: "haiku".into(),
+            label: "Claude Haiku".into(),
+            note: tr("Ultrarrápido y ligero").into(),
+        },
+        AiModelInfo {
+            id: "fable".into(),
+            label: "Claude Fable".into(),
+            note: tr("Alias más reciente del plan").into(),
+        },
+    ]
+}
+
+pub fn detect_claude() -> AiTool {
     let program = claude_program();
     let version = match capture(&program, &["--version"], 15) {
         Ok(v) if !v.trim().is_empty() => v.trim().to_string(),
         _ => return AiTool { error: tr("No se encontró Claude Code en este equipo.").into(), ..Default::default() },
     };
-    let mut tool = AiTool { installed: true, version, ..Default::default() };
+    let mut tool = AiTool { installed: true, version, models: claude_default_models(), ..Default::default() };
     // Un fallo puntual (la herramienta renovando la sesión, otro proceso ocupado) no significa «sin sesión»: se reintenta una vez.
     let status = (0..2).find_map(|attempt| {
         if attempt > 0 { thread::sleep(Duration::from_millis(1500)); }
@@ -161,6 +187,31 @@ pub(super) fn detect_claude() -> AiTool {
         None => tool.error = tr("No se pudo comprobar si hay una sesión iniciada.").into(),
     }
     tool
+}
+
+/// Detecta una herramienta CLI concreta (`claude`, `codex`, `antigravity`) sin depender de Tauri.
+pub fn detect_cli_provider(provider: &str) -> AiTool {
+    match provider {
+        "codex" => detect_codex(),
+        "antigravity" | "gemini" => detect_antigravity(),
+        _ => detect_claude(),
+    }
+}
+
+/// Lista modelos disponibles para un proveedor CLI (`claude`, `codex`, `antigravity`).
+pub fn list_cli_models(provider: &str) -> Vec<AiModelInfo> {
+    match provider {
+        "claude" => claude_default_models(),
+        "codex" => {
+            let cached = read_codex_models_from(user_home().as_deref());
+            if !cached.is_empty() {
+                return cached;
+            }
+            detect_codex().models
+        }
+        "antigravity" | "gemini" => detect_antigravity().models,
+        _ => Vec::new(),
+    }
 }
 
 /// Modelos de la nube: «conectado» si algún proveedor del catálogo tiene clave. Solo lee la copia local del catálogo, sin red.
