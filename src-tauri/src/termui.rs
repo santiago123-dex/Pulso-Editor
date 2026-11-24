@@ -549,13 +549,30 @@ pub fn paint(on: bool, code: &str, text: &str) -> String {
     if on { format!("\x1b[{code}m{text}\x1b[0m") } else { text.to_string() }
 }
 
-/// Estiliza `**negrita**`, `` `código` `` (píldora oscura) y `[enlaces](url)` (hipervínculo OSC 8 clickeable).
+/// Estiliza `**negrita**`, `` `código` `` (píldora oscura) y `[enlaces](url)` (hipervínculo OSC 8 clickeable),
+/// soportando enlaces y código anidados dentro de negrita.
 fn inline(line: &str, color: bool) -> String {
+    inline_styled(line, color, false)
+}
+
+fn inline_styled(line: &str, color: bool, is_bold: bool) -> String {
     let chars: Vec<char> = line.chars().collect();
     let mut out = String::new();
     let mut i = 0;
+    let flush_plain = |out: &mut String, seg: &str| {
+        if seg.is_empty() {
+            return;
+        }
+        if is_bold {
+            out.push_str(&paint(color, BRIGHT, seg));
+        } else {
+            out.push_str(seg);
+        }
+    };
+    let mut plain = String::new();
+
     while i < chars.len() {
-        // Enlaces Markdown `[etiqueta](url)`.
+        // Enlaces Markdown `[etiqueta](url)` (funciona también dentro de `**negrita**`).
         if chars[i] == '[' {
             if let Some(close_br) = chars[i + 1..].iter().position(|c| *c == ']') {
                 let after_br = i + 1 + close_br + 1;
@@ -564,10 +581,11 @@ fn inline(line: &str, color: bool) -> String {
                         let label: String = chars[i + 1..i + 1 + close_br].iter().collect();
                         let url: String = chars[after_br + 1..after_br + 1 + close_par].iter().collect();
                         if !label.is_empty() && !url.is_empty() {
+                            flush_plain(&mut out, &plain);
+                            plain.clear();
                             if color {
-                                out.push_str(&format!(
-                                    "\x1b]8;;{url}\x1b\\\x1b[4;{CYAN}m{label}\x1b[0m\x1b]8;;\x1b\\"
-                                ));
+                                let style = if is_bold { format!("1;4;{CYAN}") } else { format!("4;{CYAN}") };
+                                out.push_str(&format!("\x1b]8;;{url}\x1b\\\x1b[{style}m{label}\x1b[0m\x1b]8;;\x1b\\"));
                             } else {
                                 out.push_str(&label);
                             }
@@ -582,6 +600,8 @@ fn inline(line: &str, color: bool) -> String {
         if chars[i] == '`' {
             if let Some(end) = chars[i + 1..].iter().position(|c| *c == '`') {
                 let code: String = chars[i + 1..i + 1 + end].iter().collect();
+                flush_plain(&mut out, &plain);
+                plain.clear();
                 if color {
                     out.push_str(&paint(true, &format!("{BG_INLINE};{LAVENDER}"), &format!(" {code} ")));
                 } else {
@@ -591,46 +611,24 @@ fn inline(line: &str, color: bool) -> String {
                 continue;
             }
         }
-        // Negrita `**texto**` (también soporta `` `código` `` dentro).
-        if chars[i] == '*' && chars.get(i + 1) == Some(&'*') {
+        // Negrita `**texto**` (anida enlaces y código recursivamente).
+        if !is_bold && chars[i] == '*' && chars.get(i + 1) == Some(&'*') {
             let rest: String = chars[i + 2..].iter().collect();
             if let Some(end) = rest.find("**") {
                 if end > 0 {
+                    flush_plain(&mut out, &plain);
+                    plain.clear();
                     let bold = &rest[..end];
-                    if bold.contains('`') {
-                        let mut bi = 0;
-                        let bchars: Vec<char> = bold.chars().collect();
-                        while bi < bchars.len() {
-                            if bchars[bi] == '`' {
-                                if let Some(bend) = bchars[bi + 1..].iter().position(|c| *c == '`') {
-                                    let code: String = bchars[bi + 1..bi + 1 + bend].iter().collect();
-                                    if color {
-                                        out.push_str(&paint(true, &format!("{BG_INLINE};{LAVENDER}"), &format!(" {code} ")));
-                                    } else {
-                                        out.push_str(&code);
-                                    }
-                                    bi += bend + 2;
-                                    continue;
-                                }
-                            }
-                            let start = bi;
-                            while bi < bchars.len() && bchars[bi] != '`' {
-                                bi += 1;
-                            }
-                            let seg: String = bchars[start..bi].iter().collect();
-                            out.push_str(&paint(color, BRIGHT, &seg));
-                        }
-                    } else {
-                        out.push_str(&paint(color, BRIGHT, bold));
-                    }
+                    out.push_str(&inline_styled(bold, color, true));
                     i += 2 + bold.chars().count() + 2;
                     continue;
                 }
             }
         }
-        out.push(chars[i]);
+        plain.push(chars[i]);
         i += 1;
     }
+    flush_plain(&mut out, &plain);
     out
 }
 
@@ -717,6 +715,30 @@ pub fn render_lines_wrapped(line: &str, in_code: &mut bool, max_width: usize, co
     }
 
     let col_max = max_width.clamp(32, 96);
+    // Filas de tabla Markdown (`| a | b |`).
+    if trimmed.starts_with('|') && trimmed.ends_with('|') && trimmed.len() >= 3 {
+        let cells: Vec<&str> = trimmed[1..trimmed.len() - 1].split('|').map(str::trim).collect();
+        let is_sep = cells.iter().all(|c| !c.is_empty() && c.chars().all(|ch| matches!(ch, '-' | ':' | ' ')));
+        if is_sep {
+            return vec![paint(color, RULE, &"─".repeat(col_max.min(72)))];
+        }
+        let plain_joined = cells.join(" · ");
+        if markdown_visible_len(&plain_joined) + 2 <= col_max {
+            let styled: Vec<String> = cells.iter().map(|c| inline(c, color)).collect();
+            let sep = format!(" {} ", paint(color, RULE, "│"));
+            return vec![format!("{} {}", paint(color, RULE, "│"), styled.join(&sep))];
+        }
+        // Si la fila es ancha, la muestra como línea compacta envuelta sin romper `|`.
+        let wrapped = wrap_words(&plain_joined, col_max.saturating_sub(2));
+        return wrapped
+            .into_iter()
+            .enumerate()
+            .map(|(i, seg)| {
+                let prefix = if i == 0 { paint(color, INDIGO, "▎") } else { paint(color, RULE, "│") };
+                format!("{prefix} {}", inline(&seg, color))
+            })
+            .collect();
+    }
     if let Some(rest) = trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* ")) {
         let prefix_w = indent.chars().count() + 2;
         let wrapped = wrap_words(rest, col_max.saturating_sub(prefix_w));
@@ -984,6 +1006,7 @@ mod tests {
         assert_eq!(render_line("2 * 3 * 4 y ** sueltos", &mut code, false), "2 * 3 * 4 y ** sueltos");
         assert!(render_line("`a`", &mut code, true).contains("\x1b["));
         assert_eq!(render_line("Ver [aiChat.ts](file:///C:/src/aiChat.ts) y **versión `0.2.0`**", &mut code, false), "Ver aiChat.ts y versión 0.2.0");
+        assert_eq!(render_line("**Pendientes ([HOJA-DE-RUTA.md](file:///C:/docs/HOJA-DE-RUTA.md))**: ok", &mut code, false), "Pendientes (HOJA-DE-RUTA.md): ok");
         let wrapped = render_lines_wrapped("- Uno dos tres cuatro cinco seis siete ocho nueve diez", &mut code, 34, false);
         assert!(wrapped.len() >= 2);
         assert!(wrapped[0].starts_with("• "));
