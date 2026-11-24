@@ -280,6 +280,47 @@ fn search_supports_regex_whole_word_and_case() {
     assert!(search_files_sync(norm(&t.0), "[".into(), true, true, false, vec![], &Default::default()).is_err());
 }
 
+/// Crea un enlace simbólico a un archivo; `false` si el sistema no lo permite (en Windows hace falta permiso).
+fn try_symlink(target: &Path, link: &Path) -> bool {
+    #[cfg(unix)]
+    return std::os::unix::fs::symlink(target, link).is_ok();
+    #[cfg(windows)]
+    return std::os::windows::fs::symlink_file(target, link).is_ok();
+    #[cfg(not(any(unix, windows)))]
+    return false;
+}
+
+#[test]
+fn la_busqueda_no_sigue_enlaces_que_salen_de_la_carpeta() {
+    let t = Tmp::new();
+    let fuera = Tmp::new();
+    fs::write(t.0.join("real.txt"), "aguja").unwrap();
+    fs::write(fuera.0.join("secreto.txt"), "aguja secreta").unwrap();
+    if !try_symlink(&fuera.0.join("secreto.txt"), &t.0.join("enlace.txt")) {
+        return; // sin permiso para crear enlaces: la prueba no aplica
+    }
+    let found = search_files_sync(norm(&t.0), "aguja".into(), true, false, false, vec![], &Default::default()).unwrap();
+    assert_eq!(found.len(), 1, "solo el archivo real, hay {}", found.len());
+    assert!(found[0].path.ends_with("real.txt"));
+}
+
+#[test]
+fn escribir_o_reemplazar_a_traves_de_un_enlace_que_sale_de_la_carpeta_se_rechaza() {
+    let t = Tmp::new();
+    let fuera = Tmp::new();
+    fs::write(fuera.0.join("secreto.txt"), "aguja secreta").unwrap();
+    if !try_symlink(&fuera.0.join("secreto.txt"), &t.0.join("enlace.txt")) {
+        return;
+    }
+    let guard = fsguard::WorkspaceGuard::default();
+    guard.approve_dir(&t.0.to_string_lossy()).unwrap();
+    guard.set_root_approved("main", Some(&t.0.to_string_lossy())).unwrap();
+    let link = norm(&t.0.join("enlace.txt"));
+    assert!(guard.ensure_write(&link).is_err(), "no se puede escribir fuera de la carpeta por un enlace");
+    assert!(guard.ensure_read(&link).is_err(), "ni leer");
+    assert_eq!(fs::read_to_string(fuera.0.join("secreto.txt")).unwrap(), "aguja secreta");
+}
+
 #[test]
 fn list_files_skips_ignored_dirs() {
     let t = Tmp::new();

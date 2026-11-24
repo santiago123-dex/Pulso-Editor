@@ -70,7 +70,7 @@ Cada PR de G dice en su descripción qué archivos movió; Antigravity no empiez
 
 ### Claude, paso 2 (después de G)
 
-- [ ] Resto de A: avisar al abrir un proyecto con `AGENTS.md` o skills, y revisar enlaces simbólicos en `search_files` y `replace_in_file`.
+- [x] Resto de A: aviso al abrir un proyecto con `AGENTS.md` o skills sin confianza, y revisión de enlaces simbólicos en `search_files` y `replace_in_file`.
 - [ ] Resto de F: MCP, ganchos, ver en vivo los pasos de un subagente, Ollama al motor común, cifrar el historial.
 - [ ] Probar el agente con proveedores reales cuando la persona pueda dar una clave.
 
@@ -107,9 +107,9 @@ Cada PR de G dice en su descripción qué archivos movió; Antigravity no empiez
 **Por qué:** hoy la ventana declara su carpeta con `set_workspace_root`. Una ventana comprometida podría declarar `C:\` y saltarse todo `fsguard`. Es el hueco de seguridad más importante.
 
 - [x] Que **solo el backend fije la carpeta**: al elegirla con el diálogo (que abra Rust, no la ventana), al abrirla desde la CLI, al elegir una reciente y al restaurar la sesión guardada. Quitar `set_workspace_root` como comando libre, o hacer que solo acepte una ruta que el backend ya aprobó.
-- [x] **Confianza en el proyecto** (misma lista que la CLI, `trusted-folders.json`): sin confianza no se cargan `AGENTS.md`, skills, subagentes ni comandos del proyecto; se pide con «IA: Confiar en este proyecto…». El modo Agente sigue disponible porque ya pregunta antes de cada comando. Falta: avisar al abrir un proyecto que tenga esos archivos, sin que la persona tenga que buscar el comando.
+- [x] **Confianza en el proyecto** (misma lista que la CLI, `trusted-folders.json`): sin confianza no se cargan `AGENTS.md`, skills, subagentes ni comandos del proyecto; se pide con «IA: Confiar en este proyecto…». El modo Agente sigue disponible porque ya pregunta antes de cada comando. Al abrir un proyecto con esos archivos y sin confianza, la barra de estado avisa y nombra el comando.
 - [x] Rechazar carpetas demasiado amplias (raíz de disco, carpeta personal) como espacio de trabajo, igual que ya hace `broad_dir_reason` en la CLI.
-- [ ] Revisar `search_files` y `replace_in_file` con enlaces simbólicos.
+- [x] Revisar `search_files` y `replace_in_file` con enlaces simbólicos: la búsqueda no sigue enlaces (el recorrido no los sigue y solo lee archivos regulares) y `replace_in_file` pasa por el guardián, que resuelve el enlace y rechaza lo que sale de la carpeta. Quedan dos pruebas que lo fijan (se saltan sin permiso para crear enlaces, como en Windows sin modo desarrollador; corren en Linux).
 - [x] Pruebas: una ventana que pida `C:\` o una ruta no aprobada es rechazada.
 
 **Hecho cuando:** ningún comando acepta una carpeta que el backend no haya fijado y hay una prueba de Rust que lo demuestra.
@@ -204,7 +204,7 @@ Dividir por responsabilidad facilita revisar y evita que las ramas choquen. **Ha
 
 | Archivo | Líneas | Propuesta |
 | --- | --- | --- |
-| `src/aiChat.ts` | 2572 | panel de mensajes, tarjetas (actividad, permisos), proveedores, entrada |
+| `src/aiChat.ts` | 2605 | **En curso:** ya salieron `ai/icons.ts`, `ai/modelLabels.ts`, `ai/images.ts` y `ai/markdownView.ts` (150 líneas, sin estado compartido). Lo que queda depende del estado del módulo (`activeProvider`, `model`, `tools`, `current`…): para dividirlo hace falta un módulo de estado compartido y una pasada con la aplicación compilada |
 | `src-tauri/src/aichat.rs` | 1750 | **Hecho:** `aichat/` con `mod.rs` (estado y comandos de Tauri), `detect.rs`, `cli.rs`, `codex.rs`, `antigravity.rs`, `args.rs`, `stream.rs`, `images.rs`, `cloud.rs` y `tests.rs` |
 | `src-tauri/src/bin/pulso.rs` | 1295 | enrutado, trabajo de ventana, terminal |
 | `src-tauri/src/gitops.rs` | 1222 | **Hecho:** `gitops/` con `mod.rs` (ayudantes y comandos de Tauri), `changes.rs`, `branches.rs`, `remote.rs`, `history.rs` y `tests.rs` |
