@@ -243,9 +243,18 @@ pub struct Started {
     notice: Option<String>,
 }
 
+/// Límite de memoria en MiB para los servidores de TypeScript (configurable con `PULSO_LSP_MAX_MB`).
+pub fn lsp_memory_limit_mb(raw: Option<&str>) -> u32 {
+    raw.and_then(|s| s.trim().parse::<u32>().ok())
+        .map(|n| n.clamp(256, 8192))
+        .unwrap_or(1536)
+}
+
 fn spawn_native(app: &AppHandle, root: &str) -> Result<Child, String> {
     let exe = native_server_path(app).ok_or(tr("No se encontró el servidor de TypeScript de Pulso"))?;
     let mut command = crate::background_command(&exe.to_string_lossy());
+    let limit = lsp_memory_limit_mb(std::env::var("PULSO_LSP_MAX_MB").ok().as_deref());
+    command.env("GOMEMLIMIT", format!("{limit}MiB"));
     command.args(["--lsp", "--stdio"]);
     spawn_piped(command, root).map_err(|e| trf("No se pudo iniciar el servidor de TypeScript: {e}", &[("e", &e)]))
 }
@@ -257,7 +266,13 @@ fn spawn_compat(app: &AppHandle, root: &str) -> Result<Child, String> {
     );
     let node = crate::aichat::node_program(Path::new(root));
     let mut command = crate::background_command(&node);
-    command.arg("--require").arg(preload).arg(script).arg("--stdio");
+    let limit = lsp_memory_limit_mb(std::env::var("PULSO_LSP_MAX_MB").ok().as_deref());
+    command
+        .arg(format!("--max-old-space-size={limit}"))
+        .arg("--require")
+        .arg(preload)
+        .arg(script)
+        .arg("--stdio");
     spawn_piped(command, root).map_err(|e| e.to_string())
 }
 
@@ -564,5 +579,14 @@ mod tests {
         assert!(read_message(&mut BufReader::new(&b"Content-Length: 999999999\r\n\r\n"[..])).is_err());
         let giant_header = format!("X-Long: {}\r\n\r\n", "a".repeat(MAX_HEADER_LINE + 10));
         assert!(read_message(&mut BufReader::new(giant_header.as_bytes())).is_err());
+    }
+
+    #[test]
+    fn lsp_memory_limit_uses_default_and_clamps_bounds() {
+        assert_eq!(lsp_memory_limit_mb(None), 1536);
+        assert_eq!(lsp_memory_limit_mb(Some("invalid")), 1536);
+        assert_eq!(lsp_memory_limit_mb(Some("64")), 256);
+        assert_eq!(lsp_memory_limit_mb(Some("2048")), 2048);
+        assert_eq!(lsp_memory_limit_mb(Some("99999")), 8192);
     }
 }

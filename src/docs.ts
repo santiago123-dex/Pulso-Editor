@@ -1,6 +1,7 @@
 import { t } from "./i18n";
 import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
+import { backupDelayFor, isLargeFile } from "./largeFile";
 import { state } from "./settings";
 import { setStatus, showDialog } from "./ui";
 import { baseName, fileKey, norm } from "./util";
@@ -67,7 +68,6 @@ function scheduleAutoSave(d: Doc) {
   timers.set(d.path, window.setTimeout(() => { if (isDirty(d)) void saveDoc(d, false, false, true); }, 800));
 }
 
-const BACKUP_DELAY = 1000;
 const backupTimers = new Map<string, number>();
 const backupOperations = new Map<string, Promise<void>>();
 // A lo sumo una escritura pendiente por ruta, además de la que ya está en curso.
@@ -102,8 +102,17 @@ function runBackup(d: Doc) {
 
 /** Guarda en segundo plano una copia de los cambios sin guardar, por si la app se cierra de golpe. */
 function scheduleBackup(d: Doc) {
+  // En Monaco `getValueLength()` es O(1) y no serializa el texto; en stubs de prueba cae al retardo normal.
+  const chars = typeof d.model.getValueLength === "function" ? d.model.getValueLength() : 0;
+  const delay = backupDelayFor(chars);
+  if (isLargeFile(chars)) {
+    // En archivos grandes esperamos una pausa real de escritura antes de serializar varios MB por IPC.
+    clearTimeout(backupTimers.get(d.path));
+    backupTimers.set(d.path, window.setTimeout(() => runBackup(d), delay));
+    return;
+  }
   if (backupTimers.has(d.path)) return;
-  backupTimers.set(d.path, window.setTimeout(() => runBackup(d), BACKUP_DELAY));
+  backupTimers.set(d.path, window.setTimeout(() => runBackup(d), delay));
 }
 
 /**
