@@ -4,8 +4,8 @@ Todos los cambios notables en Pulso Editor se documentan en este archivo.
 
 ## [Sin publicar]
 
-### Seguridad
-- **Depurador:** la confianza en la carpeta se concede con un diálogo nativo (ya no con un comando que pudiera llamar la propia ventana) y `dap_launch` lee la configuración de los archivos del proyecto en lugar de aceptarla desde la ventana, así que una ventana comprometida no puede lanzar un programa o un adaptador cualquiera.
+### Interno
+- Plan de trabajo en paralelo: reparto de la segunda ronda entre Claude y Antigravity (dividir archivos grandes primero, Git avanzado y el resto del agente después). La firma del instalador queda aplazada.
 
 ### Corregido
 - **El panel «Ver uso y límites» del selector de modelos ya no se abre solo ni se queda abierto.** Se abría al pasar el cursor y, al pulsar para cerrarlo, se volvía a abrir porque el botón se redibujaba bajo el cursor. Ahora solo se abre y se cierra con un clic.

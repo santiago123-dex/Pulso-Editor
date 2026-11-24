@@ -24,7 +24,7 @@ Dos agentes trabajan a la vez: **Claude** y **Antigravity**. Cada uno hace solo 
 | **Antigravity** | **I** Rendimiento y tamaño | 2.º | `rendimiento` |
 | **Antigravity** | **E** Extensiones | 3.º | `extensiones` |
 | La persona | **C** Distribución y **J** Comunidad | cuando pueda | — |
-| Segunda ronda | **H** Git avanzado y **G** dividir archivos | tras unir la primera ronda | por decidir |
+| Segunda ronda | **G**, **H** y lo que queda de A y F | ver «Segunda ronda» | por decidir |
 
 **Por qué así:** Claude se queda con lo que toca seguridad y el agente propio (`fsguard.rs`, `agent*.rs`, `src/ai/`), que ya conoce. Antigravity se queda con lo que va en **módulos nuevos** (`dap*.rs`, `debug*.ts`, `ext*.rs`, `ext*.ts`) y con `vite.config.ts`, así que casi no se cruzan.
 
@@ -40,6 +40,45 @@ Dos agentes trabajan a la vez: **Claude** y **Antigravity**. Cada uno hace solo 
 3. La persona decide qué se une, en este orden: A, luego el resto.
 4. Tras cada unión, el otro agente trae `develop` a su rama y vuelve a probar.
 5. Con la primera ronda unida, se reparte la segunda (H y G) y se hace al final el PR de formato.
+
+## Segunda ronda
+
+La primera ronda (A, B, D, E, F parte 1, I y la corrección de seguridad del depurador) está unida a `develop`. Esta ronda reparte lo que queda. **La firma del instalador queda aplazada** por decisión de la persona: no se trabaja hasta que ella lo pida.
+
+### El problema de esta ronda: `G` choca con todo
+
+Dividir `aiChat.ts`, `aichat.rs`, `gitops.rs` y `lib.rs` mueve código que también tocan H y F. Por eso **va primero y corto**, y mientras tanto el otro agente trabaja en cosas que no estén en esos archivos.
+
+| Paso | Quién | Qué | Mientras tanto |
+| --- | --- | --- | --- |
+| **1** | **Claude** | **G:** dividir los archivos grandes, sin cambiar comportamiento. Un PR por archivo (`gitops.rs`, `aichat.rs`, `lib.rs`, `aiChat.ts`), empezando por el que menos toque el otro agente | Antigravity solo hace el paso 1 (abajo) |
+| **1** | **Antigravity** | Calidad y comprobaciones que no tocan esos archivos (ver «Antigravity, paso 1») | — |
+| **2** | **Antigravity** | **H:** Git y GitHub avanzado, sobre los módulos ya divididos | Claude hace el paso 2 (abajo) |
+| **2** | **Claude** | **F, parte 2:** MCP, ganchos, ver en vivo los pasos de un subagente, Ollama al motor común, cifrar el historial, y el resto de A | — |
+| **3** | **Claude** | Un solo **PR de formato** (`cargo fmt` y Prettier) con todas las demás ramas cerradas | Nadie más abre PR |
+| **Siempre** | La persona | **C** (sin la firma) y **J** | — |
+
+Cada PR de G dice en su descripción qué archivos movió; Antigravity no empieza H hasta que el PR de `gitops.rs` esté unido.
+
+### Antigravity, paso 1 (sin tocar `gitops.rs`, `aichat.rs`, `lib.rs` ni `aiChat.ts`)
+
+- [ ] **Pruebas para los módulos de la interfaz sin prueba propia** (frente B): empezar por `debugView.ts`, `extView.ts` y las vistas que más cambian.
+- [ ] **Comprobaciones e2e en la CI** (frente B): evaluar un ejecutor de Windows con WebView2, o dejar escrito por qué no.
+- [ ] **Accesibilidad** (frente J): lector de pantalla y alto contraste en el depurador y en las extensiones; textos largos en inglés que no quepan.
+- [ ] **Extensiones:** probar la instalación de punta a punta con una extensión de ejemplo y documentar cómo crear una.
+- [ ] **Depurador:** un segundo lenguaje (Node/TypeScript) además de Python.
+
+### Claude, paso 2 (después de G)
+
+- [ ] Resto de A: avisar al abrir un proyecto con `AGENTS.md` o skills, y revisar enlaces simbólicos en `search_files` y `replace_in_file`.
+- [ ] Resto de F: MCP, ganchos, ver en vivo los pasos de un subagente, Ollama al motor común, cifrar el historial.
+- [ ] Probar el agente con proveedores reales cuando la persona pueda dar una clave.
+
+### Antes de cada paso
+
+1. Traer `origin/develop` a la rama y volver a probar.
+2. Revisión cruzada: cada agente lee los PR del otro con atención a seguridad y deja los hallazgos como comentario.
+3. **Nada de lo nuevo se ha visto en pantalla.** Antes de dar por buena la ronda, la persona (o un agente con la aplicación compilada) hace una pasada: diálogos nativos de abrir carpeta y de confianza, memoria y `/plan`, depurador, extensiones y el selector de modelos.
 
 ## Mapa de frentes
 
@@ -89,7 +128,7 @@ Dos agentes trabajan a la vez: **Claude** y **Antigravity**. Cada uno hace solo 
 
 Casi todo es manual o de configuración; es lo que más frena a quien descargue Pulso.
 
-- [ ] **Firmar el instalador** (SignPath gratis para código abierto, o Azure Trusted Signing) y evitar el aviso de SmartScreen.
+- [ ] **(Aplazado a petición de la persona)** **Firmar el instalador** (SignPath gratis para código abierto, o Azure Trusted Signing) y evitar el aviso de SmartScreen.
 - [ ] **Probar en un Windows limpio** (máquina virtual sin Node, Git ni WebView2): instalar, abrir, usar el comando `pulso`, desinstalar.
 - [ ] **Probar una actualización real** entre dos versiones y guardar los secretos pendientes (`RELEASES_TOKEN`, clave de firma).
 - [ ] **Linux:** probar `.rpm`, `.deb` y AppImage en una máquina real con pantalla (el `.rpm` solo se probó en un contenedor), y regenerar el `.rpm` de Fedora con lo nuevo.
