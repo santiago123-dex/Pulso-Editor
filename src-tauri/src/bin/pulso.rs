@@ -8,10 +8,10 @@ use pulso_editor_lib::aichat::{
 use pulso_editor_lib::i18n::{tr, trf};
 use pulso_editor_lib::termchat::{normalize_provider, route, Action, Ev, Parser, Settings, HELP};
 use pulso_editor_lib::termui::{
-    add_trusted, broad_dir_reason, clip_text, git_branch, header_banner, is_trusted, paint,
-    provider_color, provider_label, render_line, rule, slash_matches, tool_badge, trust_card,
-    trusted_list, AMBER, BG_SEL, BRIGHT, CYAN, DIM, INDIGO, LAVENDER, MINT, ROSE, RULE, SLATE,
-    VIOLET,
+    add_trusted, broad_dir_reason, clip_text, display_width, git_branch, header_banner, is_trusted,
+    paint, provider_color, provider_label, render_line, rule, slash_matches, tool_badge,
+    trust_card, trusted_list, AMBER, BG_SEL, BRIGHT, CYAN, DIM, INDIGO, LAVENDER, MINT, ROSE,
+    RULE, SLATE, VIOLET,
 };
 use std::collections::HashMap;
 use std::io::{BufRead, IsTerminal, Read, Write};
@@ -592,24 +592,29 @@ fn draw_composer(
     ctrl_c_armed: bool,
     drawn: &mut bool,
 ) {
-    let mut out = std::io::stdout();
-    let width = term_width();
+    use std::fmt::Write as _;
+    let safe_w = term_width().saturating_sub(1).max(20);
     let color = chat.color;
+    let mut frame = String::with_capacity(1024);
 
+    // DEC Synchronized Output: pinta el frame completo de una sola vez (cero parpadeo).
+    if color {
+        frame.push_str("\x1b[?2026h");
+    }
     if *drawn {
         // El cursor descansa siempre en la fila 1 (línea del prompt).
-        let _ = write!(out, "\x1b[?25l\x1b[1A\r\x1b[0J");
+        frame.push_str("\x1b[?25l\x1b[1A\r\x1b[0J");
     } else {
-        let _ = write!(out, "\x1b[?25l\n");
+        frame.push_str("\x1b[?25l\n");
     }
 
-    // Fila 0: separador superior en grafito neutro.
-    let _ = writeln!(out, "{}", rule(width, color));
+    // Fila 0: separador superior (nunca toca la última columna para evitar wrap diferido).
+    let _ = writeln!(frame, "{}", rule(safe_w, color));
 
     // Fila 1: caja de entrada con ventana deslizante horizontal (nunca desborda de línea).
     let prompt_col = if chat.settings.edit { AMBER } else { VIOLET };
     let prompt_sym = paint(color, &format!("1;{prompt_col}"), "❯");
-    let max_vis = width.saturating_sub(5).max(12);
+    let max_vis = safe_w.saturating_sub(5).max(12);
     let chars: Vec<char> = buf.chars().collect();
     let (visible_text, cursor_col) = if chars.is_empty() {
         let ph = tr("Escribe una instrucción o \"/\" para comandos…");
@@ -619,15 +624,15 @@ fn draw_composer(
         let start = cursor_chars.saturating_sub(max_vis.saturating_sub(2));
         let end = (start + max_vis).min(chars.len());
         let slice: String = chars[start..end].iter().collect();
-        let col = 4 + (cursor_chars - start);
+        let col = 4 + display_width(&chars[start..cursor_chars].iter().collect::<String>());
         (paint(color, BRIGHT, &slice), col)
     };
-    let _ = writeln!(out, "  {prompt_sym} {visible_text}");
+    let _ = writeln!(frame, "  {prompt_sym} {visible_text}");
 
     // Fila 2: separador inferior.
-    let _ = writeln!(out, "{}", rule(width, color));
+    let _ = writeln!(frame, "{}", rule(safe_w, color));
 
-    // Fila 3: barra de estado compacta y sin duplicar información (siempre cabe en 1 línea).
+    // Fila 3: barra de estado compacta (solo símbolos de 1 columna + display_width exacto).
     let p_lbl = provider_label(&chat.settings.provider);
     let p_col = provider_color(&chat.settings.provider);
     let model_suffix = chat
@@ -636,11 +641,11 @@ fn draw_composer(
         .as_deref()
         .map(|m| format!(" · {m}"))
         .unwrap_or_default();
-    let mode_tag = if chat.settings.edit { "⚡ edición" } else { "● solo lectura" };
+    let mode_tag = if chat.settings.edit { "◆ edición" } else { "● solo lectura" };
     let mode_col = if chat.settings.edit { AMBER } else { CYAN };
 
     let left_plain_full = format!("  {mode_tag} · ✦ {p_lbl}{model_suffix}");
-    let left_plain = clip_text(&left_plain_full, width.saturating_sub(2));
+    let left_plain = clip_text(&left_plain_full, safe_w.saturating_sub(1));
     let left_styled = if left_plain == left_plain_full {
         format!(
             "  {} {} {}{}",
@@ -657,41 +662,41 @@ fn draw_composer(
         let t = tr("Pulsa Ctrl+C de nuevo para salir");
         (t.to_string(), paint(color, AMBER, t))
     } else {
-        let t = "/model · /provider · /doctor · /help  ";
+        let t = "/model · /provider · /plan · /help  ";
         (t.to_string(), paint(color, DIM, t))
     };
 
-    let left_len = left_plain.chars().count();
-    let right_len = right_plain.chars().count();
-    if left_len + right_len + 2 <= width {
-        let gap = width - left_len - right_len;
-        let _ = write!(out, "{left_styled}{}{right_styled}", " ".repeat(gap));
+    let left_len = display_width(&left_plain);
+    let right_len = display_width(&right_plain);
+    if left_len + right_len + 2 <= safe_w {
+        let gap = safe_w - left_len - right_len;
+        let _ = write!(frame, "{left_styled}{}{right_styled}", " ".repeat(gap));
     } else {
-        let _ = write!(out, "{left_styled}");
+        let _ = write!(frame, "{left_styled}");
     }
 
-    // Filas 4..: menú desplegable de comandos `/` si aplica (estrictamente recortado a `width`).
+    // Filas 4..: menú desplegable de comandos `/` si aplica (estrictamente recortado a `safe_w`).
     let matches = slash_matches(buf);
     let shown_menu = matches.len().min(6);
     for (idx, cmd) in matches.iter().take(shown_menu).enumerate() {
         let selected = idx == menu_sel.min(shown_menu.saturating_sub(1));
-        let _ = write!(out, "\n");
+        frame.push('\n');
         let desc = tr(cmd.desc);
-        let max_line = width.saturating_sub(4).max(12);
+        let max_line = safe_w.saturating_sub(5).max(12);
         let full_text = format!("{:<11} {desc}", cmd.name);
         let clipped = clip_text(&full_text, max_line);
         if selected {
-            let pad = width.saturating_sub(clipped.chars().count() + 4);
+            let pad = safe_w.saturating_sub(display_width(&clipped) + 4);
             let _ = write!(
-                out,
+                frame,
                 "  {}",
                 paint(color, &format!("{BG_SEL};{LAVENDER}"), &format!("❯ {clipped}{}", " ".repeat(pad)))
             );
         } else {
-            let desc_max = width.saturating_sub(16);
+            let desc_max = safe_w.saturating_sub(16);
             let desc_clip = clip_text(desc, desc_max);
             let _ = write!(
-                out,
+                frame,
                 "    {} {}",
                 paint(color, SLATE, &format!("{:<11}", cmd.name)),
                 paint(color, DIM, &desc_clip)
@@ -701,7 +706,12 @@ fn draw_composer(
 
     // Volver el cursor a la fila 1 (línea de entrada), columna `cursor_col`.
     let lines_below_input = 2 + shown_menu;
-    let _ = write!(out, "\x1b[{lines_below_input}A\r\x1b[{cursor_col}C\x1b[?25h");
+    let _ = write!(frame, "\x1b[{lines_below_input}A\r\x1b[{cursor_col}C\x1b[?25h");
+    if color {
+        frame.push_str("\x1b[?2026l");
+    }
+    let mut out = std::io::stdout();
+    let _ = out.write_all(frame.as_bytes());
     let _ = out.flush();
     *drawn = true;
 }
@@ -933,8 +943,9 @@ struct PickItem {
     note: String,
 }
 
-/// Selector interactivo en línea con flechas ↑/↓, Enter y Esc (o número si no hay consola raw).
+/// Selector interactivo en línea con flechas ↑/↓, Enter y Esc — renderizado en un solo frame sin parpadeo.
 fn pick_option(title: &str, items: &[PickItem], initial: usize, color: bool) -> Option<usize> {
+    use std::fmt::Write as _;
     if items.is_empty() {
         return None;
     }
@@ -945,67 +956,66 @@ fn pick_option(title: &str, items: &[PickItem], initial: usize, color: bool) -> 
         let mut out = std::io::stdout();
         let mut drawn_lines = 0usize;
         let result = loop {
-            if drawn_lines > 0 {
-                let _ = write!(out, "\x1b[{drawn_lines}A\r\x1b[0J");
+            let safe_w = term_width().saturating_sub(1).max(24);
+            let mut frame = String::with_capacity(1024);
+            if color {
+                frame.push_str("\x1b[?2026h");
             }
-            let _ = write!(out, "\x1b[?25l");
-            let width = term_width();
+            if drawn_lines > 0 {
+                let _ = write!(frame, "\x1b[{drawn_lines}A\r\x1b[0J");
+            }
+            frame.push_str("\x1b[?25l");
+
             let start = if sel >= max_vis { sel + 1 - max_vis } else { 0 };
             let end = (start + max_vis).min(items.len());
             let mut lines = 0usize;
 
-            let _ = writeln!(
-                out,
-                "  {}  {}",
-                paint(color, BRIGHT, title),
-                paint(color, DIM, tr("↑/↓ mover · Enter elegir · Esc cancelar"))
-            );
+            let hint = tr("↑/↓ mover · Enter elegir · Esc cancelar");
+            let header_full = format!("  {title}  {hint}");
+            if display_width(&header_full) <= safe_w {
+                let _ = writeln!(frame, "  {}  {}", paint(color, BRIGHT, title), paint(color, DIM, hint));
+            } else {
+                let _ = writeln!(frame, "  {}", paint(color, BRIGHT, &clip_text(title, safe_w.saturating_sub(2))));
+            }
             lines += 1;
 
             for (idx, item) in items[start..end].iter().enumerate() {
                 let real = start + idx;
                 let active = real == sel;
-                let note_part = if item.note.is_empty() {
-                    String::new()
-                } else {
-                    format!("  {}", item.note)
-                };
-                let badge_part = if item.badge.is_empty() {
-                    String::new()
-                } else {
-                    format!("  [{}]", item.badge)
-                };
-                let max_note = width.saturating_sub(item.label.chars().count() + badge_part.chars().count() + 10);
-                let clipped_note: String = note_part.chars().take(max_note).collect();
+                let badge_part = if item.badge.is_empty() { String::new() } else { format!("  [{}]", item.badge) };
+                let note_part = if item.note.is_empty() { String::new() } else { format!("  {}", item.note) };
+                let plain = format!("{}{}{}", item.label, badge_part, note_part);
+                let max_row = safe_w.saturating_sub(6).max(12);
+                let clipped = clip_text(&plain, max_row);
+
                 if active {
+                    let pad = safe_w.saturating_sub(display_width(&clipped) + 5);
                     let _ = writeln!(
-                        out,
+                        frame,
                         "  {}",
-                        paint(
-                            color,
-                            &format!("{BG_SEL};{BRIGHT}"),
-                            &format!(" ❯ {}{}{} ", item.label, badge_part, clipped_note)
-                        )
+                        paint(color, &format!("{BG_SEL};{BRIGHT}"), &format!(" ❯ {clipped}{} ", " ".repeat(pad)))
                     );
-                } else {
+                } else if clipped == plain {
                     let _ = writeln!(
-                        out,
-                        "    {}{}{}",
+                        frame,
+                        "     {}{}{}",
                         paint(color, SLATE, &item.label),
                         paint(color, DIM, &badge_part),
-                        paint(color, DIM, &clipped_note)
+                        paint(color, DIM, &note_part)
                     );
+                } else {
+                    let _ = writeln!(frame, "     {}", paint(color, SLATE, &clipped));
                 }
                 lines += 1;
             }
             if items.len() > max_vis {
-                let _ = writeln!(
-                    out,
-                    "    {}",
-                    paint(color, DIM, &format!("{}/{}", sel + 1, items.len()))
-                );
+                let _ = writeln!(frame, "     {}", paint(color, DIM, &format!("{}/{}", sel + 1, items.len())));
                 lines += 1;
             }
+            if color {
+                frame.push_str("\x1b[?2026l");
+            }
+            let _ = out.write_all(frame.as_bytes());
             let _ = out.flush();
             drawn_lines = lines;
 
@@ -1014,11 +1024,20 @@ fn pick_option(title: &str, items: &[PickItem], initial: usize, color: bool) -> 
                 Key::Down | Key::Tab => sel = (sel + 1) % items.len(),
                 Key::Enter => break Some(sel),
                 Key::Esc | Key::CtrlC | Key::CtrlD => break None,
+                Key::Resize => {}
                 _ => {}
             }
         };
         if drawn_lines > 0 {
-            let _ = write!(out, "\x1b[{drawn_lines}A\r\x1b[0J\x1b[?25h");
+            let mut end_seq = String::new();
+            if color {
+                end_seq.push_str("\x1b[?2026h");
+            }
+            let _ = write!(end_seq, "\x1b[{drawn_lines}A\r\x1b[0J\x1b[?25h");
+            if color {
+                end_seq.push_str("\x1b[?2026l");
+            }
+            let _ = out.write_all(end_seq.as_bytes());
             let _ = out.flush();
         }
         drop(raw);
@@ -1135,6 +1154,31 @@ fn run_doctor(color: bool) {
     println!();
 }
 
+fn history_file() -> Option<PathBuf> {
+    let base = std::env::var_os("APPDATA").map(PathBuf::from).or_else(|| home_dir().map(|h| h.join(".config")))?;
+    Some(base.join("dev.pulso.editor").join("cli-history.txt"))
+}
+
+fn load_history() -> Vec<String> {
+    let Some(f) = history_file() else { return Vec::new() };
+    let Ok(raw) = std::fs::read_to_string(f) else { return Vec::new() };
+    raw.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(String::from)
+        .collect()
+}
+
+fn save_history(history: &[String]) {
+    let Some(f) = history_file() else { return };
+    if let Some(parent) = f.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let start = history.len().saturating_sub(200);
+    let content = history[start..].join("\n");
+    let _ = std::fs::write(f, content);
+}
+
 fn repl(settings: Settings) {
     let color = use_color();
     let mut chat = Chat { settings, session: None, color };
@@ -1142,10 +1186,11 @@ fn repl(settings: Settings) {
         print!("\x1b[2J\x1b[H");
     }
     print_header(&chat);
-    let mut history: Vec<String> = Vec::new();
+    let mut history: Vec<String> = load_history();
     let mut model_cache: HashMap<String, Vec<AiModelInfo>> = HashMap::new();
     let mut provider_cache: Option<Vec<(&'static str, AiTool)>> = None;
     let mut fresh_screen = true;
+    let mut turns: usize = 0;
 
     loop {
         let line = match read_composer(&mut chat, &history, fresh_screen) {
@@ -1170,6 +1215,7 @@ fn repl(settings: Settings) {
         fresh_screen = false;
         if history.last().map(|s| s.as_str()) != Some(line.as_str()) {
             history.push(line.clone());
+            save_history(&history);
         }
 
         if let Some(cmd) = line.strip_prefix('/') {
@@ -1209,6 +1255,37 @@ fn repl(settings: Settings) {
                 }
                 "doctor" => {
                     run_doctor(color);
+                }
+                "status" | "estado" => {
+                    let dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                    let branch = git_branch(&dir).unwrap_or_else(|| "—".into());
+                    let model_lbl = chat.settings.model.as_deref().unwrap_or("predeterminado");
+                    let effort_lbl = chat.settings.effort.as_deref().unwrap_or("normal");
+                    let mode_lbl = if chat.settings.edit { "edición activa" } else { "solo lectura" };
+                    let sess_lbl = chat.session.as_deref().unwrap_or("nueva");
+                    println!("\n  {}", paint(color, BRIGHT, "◈ Estado de la sesión"));
+                    println!("    {} {}", paint(color, DIM, "Proveedor: "), paint(color, provider_color(&chat.settings.provider), provider_label(&chat.settings.provider)));
+                    println!("    {} {}", paint(color, DIM, "Modelo:    "), paint(color, SLATE, model_lbl));
+                    println!("    {} {}", paint(color, DIM, "Esfuerzo:  "), paint(color, SLATE, effort_lbl));
+                    println!("    {} {}", paint(color, DIM, "Modo:      "), paint(color, if chat.settings.edit { AMBER } else { CYAN }, mode_lbl));
+                    println!("    {} {}", paint(color, DIM, "Sesión:    "), paint(color, DIM, &format!("{sess_lbl} ({turns} turnos)")));
+                    println!("    {} {} ({})", paint(color, DIM, "Proyecto:  "), paint(color, SLATE, &dir.display().to_string()), paint(color, VIOLET, &format!("git:{branch}")));
+                    println!();
+                }
+                "plan" => {
+                    if arg.is_empty() {
+                        note("▸", AMBER, "Usa: /plan <descripción de la tarea>");
+                    } else {
+                        let prev_edit = chat.settings.edit;
+                        chat.settings.edit = false;
+                        note("◈", VIOLET, "Modo plan (solo lectura forzada para este turno)…");
+                        let plan_prompt = format!(
+                            "Analiza el proyecto en modo solo lectura sin modificar archivos y entrega un plan claro (objetivo, archivos a tocar, pasos, riesgos y verificación) para:\n\n{arg}"
+                        );
+                        turns += 1;
+                        chat.turn(&plan_prompt);
+                        chat.settings.edit = prev_edit;
+                    }
                 }
                 "model" => {
                     let arg_low = arg.to_ascii_lowercase();
@@ -1378,8 +1455,9 @@ fn repl(settings: Settings) {
             continue;
         }
 
-        let bar_col = if chat.settings.edit { AMBER } else { CYAN };
+        let bar_col = if chat.settings.edit { AMBER } else { VIOLET };
         println!("\n  {} {} {}", paint(color, bar_col, "┃"), paint(color, &format!("1;{bar_col}"), "❯"), paint(color, BRIGHT, &line));
+        turns += 1;
         chat.turn(&line);
     }
 }

@@ -9,6 +9,7 @@ pub const CYAN: &str = "38;2;91;156;245";
 pub const INDIGO: &str = "38;2;124;58;237";
 pub const VIOLET: &str = "38;2;167;139;250";
 pub const LAVENDER: &str = "38;2;196;181;253";
+pub const SHADOW: &str = "38;2;76;29;149";
 pub const MINT: &str = "38;2;52;211;153";
 pub const AMBER: &str = "38;2;233;188;67";
 pub const CORAL: &str = "38;2;249;115;22";
@@ -30,6 +31,8 @@ pub const SLASH_COMMANDS: &[SlashCmd] = &[
     SlashCmd { name: "/provider", desc: "Elegir o cambiar IA (claude | codex | antigravity)", needs_arg: false },
     SlashCmd { name: "/model", desc: "Elegir modelo del proveedor activo", needs_arg: false },
     SlashCmd { name: "/effort", desc: "Nivel de razonamiento (low | medium | high | max)", needs_arg: false },
+    SlashCmd { name: "/plan", desc: "Planificar una tarea en solo lectura sin tocar archivos", needs_arg: true },
+    SlashCmd { name: "/status", desc: "Ver estado actual de la sesión y proyecto", needs_arg: false },
     SlashCmd { name: "/edit", desc: "Activar edición de archivos en esta carpeta", needs_arg: false },
     SlashCmd { name: "/read", desc: "Volver a modo solo lectura", needs_arg: false },
     SlashCmd { name: "/doctor", desc: "Comprobar proveedores instalados y entorno", needs_arg: false },
@@ -143,23 +146,75 @@ pub fn tool_badge(tool: &str, color: bool) -> String {
     format!("  {} {} {}", paint(color, RULE, "├─"), paint(color, tone, icon), paint(color, SLATE, tool))
 }
 
-pub fn clip_text(text: &str, max_chars: usize) -> String {
-    if max_chars == 0 {
-        return String::new();
+/// Ancho visual aproximado en columnas de consola (trata emojis y símbolos anchos como 2 columnas).
+pub fn char_width(c: char) -> usize {
+    let cp = c as u32;
+    if matches!(cp, 0x26A0..=0x26FF | 0x2700..=0x27BF | 0x1F300..=0x1FAFF | 0x2E80..=0x9FFF | 0xF900..=0xFAFF | 0xFF01..=0xFF60) {
+        2
+    } else {
+        1
     }
-    let count = text.chars().count();
-    if count <= max_chars {
-        return text.to_string();
-    }
-    if max_chars == 1 {
-        return "…".into();
-    }
-    let mut s: String = text.chars().take(max_chars - 1).collect();
-    s.push('…');
-    s
 }
 
-/// Cabecera oficial de Pulso CLI: wordmark PULSO + tarjeta compacta y responsiva al ancho de la terminal.
+pub fn display_width(text: &str) -> usize {
+    text.chars().map(char_width).sum()
+}
+
+pub fn clip_text(text: &str, max_cols: usize) -> String {
+    if max_cols == 0 {
+        return String::new();
+    }
+    if display_width(text) <= max_cols {
+        return text.to_string();
+    }
+    if max_cols == 1 {
+        return "…".into();
+    }
+    let mut out = String::new();
+    let mut used = 0usize;
+    for c in text.chars() {
+        let cw = char_width(c);
+        if used + cw + 1 > max_cols {
+            break;
+        }
+        out.push(c);
+        used += cw;
+    }
+    out.push('…');
+    out
+}
+
+/// Colorea una línea de pixel-art 3D: bloques `█` en el color principal y trazos de sombra en púrpura oscuro.
+fn color_pixel_row(line: &str, main_color: &str, color: bool) -> String {
+    if !color {
+        return line.to_string();
+    }
+    let mut out = String::with_capacity(line.len() * 2);
+    let mut cur: Option<&str> = None;
+    for c in line.chars() {
+        let tone = match c {
+            '█' | '▀' | '▄' => Some(main_color),
+            '╗' | '╔' | '═' | '║' | '╝' | '╚' => Some(SHADOW),
+            _ => None,
+        };
+        if tone != cur {
+            if cur.is_some() {
+                out.push_str("\x1b[0m");
+            }
+            if let Some(t) = tone {
+                out.push_str(&format!("\x1b[{t}m"));
+            }
+            cur = tone;
+        }
+        out.push(c);
+    }
+    if cur.is_some() {
+        out.push_str("\x1b[0m");
+    }
+    out
+}
+
+/// Cabecera oficial de Pulso CLI: pixel-art 3D `PULSO` + tarjeta compacta y responsiva al ancho de la terminal.
 #[allow(clippy::too_many_arguments)]
 pub fn header_banner(
     version: &str,
@@ -173,7 +228,7 @@ pub fn header_banner(
     width: usize,
     color: bool,
 ) -> String {
-    let w = width.max(36);
+    let w = width.saturating_sub(1).max(32);
     let p_label = provider_label(provider);
     let p_col = provider_color(provider);
     let model_txt = model.unwrap_or("predeterminado");
@@ -182,8 +237,8 @@ pub fn header_banner(
 
     // Modo compacto para terminales estrechas (< 64 cols) para que nunca se rompa el diseño.
     if w < 64 {
-        let mode_short = if edit { paint(color, AMBER, "⚡ edit") } else { paint(color, CYAN, "● read") };
-        let path_clip = clip_text(&path_txt, w.saturating_sub(6));
+        let mode_short = if edit { paint(color, AMBER, "◆ edit") } else { paint(color, CYAN, "● read") };
+        let path_clip = clip_text(&path_txt, w.saturating_sub(4));
         let top = format!(
             "  {} {} · {} · {}",
             paint(color, &format!("1;{VIOLET}"), "◈ PULSO"),
@@ -195,30 +250,39 @@ pub fn header_banner(
         return format!("\n{top}\n{sub}\n");
     }
 
-    // Wordmark PULSO con gradiente púrpura → lavanda → azul Pulso.
-    let w1 = format!(
-        "  {} {} {} {} {}",
-        paint(color, INDIGO, "█▀█"),
-        paint(color, INDIGO, "█ █"),
-        paint(color, VIOLET, "█  "),
-        paint(color, LAVENDER, "█▀▀"),
-        paint(color, CYAN, "█▀█"),
-    );
-    let w2 = format!(
-        "  {} {} {} {} {}   {} {}",
-        paint(color, INDIGO, "█▀▀"),
-        paint(color, INDIGO, "█▄█"),
-        paint(color, VIOLET, "█▄▄"),
-        paint(color, LAVENDER, "▄▄█"),
-        paint(color, CYAN, "█▄█"),
-        paint(color, BRIGHT, "CLI"),
-        paint(color, DIM, &format!("v{version}")),
-    );
+    // Wordmark pixel-art 3D `PULSO` con degradado vertical púrpura → lavanda → azul Pulso + sombra 3D.
+    let art: [(&str, &str); 6] = [
+        ("██████╗ ██╗   ██╗██╗     ███████╗ ██████╗ ", INDIGO),
+        ("██╔══██╗██║   ██║██║     ██╔════╝██╔═══██╗", VIOLET),
+        ("██████╔╝██║   ██║██║     ███████╗██║   ██║", VIOLET),
+        ("██╔═══╝ ██║   ██║██║     ╚════██║██║   ██║", LAVENDER),
+        ("██║     ╚██████╔╝███████╗███████║╚██████╔╝", CYAN),
+        ("╚═╝      ╚═════╝ ╚══════╝╚══════╝ ╚═════╝ ", CYAN),
+    ];
+    let mut logo_lines = String::new();
+    for (idx, (row, tone)) in art.iter().enumerate() {
+        let colored = color_pixel_row(row, tone, color);
+        if idx == 2 && w >= 66 {
+            logo_lines.push_str(&format!(
+                "  {colored}  {} {} {}\n",
+                paint(color, VIOLET, "──╱╲──"),
+                paint(color, BRIGHT, "CLI"),
+                paint(color, DIM, &format!("v{version}")),
+            ));
+        } else if idx == 3 && w >= 66 {
+            logo_lines.push_str(&format!(
+                "  {colored}  {}\n",
+                paint(color, DIM, "Pulso Terminal Agent"),
+            ));
+        } else {
+            logo_lines.push_str(&format!("  {colored}\n"));
+        }
+    }
 
-    // Tarjeta de sesión con ancho controlado (máx. 86 cols, siempre cabe en la ventana).
-    let card_w = w.saturating_sub(4).min(86);
-    let inner = card_w.saturating_sub(4); // espacio interior entre "│ " y " │"
-    let val_max = inner.saturating_sub(12); // columna de etiqueta = 12 chars
+    // Tarjeta de sesión con ancho controlado (máx. 84 cols, siempre cabe en la ventana).
+    let card_w = w.saturating_sub(4).min(84);
+    let inner = card_w.saturating_sub(4);
+    let val_max = inner.saturating_sub(12);
 
     let prov_plain = format!("✦ {p_label} · {model_txt} · {effort_txt}");
     let prov_clip = clip_text(&prov_plain, val_max);
@@ -255,10 +319,10 @@ pub fn header_banner(
     };
 
     let (mode_plain, mode_styled) = if edit {
-        let p = "⚡ edición activa  (Shift+Tab solo lectura)";
+        let p = "◆ edición activa  (Shift+Tab solo lectura)";
         let c = clip_text(p, val_max);
         let s = if c == p {
-            format!("{}  {}", paint(color, AMBER, "⚡ edición activa"), paint(color, DIM, "(Shift+Tab solo lectura)"))
+            format!("{}  {}", paint(color, AMBER, "◆ edición activa"), paint(color, DIM, "(Shift+Tab solo lectura)"))
         } else {
             paint(color, AMBER, &c)
         };
@@ -276,7 +340,7 @@ pub fn header_banner(
 
     let make_row = |label: &str, plain_val: &str, styled_val: &str| -> String {
         let lbl_pad = format!("{label:<11} ");
-        let used = 12 + plain_val.chars().count();
+        let used = 12 + display_width(plain_val);
         let pad = inner.saturating_sub(used);
         format!(
             "  {} {}{}{} {}",
@@ -289,7 +353,7 @@ pub fn header_banner(
     };
 
     let title_tag = " Sesión ";
-    let top_fill = card_w.saturating_sub(3 + title_tag.chars().count());
+    let top_fill = card_w.saturating_sub(3 + display_width(title_tag));
     let top_border = format!(
         "  {}{}{}{}",
         paint(color, RULE, "╭─"),
@@ -308,7 +372,7 @@ pub fn header_banner(
     let r2 = make_row("Proyecto", &proj_clip, &proj_styled);
     let r3 = make_row("Modo", &mode_plain, &mode_styled);
 
-    format!("\n{w1}\n{w2}\n\n{top_border}\n{r1}\n{r2}\n{r3}\n{bot_border}\n")
+    format!("\n{logo_lines}\n{top_border}\n{r1}\n{r2}\n{r3}\n{bot_border}\n")
 }
 
 /// Tarjeta de confirmación de carpeta de proyecto.

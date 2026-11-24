@@ -436,6 +436,8 @@ const EN: &[(&str, &str)] = &[
     ("Elegir o cambiar IA (claude | codex | antigravity)", "Choose or switch AI (claude | codex | antigravity)"),
     ("Elegir modelo del proveedor activo", "Choose active provider model"),
     ("Comprobar proveedores instalados y entorno", "Check installed providers and environment"),
+    ("Planificar una tarea en solo lectura sin tocar archivos", "Plan a task in read-only mode without modifying files"),
+    ("Ver estado actual de la sesión y proyecto", "Show current session and project status"),
 ];
 
 #[cfg(test)]
