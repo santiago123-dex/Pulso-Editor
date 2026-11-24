@@ -207,7 +207,7 @@ Dividir por responsabilidad facilita revisar y evita que las ramas choquen. **Ha
 | `src/aiChat.ts` | 2572 | panel de mensajes, tarjetas (actividad, permisos), proveedores, entrada |
 | `src-tauri/src/aichat.rs` | 1561 | detección de proveedores, sesiones, comandos de Tauri |
 | `src-tauri/src/bin/pulso.rs` | 1295 | enrutado, trabajo de ventana, terminal |
-| `src-tauri/src/gitops.rs` | 1222 | estado, diferencias, ramas, remoto |
+| `src-tauri/src/gitops.rs` | 1222 | **Hecho:** `gitops/` con `mod.rs` (ayudantes y comandos de Tauri), `changes.rs`, `branches.rs`, `remote.rs`, `history.rs` y `tests.rs` |
 | `src-tauri/src/lib.rs` | 1191 | comandos agrupados por módulo, `run()` mínimo |
 
 - [ ] Sin cambiar comportamiento: las pruebas existentes deben pasar sin tocarlas.
