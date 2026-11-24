@@ -6,7 +6,7 @@ import * as monaco from "monaco-editor";
 import { invoke } from "@tauri-apps/api/core";
 import { lang, t, translateStatic } from "./i18n";
 import { connectProvider } from "./ai/providers";
-import { showAgentConfig, trustProject } from "./ai/agentConfig";
+import { noticeUntrustedProject, showAgentConfig, trustProject } from "./ai/agentConfig";
 import { showAgentMemory } from "./ai/memory";
 import { showPermissionRules } from "./ai/permissions";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -219,6 +219,7 @@ async function openWorkspace(raw: string, layout?: Layout | null): Promise<boole
   rerenderEmpty();
   updateStatus();
   persist();
+  if (inTauri && changedWorkspace) void noticeUntrustedProject(path);
   return true;
 }
 

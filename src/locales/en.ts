@@ -1131,6 +1131,7 @@ export const en: Record<string, string> = {
   "Lanzó un subagente": "Launched a subagent",
   "IA: Ver instrucciones, skills y agentes del proyecto…": "AI: View the project's instructions, skills and agents…",
   "IA: Confiar en este proyecto…": "AI: Trust this project…",
+  "Este proyecto trae instrucciones para la IA que no se cargan hasta que confíes en él (IA: Confiar en este proyecto…)": "This project has AI instructions that aren't loaded until you trust it (AI: Trust this project…)",
   "Añadir una regla de denegar…": "Add a deny rule…",
   "Por ejemplo «git push *»: el agente no podrá ejecutarlo ni pidiéndolo": "For example “git push *”: the agent won't be able to run it even if it asks",
   "Comando que el agente nunca podrá ejecutar (usa * al final para un prefijo)": "Command the agent can never run (use * at the end for a prefix)",
