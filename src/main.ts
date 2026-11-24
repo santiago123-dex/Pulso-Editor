@@ -8,6 +8,7 @@ import { lang, t, translateStatic } from "./i18n";
 import { connectProvider } from "./ai/providers";
 import { noticeUntrustedProject, showAgentConfig, trustProject } from "./ai/agentConfig";
 import { showAgentMemory } from "./ai/memory";
+import { showMcpServers } from "./ai/mcpStatus";
 import { showPermissionRules } from "./ai/permissions";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getVersion } from "@tauri-apps/api/app";
@@ -518,6 +519,7 @@ register(
   { id: "ai.permissionRules", label: t("IA: Comandos permitidos para este proyecto…"), keywords: "ai ia permisos comandos reglas permitir aprobar approve permissions", run: showPermissionRules },
   { id: "ai.agentConfig", label: t("IA: Ver instrucciones, skills y agentes del proyecto…"), keywords: "ai ia agente skills subagentes instrucciones agents.md claude.md comandos", run: showAgentConfig },
   { id: "ai.memory", label: t("IA: Memoria del agente en este proyecto…"), keywords: "ai ia agente memoria notas recuerda", run: showAgentMemory },
+  { id: "ai.mcp", label: t("IA: Servidores MCP…"), keywords: "ai ia mcp servidores herramientas conexion conectado model context protocol", run: showMcpServers },
   { id: "ai.trustProject", label: t("IA: Confiar en este proyecto…"), keywords: "ai ia confiar confianza trust proyecto agents.md", run: () => void trustProject() },
   { id: "ai.connectProvider", label: t("IA: Conectar un proveedor de modelos…"), keywords: "ai ia modelos provider proveedor api key clave openai anthropic openrouter models.dev", run: () => connectProvider() },
   { id: "file.openRecent", label: t("Archivo: Abrir carpeta reciente…"), run: pickRecent },

@@ -151,6 +151,7 @@ pub fn run() {
             read_theme_file,
             catalog::catalog_get,
             aichat::agent_config,
+            aichat::agent_mcp_status,
             agentperms::ai_permission_respond,
             agentperms::agent_rules_list,
             agentperms::agent_rules_remove,
