@@ -68,6 +68,8 @@ pub struct Config {
     pub memory: Vec<String>,
     /// Dónde se guardan las notas nuevas; `None` si no hay memoria (proyecto sin confianza o pruebas).
     pub memory_store: Option<crate::agentmem::MemoryStore>,
+    /// Ganchos antes y después de cada herramienta (los del proyecto solo con confianza).
+    pub hooks: crate::agenthooks::Hooks,
 }
 
 // ---------- Cabecera de los archivos Markdown ----------
@@ -140,7 +142,7 @@ fn home_dir() -> Option<PathBuf> {
 }
 
 /// Lee un archivo de texto pequeño; si es un enlace, el destino tiene que estar dentro de `within` (si se indica).
-fn read_small(path: &Path, within: Option<&Path>) -> Option<String> {
+pub(crate) fn read_small(path: &Path, within: Option<&Path>) -> Option<String> {
     let meta = std::fs::metadata(path).ok()?;
     if !meta.is_file() || meta.len() > MAX_FILE_BYTES {
         return None;
@@ -396,7 +398,7 @@ fn load_file_commands(root: &Path, home: Option<&Path>) -> Vec<Command> {
 impl Default for Config {
     /// Sin archivos de configuración quedan los subagentes integrados (`explore` y `general`).
     fn default() -> Self {
-        Config { instructions: Vec::new(), skills: Vec::new(), agents: builtin_agents(), commands: builtin_commands(), memory: Vec::new(), memory_store: None }
+        Config { instructions: Vec::new(), skills: Vec::new(), agents: builtin_agents(), commands: builtin_commands(), memory: Vec::new(), memory_store: None, hooks: Default::default() }
     }
 }
 
@@ -406,7 +408,7 @@ impl Config {
     }
 
     pub fn load_with_home(root: &Path, home: Option<&Path>) -> Config {
-        Config { instructions: load_instructions(root, home), skills: load_skills(root, home), agents: load_agents(root, home), commands: load_commands(root, home), memory: Vec::new(), memory_store: None }
+        Config { instructions: load_instructions(root, home), skills: load_skills(root, home), agents: load_agents(root, home), commands: load_commands(root, home), memory: Vec::new(), memory_store: None, hooks: crate::agenthooks::Hooks::load(root, home) }
     }
 
     /// Deja solo lo de la carpeta personal y lo integrado: lo que viene del proyecto (AGENTS.md, skills, subagentes y
@@ -422,6 +424,7 @@ impl Config {
     pub fn without_project(mut self) -> Config {
         self.memory.clear();
         self.memory_store = None;
+        self.hooks = self.hooks.without_project();
         self.instructions.retain(|i| i.user);
         self.skills.retain(|s| s.user);
         self.agents.retain(|a| a.user || a.builtin);

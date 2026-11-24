@@ -166,7 +166,7 @@ Lo ya hecho (proveedores de models.dev, herramientas, subagentes, skills, comand
 - [x] **Escribir reglas de denegar desde la interfaz.**
 - [x] **Resumir la conversación** al llegar al límite de contexto, en vez de solo podar resultados.
 - [ ] **MCP:** cliente de servidores MCP, con aprobación de sus herramientas por el mismo camino que los comandos.
-- [ ] **Ganchos (hooks)** antes y después de cada herramienta.
+- [x] **Ganchos (hooks)** antes y después de cada herramienta (`agenthooks.rs`, ver [Agente](AGENTE.md)).
 - [x] **Memoria entre sesiones**, por proyecto, guardada fuera del proyecto (`agentmem.rs`).
 - [x] **Modo plan:** `/plan <tarea>`, siempre en solo lectura; el agente propone el plan y tú decides cuándo ejecutarlo.
 - [ ] Ver en vivo los pasos de un subagente.

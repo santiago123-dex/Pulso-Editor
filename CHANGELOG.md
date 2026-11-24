@@ -4,6 +4,8 @@ Todos los cambios notables en Pulso Editor se documentan en este archivo.
 
 ## [Sin publicar]
 
+### Añadido
+- **Ganchos del agente propio:** comandos que se ejecutan antes y después de cada herramienta, en `hooks.json` (`~/.pulso/` siempre; `.pulso/` del proyecto solo con confianza). Un gancho previo que termina con el código 2 bloquea la herramienta; uno posterior añade su salida al resultado. Ver [Agente](docs/AGENTE.md).
 ### Seguridad
 - Al abrir un proyecto que trae `AGENTS.md`, skills, subagentes o comandos y en el que todavía no se confía, la barra de estado avisa de que no se cargan y de cómo confiar («IA: Confiar en este proyecto…»).
 - Dos pruebas fijan que la búsqueda y el reemplazo no atraviesan enlaces simbólicos que salen de la carpeta abierta.

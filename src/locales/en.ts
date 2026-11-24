@@ -1139,6 +1139,7 @@ export const en: Record<string, string> = {
   "No se pudo añadir la regla: {error}": "Couldn't add the rule: {error}",
   "IA: Memoria del agente en este proyecto…": "AI: Agent memory for this project…",
   "Guardó una nota en la memoria": "Saved a note to memory",
+  "Un gancho bloqueó una herramienta": "A hook blocked a tool",
   "Notas que el agente recuerda de este proyecto (elige una para borrarla)": "Notes the agent remembers about this project (pick one to delete it)",
   "El agente todavía no guardó ninguna nota de este proyecto.": "The agent hasn't saved any notes for this project yet.",
   "No se pudo leer la memoria del agente: {error}": "Couldn't read the agent's memory: {error}",
