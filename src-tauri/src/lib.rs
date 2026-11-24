@@ -38,6 +38,8 @@ mod project_check;
 mod test_runner;
 mod git_hunks;
 mod inline_ai;
+mod dap;
+mod dap_config;
 
 /// Los procesos auxiliares no deben abrir ventanas de consola en Windows.
 fn background_command(program: &str) -> Command {
@@ -1107,6 +1109,7 @@ pub fn run() {
         .manage(aichat::AiState::default())
         .manage(catalog::CatalogState::default())
         .manage(std::sync::Arc::new(agentperms::Broker::default()))
+        .manage(dap::DapState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .on_window_event(|window, event| {
@@ -1214,7 +1217,22 @@ pub fn run() {
             test_runner::test_run,
             git_hunks::git_file_hunks,
             git_hunks::git_apply_hunk,
-            inline_ai::ai_inline_complete
+            inline_ai::ai_inline_complete,
+            dap::dap_list_configs,
+            dap::dap_trust_workspace,
+            dap::dap_create_launch_file,
+            dap::dap_launch,
+            dap::dap_stop,
+            dap::dap_set_breakpoints,
+            dap::dap_continue,
+            dap::dap_next,
+            dap::dap_step_in,
+            dap::dap_step_out,
+            dap::dap_pause,
+            dap::dap_stack_trace,
+            dap::dap_scopes,
+            dap::dap_variables,
+            dap::dap_evaluate
         ])
         .build(app_context())
         .expect("error al iniciar Pulso Editor")
@@ -1224,6 +1242,7 @@ pub fn run() {
                 app.state::<term::TermState>().kill_all();
                 app.state::<lsp::LspState>().stop();
                 app.state::<aichat::AiState>().stop_all();
+                app.state::<dap::DapState>().stop();
             }
         });
 }

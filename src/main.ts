@@ -36,6 +36,7 @@ import { isOnboardingDone, openOnboarding, shouldShowOnboarding } from "./onboar
 import { initIssues, loadIssues } from "./issues";
 import { initProblems, resetProjectProblems, runProjectProblemsCheck, setProblemsVisible } from "./problems";
 import { initTestsView, resetTestsView, runAllTests, setTestsVisible } from "./testsView";
+import { initDebug, setDebugVisible, startOrContinueDebug, stepIntoDebug, stepOutDebug, stepOverDebug, stopDebug, toggleCurrentBreakpoint } from "./debugView";
 import { initConflictHelper } from "./conflictHelper";
 import { initInlineCompletions, resetInlineAiBackoff } from "./inlineCompletion";
 import { pickScript } from "./scripts";
@@ -104,20 +105,21 @@ const inTauri = "__TAURI_INTERNALS__" in window;
 hooks.focusEditor = () => focusedEditor()?.focus();
 
 // ---------- Vistas de la barra lateral ----------
-type View = "explorer" | "search" | "git" | "issues" | "problems" | "tests" | "chat" | "prs" | "ai";
+type View = "explorer" | "search" | "git" | "issues" | "problems" | "tests" | "debug" | "chat" | "prs" | "ai";
 let currentView: View = "explorer";
 
 function showView(view: View | "settings") {
   if (view === "settings") { toggleSettings(); return; }
   closeSettings();
   const app = $("app");
-  if (view === currentView && !app.classList.contains("no-sidebar")) { app.classList.add("no-sidebar"); setProblemsVisible(false); setTestsVisible(false); setChatVisible(false); setPrsVisible(false); setAiVisible(false); return; }
+  if (view === currentView && !app.classList.contains("no-sidebar")) { app.classList.add("no-sidebar"); setProblemsVisible(false); setTestsVisible(false); setDebugVisible(false); setChatVisible(false); setPrsVisible(false); setAiVisible(false); return; }
   app.classList.remove("no-sidebar");
   currentView = view;
   document.querySelectorAll<HTMLElement>(".act[data-view]").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
-  for (const v of ["explorer", "search", "git", "issues", "problems", "tests", "chat", "prs", "ai"] as View[]) $(`view-${v}`).hidden = v !== view;
+  for (const v of ["explorer", "search", "git", "issues", "problems", "tests", "debug", "chat", "prs", "ai"] as View[]) $(`view-${v}`).hidden = v !== view;
   setProblemsVisible(view === "problems");
   setTestsVisible(view === "tests");
+  setDebugVisible(view === "debug");
   setChatVisible(view === "chat");
   setPrsVisible(view === "prs");
   setAiVisible(view === "ai");
@@ -609,6 +611,13 @@ register(
 
   { id: "explorer.refresh", label: t("Explorador: Actualizar"), run: () => void refreshTree() },
   { id: "explorer.collapse", label: t("Explorador: Contraer todo"), run: collapseAll },
+  { id: "view.debug", label: t("Ver: Depurador"), keywords: "debug depurar breakpoint dap variables", run: () => showView("debug") },
+  { id: "debug.start", label: t("Depurador: Iniciar o continuar"), key: "F5", keywords: "debug depurar ejecutar continuar", run: () => { showView("debug"); void startOrContinueDebug(); } },
+  { id: "debug.stop", label: t("Depurador: Detener"), key: "Shift+F5", keywords: "debug detener parar", run: () => void stopDebug() },
+  { id: "debug.stepOver", label: t("Depurador: Paso por encima"), key: "F10", keywords: "debug step over paso", run: () => void stepOverDebug() },
+  { id: "debug.stepInto", label: t("Depurador: Entrar en función"), key: "Shift+F10", keywords: "debug step into entrar", run: () => void stepIntoDebug() },
+  { id: "debug.stepOut", label: t("Depurador: Salir de función"), key: "Shift+F11", keywords: "debug step out salir", run: () => void stepOutDebug() },
+  { id: "debug.toggleBreakpoint", label: t("Depurador: Alternar punto de interrupción"), key: "F9", keywords: "debug breakpoint punto interrupcion", run: toggleCurrentBreakpoint },
 );
 
 initKeys();
@@ -820,6 +829,7 @@ initAi();
 bus.on("issue-workflow-start", () => showView("ai"));
 initProblems(() => showView("problems"));
 initTestsView();
+initDebug((path, line) => openFile(path, line ? { line } : undefined));
 initConflictHelper();
 initInlineCompletions();
 initSettingsPage(() => void loadIssues());

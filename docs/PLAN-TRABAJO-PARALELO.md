@@ -101,12 +101,12 @@ Casi todo es manual o de configuración; es lo que más frena a quien descargue 
 
 Es la mayor carencia frente a otros editores. Va en módulos nuevos para no chocar con nadie.
 
-- [ ] Cliente del protocolo DAP en Rust (`src-tauri/src/dap*.rs`): lanzar el adaptador, enviar y recibir mensajes, ciclo de vida.
-- [ ] Interfaz: puntos de interrupción en el margen del editor, panel de variables, pila de llamadas, consola de depuración y barra de control (continuar, paso, parar).
-- [ ] Un primer lenguaje de punta a punta (Node/TypeScript o Python con `debugpy`), antes de ampliar.
-- [ ] Configuración de lanzamiento por proyecto (`.pulso/launch.json`, con lectura de `.vscode/launch.json` como ayuda).
-- [ ] Respetar `fsguard` y el aviso de confianza de A: depurar ejecuta código.
-- [ ] Documentar en `docs/DEPURADOR.md`.
+- [x] Cliente del protocolo DAP en Rust (`src-tauri/src/dap*.rs`): lanzar el adaptador, enviar y recibir mensajes, ciclo de vida.
+- [x] Interfaz: puntos de interrupción en el margen del editor, panel de variables, pila de llamadas, consola de depuración y barra de control (continuar, paso, parar).
+- [x] Un primer lenguaje de punta a punta (Node/TypeScript o Python con `debugpy`), antes de ampliar.
+- [x] Configuración de lanzamiento por proyecto (`.pulso/launch.json`, con lectura de `.vscode/launch.json` como ayuda).
+- [x] Respetar `fsguard` y el aviso de confianza de A: depurar ejecuta código.
+- [x] Documentar en `docs/DEPURADOR.md`.
 
 ## E. Extensiones
 
@@ -182,4 +182,4 @@ Dividir por responsabilidad facilita revisar y evita que las ramas choquen. **Ha
 
 ## Notas entre agentes
 
-_(Vacío. Cada agente añade aquí una línea con fecha y lo que necesita del otro o lo que encontró.)_
+- **2026-11-23 (Antigravity → Claude):** Frente D (`depurador`) lee y escribe `trusted-folders.json` en `src-tauri/src/dap_config.rs` reutilizando `termui::{trusted_list, is_trusted, add_trusted, broad_dir_reason}` para no tocar `fsguard.rs` ni chocar con el Frente A (`seguridad-workspace`). Cuando A se una a `develop`, `dap_config.rs` puede conectarse directamente al estado de confianza centralizado del backend si A expone un helper común.
