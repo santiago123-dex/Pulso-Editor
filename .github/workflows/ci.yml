@@ -58,12 +58,11 @@ jobs:
       - name: Pruebas Rust
         run: npm run test:rust
 
-  # Calidad: formato, lints y auditoría de dependencias. Por ahora solo avisan (`continue-on-error`): el proyecto
-  # todavía no está formateado de forma uniforme y no debe bloquear los PR. Cuando estén limpios se quita el aviso.
+  # Calidad: formato, lints y auditoría de dependencias. Por ahora solo avisan: el proyecto
+  # todavía no está formateado de forma uniforme y no debe bloquear los PR ni salir en rojo: cada paso de comprobación lleva `continue-on-error`, así que un fallo se ve como aviso en el paso pero el trabajo termina en verde. Cuando estén limpios se quita.
   calidad:
     name: Calidad (aviso)
     runs-on: ubuntu-22.04
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -90,23 +89,23 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Formato de Rust
-        if: always()
+        continue-on-error: true
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
 
       - name: Clippy
-        if: always()
+        continue-on-error: true
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets
 
       - name: Formato de TypeScript
-        if: always()
+        continue-on-error: true
         run: npm run format:check
 
       - name: Auditoría de npm (producción)
-        if: always()
+        continue-on-error: true
         run: npm audit --omit=dev --audit-level=high
 
       - name: Auditoría de crates de Rust
-        if: always()
+        continue-on-error: true
         run: |
           cargo install cargo-audit --locked
           cargo audit --file src-tauri/Cargo.lock
