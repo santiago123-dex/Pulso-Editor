@@ -8,10 +8,11 @@ use pulso_editor_lib::aichat::{
 use pulso_editor_lib::i18n::{tr, trf};
 use pulso_editor_lib::termchat::{normalize_provider, route, Action, Ev, Parser, Settings, HELP};
 use pulso_editor_lib::termui::{
-    add_trusted, broad_dir_reason, clip_text, display_width, git_branch, header_banner, is_trusted,
-    paint, provider_color, provider_label, render_line, rule, slash_matches, tool_badge,
-    trust_card, trusted_list, AMBER, BG_SEL, BRIGHT, CYAN, DIM, INDIGO, LAVENDER, MINT, ROSE,
-    RULE, SLATE, VIOLET,
+    add_trusted, broad_dir_reason, clip_text, describe_tool, display_width,
+    format_activity_summary, git_branch, header_banner, is_trusted, paint, provider_color,
+    provider_label, render_line, rule, slash_matches, tool_badge, trust_card, trusted_list,
+    ActivityKind, AMBER, BG_SEL, BRIGHT, CYAN, DIM, INDIGO, LAVENDER, MINT, ROSE, RULE, SLATE,
+    VIOLET,
 };
 use std::collections::HashMap;
 use std::io::{BufRead, IsTerminal, Read, Write};
@@ -61,7 +62,7 @@ fn main() {
                 std::process::exit(2);
             }
             let prompt = combine_with_stdin(q);
-            let mut chat = Chat { settings: s, session: None, color: use_color() };
+            let mut chat = Chat { settings: s, session: None, color: use_color(), last_steps: Vec::new(), last_secs: 0.0 };
             let ok = if chat.settings.json { chat.turn_json(&prompt) } else { chat.turn(&prompt) };
             std::process::exit(if ok { 0 } else { 1 });
         }
@@ -204,6 +205,8 @@ struct Chat {
     settings: Settings,
     session: Option<String>,
     color: bool,
+    last_steps: Vec<(f32, ActivityKind, String)>,
+    last_secs: f32,
 }
 
 const PULSE_FRAMES: [&str; 8] = [
@@ -300,19 +303,28 @@ impl Chat {
             pending: String::new(),
             in_code: false,
             first: true,
-            spinner_on: false,
+            card_lines: 0,
+            expanded: false,
+            summary_printed: false,
             ticks: 0,
-            tools_used: 0,
+            steps: Vec::new(),
         };
         let mut result: Option<Result<(), String>> = None;
         let (mut stderr_tail, mut code, mut cancelled) = (String::new(), None, false);
 
         loop {
+            let elapsed = started.elapsed().as_secs_f32();
             if let Some(ref r) = raw {
-                if r.poll_ctrl_c() {
-                    kill_process_tree(pid);
-                    cancelled = true;
-                    break;
+                match r.poll_live_key() {
+                    Some(Key::CtrlC) => {
+                        kill_process_tree(pid);
+                        cancelled = true;
+                        break;
+                    }
+                    Some(Key::CtrlO) => {
+                        view.toggle_expand(elapsed);
+                    }
+                    _ => {}
                 }
             }
             match rx.recv_timeout(Duration::from_millis(85)) {
@@ -320,8 +332,8 @@ impl Chat {
                     for ev in parser.feed(&l) {
                         match ev {
                             Ev::Session(id) => self.session = Some(id),
-                            Ev::Text(t) => view.text(&t),
-                            Ev::Tool(t) => view.tool(&t),
+                            Ev::Text(t) => view.text(&t, started.elapsed().as_secs_f32()),
+                            Ev::Tool(t) => view.tool(&t, started.elapsed().as_secs_f32()),
                             Ev::Done(r) => result = Some(r),
                         }
                     }
@@ -336,14 +348,16 @@ impl Chat {
             }
         }
         drop(raw);
-        view.finish();
+        let secs = started.elapsed().as_secs_f32();
+        view.finish(secs);
+        self.last_steps = view.steps.clone();
+        self.last_secs = secs;
 
         if cancelled {
             println!("  {} {}", paint(self.color, AMBER, "⊘"), paint(self.color, SLATE, tr("Cancelado por el usuario (Ctrl+C)")));
             return false;
         }
 
-        let secs = started.elapsed().as_secs_f32();
         let ok = match result {
             Some(Ok(())) => true,
             Some(Err(e)) => {
@@ -361,18 +375,14 @@ impl Chat {
                 false
             }
         };
-        if ok && self.color {
-            let tools_note = if view.tools_used > 0 {
-                format!(" · {} {}", view.tools_used, if view.tools_used == 1 { tr("herramienta") } else { tr("herramientas") })
-            } else {
-                String::new()
-            };
+        if ok && self.color && !view.summary_printed {
+            let summary = view.summary_text(secs);
             let p_name = provider_label(&self.settings.provider);
             println!(
                 "  {} {} {}",
                 paint(true, RULE, "╰─"),
                 paint(true, MINT, "✓"),
-                paint(true, DIM, &format!("{p_name} · {secs:.1} s{tools_note}"))
+                paint(true, DIM, &format!("{p_name} · {summary}"))
             );
         }
         ok
@@ -465,56 +475,234 @@ impl Chat {
     }
 }
 
-/// Lo que se ve mientras llega la respuesta: texto formateado por líneas, herramientas y pulso en vivo.
+/// Tarjeta de actividad plegable al estilo Pulso Editor + respuesta final con Markdown/sintaxis.
 struct View {
     color: bool,
     out: std::io::Stdout,
     pending: String,
     in_code: bool,
     first: bool,
-    spinner_on: bool,
+    card_lines: usize,
+    expanded: bool,
+    summary_printed: bool,
     ticks: usize,
-    tools_used: usize,
+    steps: Vec<(f32, ActivityKind, String)>,
+}
+
+fn step_icon(kind: ActivityKind) -> (&'static str, &'static str) {
+    match kind {
+        ActivityKind::Read => ("◈", CYAN),
+        ActivityKind::Edit => ("✦", AMBER),
+        ActivityKind::Command => ("◆", VIOLET),
+        ActivityKind::Search => ("◎", LAVENDER),
+        ActivityKind::Other => ("▸", SLATE),
+    }
 }
 
 impl View {
-    fn clear_spinner(&mut self) {
-        if self.spinner_on {
-            let _ = write!(self.out, "\r\x1b[2K");
-            self.spinner_on = false;
+    fn summary_text(&self, secs: f32) -> String {
+        let (mut r, mut e, mut c, mut s, mut o) = (0, 0, 0, 0, 0);
+        for (_, k, _) in &self.steps {
+            match k {
+                ActivityKind::Read => r += 1,
+                ActivityKind::Edit => e += 1,
+                ActivityKind::Command => c += 1,
+                ActivityKind::Search => s += 1,
+                ActivityKind::Other => o += 1,
+            }
+        }
+        format_activity_summary(secs, r, e, c, s, o)
+    }
+
+    fn clear_card(&mut self) {
+        if self.card_lines > 0 {
+            let mut seq = String::new();
+            if self.color {
+                seq.push_str("\x1b[?2026h");
+            }
+            seq.push_str(&format!("\x1b[{}A\r\x1b[0J", self.card_lines));
+            if self.color {
+                seq.push_str("\x1b[?2026l");
+            }
+            let _ = self.out.write_all(seq.as_bytes());
+            let _ = self.out.flush();
+            self.card_lines = 0;
         }
     }
 
-    fn emit_line(&mut self, line: &str) {
-        self.clear_spinner();
+    fn settle_activity(&mut self, secs: f32) {
+        self.clear_card();
+        if self.color && !self.summary_printed && !self.steps.is_empty() {
+            let summary = self.summary_text(secs);
+            let _ = writeln!(
+                self.out,
+                "  {} {}  {}",
+                paint(true, MINT, "✓"),
+                paint(true, SLATE, &summary),
+                paint(true, DIM, "(Ctrl+O o /steps para desplegar)"),
+            );
+            let _ = writeln!(self.out);
+            let _ = self.out.flush();
+            self.summary_printed = true;
+        }
+    }
+
+    fn render_card(&mut self, secs: f32) {
+        use std::fmt::Write as _;
+        if !self.color || !self.pending.is_empty() {
+            return;
+        }
+        let safe_w = term_width().saturating_sub(1).max(36);
+        let card_w = safe_w.saturating_sub(4).min(82);
+        let inner = card_w.saturating_sub(4);
+
+        let pulse = PULSE_FRAMES[self.ticks % PULSE_FRAMES.len()];
+        let tone = match (self.ticks / 4) % 3 {
+            0 => INDIGO,
+            1 => VIOLET,
+            _ => CYAN,
+        };
+        let state_lbl = if self.steps.is_empty() { "Pensando" } else { "Trabajando" };
+        let header_plain = format!(" {pulse} {state_lbl} · {secs:.1} s ");
+        let fill = card_w.saturating_sub(3 + display_width(&header_plain));
+
+        let mut frame = String::with_capacity(1024);
+        frame.push_str("\x1b[?2026h");
+        if self.card_lines > 0 {
+            let _ = write!(frame, "\x1b[{}A\r\x1b[0J", self.card_lines);
+        }
+        let mut lines = 0usize;
+
+        let _ = writeln!(
+            frame,
+            "  {}{}{}{}",
+            paint(true, INDIGO, "╭─"),
+            format!(" {} {} {} ", paint(true, tone, pulse), paint(true, BRIGHT, state_lbl), paint(true, DIM, &format!("· {secs:.1} s"))),
+            paint(true, RULE, &"─".repeat(fill)),
+            paint(true, RULE, "╮"),
+        );
+        lines += 1;
+
+        let make_line = |f: &mut String, plain: &str, styled: &str| {
+            let pad = inner.saturating_sub(display_width(plain));
+            let _ = writeln!(
+                f,
+                "  {} {}{} {}",
+                paint(true, RULE, "│"),
+                styled,
+                " ".repeat(pad),
+                paint(true, RULE, "│"),
+            );
+        };
+
+        if self.expanded && !self.steps.is_empty() {
+            let max_show = 8usize;
+            let start = self.steps.len().saturating_sub(max_show);
+            if start > 0 {
+                let more = format!("… {start} pasos anteriores");
+                make_line(&mut frame, &more, &paint(true, DIM, &more));
+                lines += 1;
+            }
+            for (ts, kind, lbl) in &self.steps[start..] {
+                let (icon, col) = step_icon(*kind);
+                let ts_str = format!("{ts:>4.1}s");
+                let text_clip = clip_text(lbl, inner.saturating_sub(9));
+                let plain = format!("{ts_str}  {icon} {text_clip}");
+                let styled = format!("{}  {} {}", paint(true, DIM, &ts_str), paint(true, col, icon), paint(true, SLATE, &text_clip));
+                make_line(&mut frame, &plain, &styled);
+                lines += 1;
+            }
+        } else if let Some((_, kind, lbl)) = self.steps.last() {
+            let (icon, col) = step_icon(*kind);
+            let count_tag = if self.steps.len() > 1 {
+                format!(" ({} pasos)", self.steps.len())
+            } else {
+                String::new()
+            };
+            let lbl_clip = clip_text(lbl, inner.saturating_sub(display_width(&count_tag) + 3));
+            let plain = format!("{icon} {lbl_clip}{count_tag}");
+            let styled = format!("{} {}{}", paint(true, col, icon), paint(true, SLATE, &lbl_clip), paint(true, DIM, &count_tag));
+            make_line(&mut frame, &plain, &styled);
+            lines += 1;
+        } else {
+            let plain = "Analizando el contexto del proyecto…";
+            make_line(&mut frame, plain, &paint(true, DIM, plain));
+            lines += 1;
+        }
+
+        let ctrl_plain = if self.expanded {
+            "Ctrl+O plegar pasos · Ctrl+C cancelar"
+        } else if self.steps.is_empty() {
+            "Ctrl+C cancelar"
+        } else {
+            "Ctrl+O desplegar pasos · Ctrl+C cancelar"
+        };
+        let ctrl_clip = clip_text(ctrl_plain, inner);
+        make_line(&mut frame, &ctrl_clip, &paint(true, DIM, &ctrl_clip));
+        lines += 1;
+
+        let _ = writeln!(
+            frame,
+            "  {}{}{}",
+            paint(true, RULE, "╰"),
+            paint(true, RULE, &"─".repeat(card_w.saturating_sub(2))),
+            paint(true, RULE, "╯"),
+        );
+        lines += 1;
+
+        frame.push_str("\x1b[?2026l");
+        let _ = self.out.write_all(frame.as_bytes());
+        let _ = self.out.flush();
+        self.card_lines = lines;
+    }
+
+    fn toggle_expand(&mut self, secs: f32) {
+        if self.first && !self.steps.is_empty() {
+            self.expanded = !self.expanded;
+            self.render_card(secs);
+        }
+    }
+
+    fn emit_line(&mut self, line: &str, secs: f32) {
+        if self.first {
+            self.settle_activity(secs);
+        } else {
+            self.clear_card();
+        }
         let rendered = render_line(line, &mut self.in_code, self.color);
-        let mark = if self.first { paint(self.color, &format!("1;{CYAN}"), "◈") } else { " ".to_string() };
+        let mark = if self.first { paint(self.color, &format!("1;{VIOLET}"), "◈") } else { " ".to_string() };
         let _ = writeln!(self.out, "  {mark} {rendered}");
         self.first = false;
         let _ = self.out.flush();
     }
 
-    fn text(&mut self, t: &str) {
+    fn text(&mut self, t: &str, secs: f32) {
         self.pending.push_str(t);
         while let Some(i) = self.pending.find('\n') {
             let line: String = self.pending.drain(..=i).collect();
-            self.emit_line(line.trim_end_matches(['\n', '\r']));
+            self.emit_line(line.trim_end_matches(['\n', '\r']), secs);
         }
     }
 
-    fn flush_pending(&mut self) {
+    fn flush_pending(&mut self, secs: f32) {
         if !self.pending.is_empty() {
             let rest = std::mem::take(&mut self.pending);
-            self.emit_line(&rest);
+            self.emit_line(&rest, secs);
         }
     }
 
-    fn tool(&mut self, t: &str) {
-        self.flush_pending();
-        self.clear_spinner();
-        self.tools_used += 1;
-        let _ = writeln!(self.out, "{}", tool_badge(t, self.color));
-        let _ = self.out.flush();
+    fn tool(&mut self, t: &str, secs: f32) {
+        let Some((kind, label)) = describe_tool(t) else {
+            return;
+        };
+        self.flush_pending(secs);
+        self.steps.push((secs, kind, label));
+        if self.color {
+            self.render_card(secs);
+        } else {
+            let _ = writeln!(self.out, "{}", tool_badge(&self.steps.last().unwrap().2, false));
+            let _ = self.out.flush();
+        }
     }
 
     fn tick(&mut self, secs: f32) {
@@ -522,27 +710,12 @@ impl View {
             return;
         }
         self.ticks += 1;
-        let frame = PULSE_FRAMES[self.ticks % PULSE_FRAMES.len()];
-        let tone = match (self.ticks / 4) % 3 {
-            0 => CYAN,
-            1 => INDIGO,
-            _ => VIOLET,
-        };
-        let label = if self.first { "Pensando" } else { "Trabajando" };
-        let _ = write!(
-            self.out,
-            "\r\x1b[2K  {} {}  {}",
-            paint(true, tone, frame),
-            paint(true, SLATE, &format!("{label}… {secs:.1} s")),
-            paint(true, DIM, tr("· Ctrl+C cancelar")),
-        );
-        let _ = self.out.flush();
-        self.spinner_on = true;
+        self.render_card(secs);
     }
 
-    fn finish(&mut self) {
-        self.flush_pending();
-        self.clear_spinner();
+    fn finish(&mut self, secs: f32) {
+        self.flush_pending(secs);
+        self.clear_card();
         let _ = self.out.flush();
     }
 }
@@ -776,6 +949,10 @@ fn read_composer(chat: &mut Chat, history: &[String], fresh_screen: bool) -> Pro
             Key::CtrlL => {
                 clear_composer(&mut drawn);
                 return PromptEvent::ClearScreen;
+            }
+            Key::CtrlO => {
+                clear_composer(&mut drawn);
+                return PromptEvent::Submit("/steps".into());
             }
             Key::CtrlU => {
                 buf.clear();
@@ -1187,7 +1364,7 @@ fn save_history(history: &[String]) {
 
 fn repl(settings: Settings) {
     let color = use_color();
-    let mut chat = Chat { settings, session: None, color };
+    let mut chat = Chat { settings, session: None, color, last_steps: Vec::new(), last_secs: 0.0 };
     if color {
         print!("\x1b[2J\x1b[H");
     }
@@ -1279,6 +1456,47 @@ fn repl(settings: Settings) {
                 "doctor" => {
                     fresh_screen = false;
                     run_doctor(color);
+                }
+                "steps" | "pasos" => {
+                    fresh_screen = false;
+                    if chat.last_steps.is_empty() {
+                        note("◌", DIM, "No hay pasos registrados en el último turno.");
+                    } else {
+                        let safe_w = term_width().saturating_sub(1).max(36);
+                        let card_w = safe_w.saturating_sub(4).min(82);
+                        let inner = card_w.saturating_sub(4);
+                        let title = format!(" Pasos del último turno ({:.1} s · {} pasos) ", chat.last_secs, chat.last_steps.len());
+                        let fill = card_w.saturating_sub(3 + display_width(&title));
+                        println!(
+                            "\n  {}{}{}{}",
+                            paint(color, INDIGO, "╭─"),
+                            paint(color, LAVENDER, &title),
+                            paint(color, RULE, &"─".repeat(fill)),
+                            paint(color, RULE, "╮"),
+                        );
+                        for (ts, kind, lbl) in &chat.last_steps {
+                            let (icon, col) = step_icon(*kind);
+                            let ts_str = format!("{ts:>4.1}s");
+                            let lbl_clip = clip_text(lbl, inner.saturating_sub(9));
+                            let plain = format!("{ts_str}  {icon} {lbl_clip}");
+                            let pad = inner.saturating_sub(display_width(&plain));
+                            println!(
+                                "  {} {}  {} {}{} {}",
+                                paint(color, RULE, "│"),
+                                paint(color, DIM, &ts_str),
+                                paint(color, col, icon),
+                                paint(color, SLATE, &lbl_clip),
+                                " ".repeat(pad),
+                                paint(color, RULE, "│"),
+                            );
+                        }
+                        println!(
+                            "  {}{}{}\n",
+                            paint(color, RULE, "╰"),
+                            paint(color, RULE, &"─".repeat(card_w.saturating_sub(2))),
+                            paint(color, RULE, "╯"),
+                        );
+                    }
                 }
                 "status" | "estado" => {
                     fresh_screen = false;
@@ -1518,6 +1736,7 @@ enum Key {
     CtrlC,
     CtrlD,
     CtrlL,
+    CtrlO,
     CtrlU,
     CtrlW,
     Resize,
@@ -1701,11 +1920,11 @@ mod console {
             }
         }
 
-        pub fn poll_ctrl_c(&self) -> bool {
+        pub fn poll_live_key(&self) -> Option<Key> {
             let mut count = 0u32;
             unsafe {
                 if GetNumberOfConsoleInputEvents(self.handle, &mut count) == 0 || count == 0 {
-                    return false;
+                    return None;
                 }
             }
             let mut rec: InputRecord = unsafe { std::mem::zeroed() };
@@ -1715,11 +1934,14 @@ mod console {
                 if ok == 0 || read == 0 {
                     break;
                 }
-                if rec.event_type == KEY_EVENT && rec.key.b_key_down != 0 && decode_key(rec.key) == Key::CtrlC {
-                    return true;
+                if rec.event_type == KEY_EVENT && rec.key.b_key_down != 0 {
+                    let k = decode_key(rec.key);
+                    if matches!(k, Key::CtrlC | Key::CtrlO) {
+                        return Some(k);
+                    }
                 }
             }
-            false
+            None
         }
     }
 
@@ -1743,6 +1965,7 @@ mod console {
                 0x43 => return Key::CtrlC, // C
                 0x44 => return Key::CtrlD, // D
                 0x4C => return Key::CtrlL, // L
+                0x4F => return Key::CtrlO, // O
                 0x55 => return Key::CtrlU, // U
                 0x57 => return Key::CtrlW, // W
                 _ => {}
@@ -1752,6 +1975,9 @@ mod console {
             }
             if u == 4 {
                 return Key::CtrlD;
+            }
+            if u == 15 {
+                return Key::CtrlO;
             }
         }
 
@@ -1915,13 +2141,16 @@ mod console {
             decode_unix_seq(&buf)
         }
 
-        pub fn poll_ctrl_c(&self) -> bool {
+        pub fn poll_live_key(&self) -> Option<Key> {
             while let Some(b) = Self::read_byte_timeout(0) {
                 if b == 0x03 {
-                    return true;
+                    return Some(Key::CtrlC);
+                }
+                if b == 0x0f {
+                    return Some(Key::CtrlO);
                 }
             }
-            false
+            None
         }
     }
 

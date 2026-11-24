@@ -34,6 +34,7 @@ pub const SLASH_COMMANDS: &[SlashCmd] = &[
     SlashCmd { name: "/model", desc: "Elegir modelo del proveedor activo", needs_arg: false },
     SlashCmd { name: "/effort", desc: "Nivel de razonamiento (low | medium | high | max)", needs_arg: false },
     SlashCmd { name: "/plan", desc: "Planificar una tarea en solo lectura sin tocar archivos", needs_arg: true },
+    SlashCmd { name: "/steps", desc: "Desplegar los pasos del último turno de la IA", needs_arg: false },
     SlashCmd { name: "/status", desc: "Ver estado actual de la sesión y proyecto", needs_arg: false },
     SlashCmd { name: "/edit", desc: "Activar edición de archivos en esta carpeta", needs_arg: false },
     SlashCmd { name: "/read", desc: "Volver a modo solo lectura", needs_arg: false },
@@ -133,15 +134,101 @@ pub fn rule(width: usize, color: bool) -> String {
     paint(color, RULE, &"─".repeat(width.max(20)))
 }
 
-/// Formatea una acción de herramienta como línea de timeline con icono semántico.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActivityKind {
+    Read,
+    Edit,
+    Command,
+    Search,
+    Other,
+}
+
+/// Filtra eventos internos ruidosos y traduce nombres técnicos de herramientas a acciones legibles.
+pub fn describe_tool(raw: &str) -> Option<(ActivityKind, String)> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let (name, rest) = trimmed.split_once(' ').map(|(a, b)| (a, b.trim())).unwrap_or((trimmed, ""));
+    let low = name.to_ascii_lowercase();
+    if matches!(
+        low.as_str(),
+        "system_message" | "manage_task" | "update_focus" | "update_steps" | "planner_response" | "thought" | "thinking"
+    ) {
+        return None;
+    }
+    let short_arg = if rest.is_empty() {
+        String::new()
+    } else if rest.contains('/') || rest.contains('\\') {
+        let parts: Vec<&str> = rest.split(['/', '\\']).filter(|s| !s.is_empty()).collect();
+        if parts.len() > 2 {
+            format!("…/{}", parts[parts.len() - 2..].join("/"))
+        } else {
+            rest.to_string()
+        }
+    } else {
+        clip_text(rest, 48)
+    };
+    let (kind, verb) = if low.starts_with("read") || low.starts_with("view") || low.starts_with("list") {
+        (ActivityKind::Read, "Leyendo")
+    } else if low.starts_with("edit") || low.starts_with("write") || low.starts_with("replace") || low.starts_with("multi") {
+        (ActivityKind::Edit, "Editando")
+    } else if low.starts_with("run_command") || low.starts_with("command") || low.starts_with("bash") || low.starts_with("exec") {
+        (ActivityKind::Command, "Ejecutando comando")
+    } else if low.starts_with("grep") || low.starts_with("glob") || low.starts_with("search") || low.starts_with("find") {
+        (ActivityKind::Search, "Buscando")
+    } else if low.starts_with("web") {
+        (ActivityKind::Search, "Consultando web")
+    } else {
+        (ActivityKind::Other, name)
+    };
+    let label = if short_arg.is_empty() {
+        verb.to_string()
+    } else if kind == ActivityKind::Command {
+        format!("Ejecutando `{short_arg}`")
+    } else {
+        format!("{verb} {short_arg}")
+    };
+    Some((kind, label))
+}
+
+/// Construye el resumen compacto al estilo Pulso Editor: «Trabajó 18.4 s · 4 lecturas · 2 comandos».
+pub fn format_activity_summary(
+    secs: f32,
+    reads: usize,
+    edits: usize,
+    commands: usize,
+    searches: usize,
+    other: usize,
+) -> String {
+    let mut parts = vec![format!("Trabajó {secs:.1} s")];
+    if reads > 0 {
+        parts.push(format!("{reads} {}", if reads == 1 { "lectura" } else { "lecturas" }));
+    }
+    if edits > 0 {
+        parts.push(format!("{edits} {}", if edits == 1 { "edición" } else { "ediciones" }));
+    }
+    if commands > 0 {
+        parts.push(format!("{commands} {}", if commands == 1 { "comando" } else { "comandos" }));
+    }
+    if searches > 0 {
+        parts.push(format!("{searches} {}", if searches == 1 { "búsqueda" } else { "búsquedas" }));
+    }
+    if other > 0 {
+        parts.push(format!("{other} {}", if other == 1 { "acción" } else { "acciones" }));
+    }
+    parts.join(" · ")
+}
+
+/// Formatea una acción de herramienta como línea de timeline con icono semántico (1 columna).
 pub fn tool_badge(tool: &str, color: bool) -> String {
     let lower = tool.to_ascii_lowercase();
-    let (icon, tone) = if lower.starts_with("read") || lower.starts_with("view") || lower.starts_with("glob") || lower.starts_with("grep") || lower.starts_with("list") {
+    let (icon, tone) = if lower.starts_with("read") || lower.starts_with("view") || lower.starts_with("glob") || lower.starts_with("grep") || lower.starts_with("list") || lower.starts_with("leyendo") || lower.starts_with("buscando") {
         ("◈", CYAN)
-    } else if lower.starts_with("edit") || lower.starts_with("write") || lower.starts_with("replace") {
+    } else if lower.starts_with("edit") || lower.starts_with("write") || lower.starts_with("replace") || lower.starts_with("editando") {
         ("✦", AMBER)
-    } else if lower.starts_with("command") || lower.starts_with("bash") || lower.starts_with("run") {
-        ("⚡", VIOLET)
+    } else if lower.starts_with("command") || lower.starts_with("bash") || lower.starts_with("run") || lower.starts_with("ejecutando") {
+        ("◆", VIOLET)
     } else {
         ("▸", SLATE)
     };
