@@ -4,6 +4,8 @@ Todos los cambios notables en Pulso Editor se documentan en este archivo.
 
 ## [Sin publicar]
 
+### Calidad
+- Se añaden `SECURITY.md` (cómo reportar una vulnerabilidad) y `CODE_OF_CONDUCT.md`, Dependabot y un trabajo de CI «Calidad (aviso)» con `cargo fmt`, `clippy`, `cargo audit`, `npm audit` y Prettier. Las dos pruebas de Ctrl+C de la terminal se pueden saltar con `PULSO_SKIP_CTRL_C=1`.
 ### Añadido
 - **`/plan <tarea>` para el agente propio:** explora el proyecto y propone un plan sin tocar nada (siempre en solo lectura, aunque el modo elegido sea Agente); después se le pide que lo ejecute.
 - **Reglas de denegar desde la interfaz** para el agente propio: «IA: Comandos permitidos para este proyecto…» permite añadir un comando (o un prefijo con `*`) que el agente nunca podrá ejecutar.
