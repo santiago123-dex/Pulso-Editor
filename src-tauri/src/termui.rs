@@ -549,12 +549,36 @@ pub fn paint(on: bool, code: &str, text: &str) -> String {
     if on { format!("\x1b[{code}m{text}\x1b[0m") } else { text.to_string() }
 }
 
-/// Aplica **negrita** y `código` (estilo píldora oscura OpenCode) dentro de una línea de texto.
+/// Estiliza `**negrita**`, `` `código` `` (píldora oscura) y `[enlaces](url)` (hipervínculo OSC 8 clickeable).
 fn inline(line: &str, color: bool) -> String {
     let chars: Vec<char> = line.chars().collect();
     let mut out = String::new();
     let mut i = 0;
     while i < chars.len() {
+        // Enlaces Markdown `[etiqueta](url)`.
+        if chars[i] == '[' {
+            if let Some(close_br) = chars[i + 1..].iter().position(|c| *c == ']') {
+                let after_br = i + 1 + close_br + 1;
+                if chars.get(after_br) == Some(&'(') {
+                    if let Some(close_par) = chars[after_br + 1..].iter().position(|c| *c == ')') {
+                        let label: String = chars[i + 1..i + 1 + close_br].iter().collect();
+                        let url: String = chars[after_br + 1..after_br + 1 + close_par].iter().collect();
+                        if !label.is_empty() && !url.is_empty() {
+                            if color {
+                                out.push_str(&format!(
+                                    "\x1b]8;;{url}\x1b\\\x1b[4;{CYAN}m{label}\x1b[0m\x1b]8;;\x1b\\"
+                                ));
+                            } else {
+                                out.push_str(&label);
+                            }
+                            i = after_br + 1 + close_par + 1;
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+        // Código en línea `` `code` ``.
         if chars[i] == '`' {
             if let Some(end) = chars[i + 1..].iter().position(|c| *c == '`') {
                 let code: String = chars[i + 1..i + 1 + end].iter().collect();
@@ -567,12 +591,38 @@ fn inline(line: &str, color: bool) -> String {
                 continue;
             }
         }
+        // Negrita `**texto**` (también soporta `` `código` `` dentro).
         if chars[i] == '*' && chars.get(i + 1) == Some(&'*') {
             let rest: String = chars[i + 2..].iter().collect();
             if let Some(end) = rest.find("**") {
                 if end > 0 {
                     let bold = &rest[..end];
-                    out.push_str(&paint(color, BRIGHT, bold));
+                    if bold.contains('`') {
+                        let mut bi = 0;
+                        let bchars: Vec<char> = bold.chars().collect();
+                        while bi < bchars.len() {
+                            if bchars[bi] == '`' {
+                                if let Some(bend) = bchars[bi + 1..].iter().position(|c| *c == '`') {
+                                    let code: String = bchars[bi + 1..bi + 1 + bend].iter().collect();
+                                    if color {
+                                        out.push_str(&paint(true, &format!("{BG_INLINE};{LAVENDER}"), &format!(" {code} ")));
+                                    } else {
+                                        out.push_str(&code);
+                                    }
+                                    bi += bend + 2;
+                                    continue;
+                                }
+                            }
+                            let start = bi;
+                            while bi < bchars.len() && bchars[bi] != '`' {
+                                bi += 1;
+                            }
+                            let seg: String = bchars[start..bi].iter().collect();
+                            out.push_str(&paint(color, BRIGHT, &seg));
+                        }
+                    } else {
+                        out.push_str(&paint(color, BRIGHT, bold));
+                    }
                     i += 2 + bold.chars().count() + 2;
                     continue;
                 }
@@ -582,6 +632,141 @@ fn inline(line: &str, color: bool) -> String {
         i += 1;
     }
     out
+}
+
+/// Longitud visual aproximada de una cadena Markdown antes de aplicar estilos (enlaces `[a](url)` cuentan solo `a`).
+fn markdown_visible_len(s: &str) -> usize {
+    let chars: Vec<char> = s.chars().collect();
+    let mut len = 0usize;
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '[' {
+            if let Some(cb) = chars[i + 1..].iter().position(|c| *c == ']') {
+                let ab = i + 1 + cb + 1;
+                if chars.get(ab) == Some(&'(') {
+                    if let Some(cp) = chars[ab + 1..].iter().position(|c| *c == ')') {
+                        len += cb;
+                        i = ab + 1 + cp + 1;
+                        continue;
+                    }
+                }
+            }
+        }
+        if chars[i] == '*' && chars.get(i + 1) == Some(&'*') {
+            i += 2;
+            continue;
+        }
+        if chars[i] == '`' {
+            len += 1; // margen de píldora
+            i += 1;
+            continue;
+        }
+        len += char_width(chars[i]);
+        i += 1;
+    }
+    len
+}
+
+/// Divide un texto por palabras respetando un ancho máximo visible sin cortar palabras a la mitad.
+fn wrap_words(text: &str, max_width: usize) -> Vec<String> {
+    let max_w = max_width.max(24);
+    if markdown_visible_len(text) <= max_w {
+        return vec![text.to_string()];
+    }
+    let mut lines = Vec::new();
+    let mut cur = String::new();
+    let mut cur_w = 0usize;
+    for word in text.split_whitespace() {
+        let ww = markdown_visible_len(word);
+        if cur.is_empty() {
+            cur.push_str(word);
+            cur_w = ww;
+        } else if cur_w + 1 + ww <= max_w {
+            cur.push(' ');
+            cur.push_str(word);
+            cur_w += 1 + ww;
+        } else {
+            lines.push(std::mem::take(&mut cur));
+            cur.push_str(word);
+            cur_w = ww;
+        }
+    }
+    if !cur.is_empty() {
+        lines.push(cur);
+    }
+    lines
+}
+
+/// Versión con ajuste limpio por palabras para respuestas largas en terminal (evita cortar palabras y píldoras).
+pub fn render_lines_wrapped(line: &str, in_code: &mut bool, max_width: usize, color: bool) -> Vec<String> {
+    let t = line.trim_end();
+    if *in_code || t.trim_start().starts_with("```") {
+        return vec![render_line(t, in_code, color)];
+    }
+    let trimmed = t.trim_start();
+    if trimmed.is_empty() {
+        return vec![String::new()];
+    }
+    let indent = &t[..t.len() - trimmed.len()];
+    let hashes = trimmed.chars().take_while(|c| *c == '#').count();
+    if (1..=6).contains(&hashes) && trimmed[hashes..].starts_with(' ') {
+        return vec![render_line(t, in_code, color)];
+    }
+    if color && (trimmed == "---" || trimmed == "***" || trimmed == "___") {
+        return vec![render_line(t, in_code, color)];
+    }
+
+    let col_max = max_width.clamp(32, 96);
+    if let Some(rest) = trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* ")) {
+        let prefix_w = indent.chars().count() + 2;
+        let wrapped = wrap_words(rest, col_max.saturating_sub(prefix_w));
+        let cont = " ".repeat(prefix_w);
+        return wrapped
+            .into_iter()
+            .enumerate()
+            .map(|(i, seg)| {
+                if i == 0 {
+                    format!("{indent}{} {}", paint(color, VIOLET, "•"), inline(&seg, color))
+                } else {
+                    format!("{cont}{}", inline(&seg, color))
+                }
+            })
+            .collect();
+    }
+    if let Some(rest) = trimmed.strip_prefix("> ") {
+        let wrapped = wrap_words(rest, col_max.saturating_sub(2));
+        return wrapped
+            .into_iter()
+            .map(|seg| format!("{} {}", paint(color, INDIGO, "▎"), paint(color, &format!("3;{SLATE}"), &inline(&seg, false))))
+            .collect();
+    }
+    // Listas numeradas (`1. texto`).
+    let digits = trimmed.chars().take_while(|c| c.is_ascii_digit()).count();
+    if digits > 0 && trimmed[digits..].starts_with(". ") {
+        let num_prefix = &trimmed[..digits + 2];
+        let rest = &trimmed[digits + 2..];
+        let prefix_w = indent.chars().count() + num_prefix.chars().count();
+        let wrapped = wrap_words(rest, col_max.saturating_sub(prefix_w));
+        let cont = " ".repeat(prefix_w);
+        return wrapped
+            .into_iter()
+            .enumerate()
+            .map(|(i, seg)| {
+                if i == 0 {
+                    format!("{indent}{}{}", paint(color, LAVENDER, num_prefix), inline(&seg, color))
+                } else {
+                    format!("{cont}{}", inline(&seg, color))
+                }
+            })
+            .collect();
+    }
+
+    let prefix_w = indent.chars().count();
+    let wrapped = wrap_words(trimmed, col_max.saturating_sub(prefix_w));
+    wrapped
+        .into_iter()
+        .map(|seg| format!("{indent}{}", inline(&seg, color)))
+        .collect()
 }
 
 fn is_keyword(w: &str) -> bool {
@@ -798,6 +983,11 @@ mod tests {
         assert!(!code);
         assert_eq!(render_line("2 * 3 * 4 y ** sueltos", &mut code, false), "2 * 3 * 4 y ** sueltos");
         assert!(render_line("`a`", &mut code, true).contains("\x1b["));
+        assert_eq!(render_line("Ver [aiChat.ts](file:///C:/src/aiChat.ts) y **versión `0.2.0`**", &mut code, false), "Ver aiChat.ts y versión 0.2.0");
+        let wrapped = render_lines_wrapped("- Uno dos tres cuatro cinco seis siete ocho nueve diez", &mut code, 34, false);
+        assert!(wrapped.len() >= 2);
+        assert!(wrapped[0].starts_with("• "));
+        assert!(wrapped[1].starts_with("  "));
     }
 
     #[test]

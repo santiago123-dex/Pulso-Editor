@@ -10,9 +10,9 @@ use pulso_editor_lib::termchat::{normalize_provider, route, Action, Ev, Parser, 
 use pulso_editor_lib::termui::{
     add_trusted, broad_dir_reason, clip_text, describe_tool, display_width,
     format_activity_summary, git_branch, header_banner, is_trusted, paint, provider_color,
-    provider_label, render_line, rule, slash_matches, tool_badge, trust_card, trusted_list,
-    ActivityKind, AMBER, BG_SEL, BRIGHT, CYAN, DIM, INDIGO, LAVENDER, MINT, ROSE, RULE, SLATE,
-    VIOLET,
+    provider_label, render_lines_wrapped, rule, slash_matches, tool_badge, trust_card,
+    trusted_list, ActivityKind, AMBER, BG_SEL, BRIGHT, CYAN, DIM, INDIGO, LAVENDER, MINT, ROSE,
+    RULE, SLATE, VIOLET,
 };
 use std::collections::HashMap;
 use std::io::{BufRead, IsTerminal, Read, Write};
@@ -669,10 +669,13 @@ impl View {
         } else {
             self.clear_card();
         }
-        let rendered = render_line(line, &mut self.in_code, self.color);
-        let mark = if self.first { paint(self.color, &format!("1;{VIOLET}"), "◈") } else { " ".to_string() };
-        let _ = writeln!(self.out, "  {mark} {rendered}");
-        self.first = false;
+        let max_w = term_width().saturating_sub(6).max(36);
+        let wrapped = render_lines_wrapped(line, &mut self.in_code, max_w, self.color);
+        for rendered in wrapped {
+            let mark = if self.first { paint(self.color, &format!("1;{VIOLET}"), "◈") } else { " ".to_string() };
+            let _ = writeln!(self.out, "  {mark} {rendered}");
+            self.first = false;
+        }
         let _ = self.out.flush();
     }
 
@@ -716,6 +719,9 @@ impl View {
     fn finish(&mut self, secs: f32) {
         self.flush_pending(secs);
         self.clear_card();
+        if self.color {
+            let _ = write!(self.out, "\x1b[?25h");
+        }
         let _ = self.out.flush();
     }
 }
