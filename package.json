@@ -6,6 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:all": "node scripts/dev-all.mjs",
+    "cli:sync": "node scripts/dev-all.mjs --cli-only",
     "build": "tsc && vite build",
     "tauri": "tauri",
     "postinstall": "node scripts/material-icons.mjs",
