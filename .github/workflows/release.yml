@@ -25,7 +25,7 @@ jobs:
             bundles: deb,rpm,appimage
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Dependencias de Tauri (Linux)
         if: runner.os == 'Linux'
