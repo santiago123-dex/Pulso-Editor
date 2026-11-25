@@ -1022,6 +1022,8 @@ export const en: Record<string, string> = {
 
   // ---------- Asistente de IA: cuentas y uso ----------
   "{provider} conectado": "{provider} connected",
+  "Espera a que termine la respuesta para cambiar de proveedor.": "Wait for the reply to finish before switching providers.",
+  "La conversación sigue con {provider}, que recibirá lo hablado hasta ahora.": "The conversation continues with {provider}, which will receive what has been said so far.",
   "{provider}: falta iniciar sesión": "{provider}: not signed in",
   "{provider}: sin instalar": "{provider}: not installed",
   "Comprobando sesión…": "Checking session…",

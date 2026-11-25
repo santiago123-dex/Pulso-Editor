@@ -2,6 +2,7 @@ import { t } from "./i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { readStorage, removeStorage, writeStorage } from "./core/storage";
 import type { AiProvider, Turn } from "./aiModel";
+import type { Sessions } from "./ai/handoff";
 
 /** Conversaciones guardadas en este equipo (en un archivo de los datos de la aplicación): lo justo para volver a verlas y reanudarlas con la sesión de la herramienta. */
 export interface SavedChat {
@@ -11,6 +12,8 @@ export interface SavedChat {
   sessionId: string;
   model: string;
   provider?: AiProvider;
+  /** Sesión de cada herramienta que ha participado, para volver a ella sin perder el hilo. */
+  sessions?: Sessions;
   updatedAt: number;
   messages: Turn[];
 }

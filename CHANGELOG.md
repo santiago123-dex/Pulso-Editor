@@ -4,7 +4,11 @@ Todos los cambios notables en Pulso Editor se documentan en este archivo.
 
 ## [Sin publicar]
 
+### Añadido
+- **Cambiar de proveedor sin perder la conversación.** Al elegir otra herramienta (Claude, Codex, Antigravity, Ollama o un modelo en la nube) el chat sigue siendo el mismo. La que entra recibe lo que no ha visto (texto y resumen de acciones, con límite de tamaño) y, al volver a una anterior, se reanuda su sesión. Antes se abría una conversación vacía.
+
 ### Corregido
+- Los agentes propios (Ollama y nube) perdían el primer mensaje en las conversaciones largas: ahora se conserva el objetivo inicial junto a los 29 más recientes.
 - **El uso de los planes se actualiza en vivo.** Con el panel de IA a la vista se consulta durante una respuesta (cada 45 segundos), al terminarla, cada 2 minutos en reposo y al volver a la ventana; los paneles de uso abiertos se repintan solos. Además, las cifras antiguas guardadas en una conversación ya no pisan las recién consultadas, y el uso de Claude se actualiza al terminar sus respuestas y aunque haya otro proveedor elegido.
 
 ## [0.2.1] - 2026-11-24
