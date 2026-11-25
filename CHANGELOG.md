@@ -5,6 +5,7 @@ Todos los cambios notables en Pulso Editor se documentan en este archivo.
 ## [Sin publicar]
 
 ### Añadido
+- **Fusionar pull requests con un botón dividido**, como en GitHub: un clic usa el método elegido y el menú permite cambiar entre merge commit, squash y rebase. La elección se recuerda por repositorio y el botón se desactiva mientras hay una fusión en curso.
 - **Cambiar de proveedor sin perder la conversación.** Al elegir otra herramienta (Claude, Codex, Antigravity, Ollama o un modelo en la nube) el chat sigue siendo el mismo. La que entra recibe lo que no ha visto (texto y resumen de acciones, con límite de tamaño) y, al volver a una anterior, se reanuda su sesión. Antes se abría una conversación vacía.
 
 ### Corregido
