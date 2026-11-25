@@ -89,3 +89,14 @@ En GitHub, la integración continua (`.github/workflows/ci.yml`) ejecuta en Wind
 ## Licencia
 
 Pulso se publica bajo la [licencia MIT](LICENSE). Los componentes de terceros que incluye y sus licencias están en [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+## Code signing policy
+
+> **Estado:** los instaladores actuales **no tienen firma de código** y Windows puede mostrar una advertencia. La firma gratuita se va a solicitar a SignPath Foundation; esta política se aplicará si la aprueban.
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+
+- **Quién puede cambiar el código y quién revisa:** [santiago123-dex](https://github.com/santiago123-dex). Todo cambio de otra persona se revisa antes de unirlo.
+- **Quién aprueba cada firma:** [santiago123-dex](https://github.com/santiago123-dex).
+- **Qué se firma:** solo instaladores compilados desde este repositorio por su flujo de publicación en GitHub Actions.
+- **Privacidad:** [PRIVACY.md](PRIVACY.md). Guía de la solicitud: [docs/FIRMA.md](docs/FIRMA.md).
