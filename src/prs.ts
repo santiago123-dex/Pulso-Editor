@@ -196,23 +196,109 @@ function paintDetail() {
   actionBar.append(gh);
 
   if (state === "open" && hasToken()) {
-    const mergeBtn = h("button", "foot-btn primary", tr("Fusionar"));
+    let method: MergeMethod = "merge";
+    const mergeOpts: Array<{ id: MergeMethod; btnLabel: string; title: string; desc: string; confirm: string }> = [
+      {
+        id: "merge",
+        btnLabel: tr("Fusionar pull request"),
+        title: tr("Crear merge commit"),
+        desc: tr("Añade todos los commits de esta rama a la rama base."),
+        confirm: tr("Confirmar fusión"),
+      },
+      {
+        id: "squash",
+        btnLabel: tr("Squash y merge"),
+        title: tr("Squash y merge"),
+        desc: tr("Combina todos los commits en un solo commit."),
+        confirm: tr("Confirmar squash"),
+      },
+      {
+        id: "rebase",
+        btnLabel: tr("Rebase y merge"),
+        title: tr("Rebase y merge"),
+        desc: tr("Aplica los commits sobre la rama base sin merge commit."),
+        confirm: tr("Confirmar rebase"),
+      },
+    ];
+    const currentOpt = () => mergeOpts.find((o) => o.id === method) ?? mergeOpts[0];
+
+    const splitWrap = h("div", "pr-merge-split");
+    const mergeBtn = h("button", "foot-btn primary pr-merge-main", currentOpt().btnLabel);
     mergeBtn.type = "button";
+    const caretBtn = h("button", "foot-btn primary pr-merge-caret");
+    caretBtn.type = "button";
+    caretBtn.title = tr("Elegir método de fusión");
+    caretBtn.setAttribute("aria-haspopup", "menu");
+    caretBtn.setAttribute("aria-expanded", "false");
+    caretBtn.innerHTML = '<svg viewBox="0 0 16 16"><path d="M4.5 6.5 8 10l3.5-3.5"/></svg>';
+
+    const menu = h("div", "pr-merge-menu");
+    menu.setAttribute("role", "menu");
+    menu.hidden = true;
+
+    const closeMenu = () => {
+      menu.hidden = true;
+      caretBtn.setAttribute("aria-expanded", "false");
+      document.removeEventListener("pointerdown", onOutside, true);
+      document.removeEventListener("keydown", onEsc, true);
+    };
+    const onOutside = (ev: Event) => {
+      if (!splitWrap.contains(ev.target as Node)) closeMenu();
+    };
+    const onEsc = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") closeMenu();
+    };
+
+    const renderMenu = () => {
+      menu.replaceChildren();
+      for (const opt of mergeOpts) {
+        const item = h("button", `pr-merge-item${opt.id === method ? " active" : ""}`);
+        item.type = "button";
+        item.setAttribute("role", "menuitemradio");
+        item.setAttribute("aria-checked", String(opt.id === method));
+        item.append(
+          h("span", "pr-merge-check", opt.id === method ? "✓" : ""),
+          h("span", "pr-merge-item-body", undefined),
+        );
+        const body = item.lastElementChild as HTMLElement;
+        body.append(h("span", "pr-merge-item-title", opt.title), h("span", "pr-merge-item-desc", opt.desc));
+        item.onclick = () => {
+          method = opt.id;
+          mergeBtn.textContent = opt.btnLabel;
+          closeMenu();
+        };
+        menu.append(item);
+      }
+    };
+
+    caretBtn.onclick = (ev) => {
+      ev.stopPropagation();
+      if (!menu.hidden) {
+        closeMenu();
+        return;
+      }
+      renderMenu();
+      menu.hidden = false;
+      caretBtn.setAttribute("aria-expanded", "true");
+      document.addEventListener("pointerdown", onOutside, true);
+      document.addEventListener("keydown", onEsc, true);
+    };
+
     mergeBtn.onclick = async () => {
-      const method = await showDialog({
+      closeMenu();
+      const opt = currentOpt();
+      const ok = await showDialog({
         title: tr("Fusionar pull request #{number}", { number: pr.number }),
-        message: tr("Elige el método de fusión para «{title}».", { title: pr.title }),
+        message: `${opt.title} — «${pr.title}»`,
         buttons: [
           { label: tr("Cancelar"), value: "cancel" },
-          { label: tr("Merge commit"), value: "merge" },
-          { label: tr("Squash y merge"), value: "squash" },
-          { label: tr("Rebase y merge"), value: "rebase" },
+          { label: opt.confirm, value: "confirm", primary: true },
         ],
       });
-      if (method !== "merge" && method !== "squash" && method !== "rebase") return;
+      if (ok !== "confirm") return;
       try {
         setStatus(tr("Fusionando pull request #{number}…", { number: pr.number }), 30000);
-        await mergePull(repo!.owner, repo!.repo, pr.number, method as MergeMethod);
+        await mergePull(repo!.owner, repo!.repo, pr.number, method);
         setStatus(tr("Pull request #{number} fusionada", { number: pr.number }), 5000);
         await openDetail(pr);
       } catch (e) {
@@ -223,6 +309,8 @@ function paintDetail() {
         });
       }
     };
+
+    splitWrap.append(mergeBtn, caretBtn, menu);
 
     const reviewBtn = h("button", "foot-btn foot-btn-line", tr("Revisar"));
     reviewBtn.type = "button";
@@ -261,7 +349,7 @@ function paintDetail() {
         });
       }
     };
-    actionBar.append(mergeBtn, reviewBtn);
+    actionBar.append(splitWrap, reviewBtn);
   }
 
   // Comprobaciones (Checks)
