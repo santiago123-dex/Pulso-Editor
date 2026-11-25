@@ -3,6 +3,7 @@
  * Vive aquí (y no suelto en `aiChat.ts`) para que cada parte del panel —popovers, cuotas, adjuntos, pintado— pueda estar en su propio
  * archivo y leer o cambiar lo mismo. Es un único objeto mutable (`S`) porque los módulos de ES no dejan asignar variables importadas.
  */
+import type { Sessions } from "./handoff";
 import { lang } from "../i18n";
 import { readStorage, removeStorage } from "../core/storage";
 import { $ } from "../util";
@@ -19,6 +20,7 @@ export interface Live {
   cwd: string;
   title: string;
   stopping?: boolean;
+  sessions: Sessions;
 }
 
 export type AiMode = "read" | "edit" | "full";

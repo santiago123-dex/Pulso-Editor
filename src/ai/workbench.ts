@@ -86,7 +86,7 @@ export function buildEmptyWorkbench(): HTMLElement {
             lives.set(l.id, l);
             return l;
           })();
-        ctl.switchProvider(opened.provider);
+        ctl.selectProvider(opened.provider);
         S.current = opened;
         ctl.renderBody();
       };

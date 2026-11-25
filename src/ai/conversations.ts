@@ -23,6 +23,7 @@ export function fromSaved(c: SavedChat): Live {
   return {
     id: c.id,
     provider: prov,
+    sessions: c.sessions ?? {},
     normalize: createProviderNormalizer(prov, c.model || ""),
     cwd: c.cwd,
     title: c.title,
@@ -40,6 +41,7 @@ export function newLive(): Live {
   const live: Live = {
     id: newChatId(),
     provider: S.activeProvider,
+    sessions: {},
     normalize: createProviderNormalizer(S.activeProvider, S.model),
     convo: { ...emptyConversation(), usage: S.activeProvider === "claude" ? S.usage : {} },
     cwd: ws.root ?? "",
@@ -59,6 +61,7 @@ export function persist(live: Live, flushNow = false) {
     sessionId: live.convo.sessionId,
     model: live.convo.model,
     provider: live.provider,
+    sessions: live.sessions,
     updatedAt: Date.now(),
     messages: live.convo.messages,
   });
