@@ -1,6 +1,6 @@
 # Firma de código en Windows
 
-Guía para pedir la firma gratuita de [SignPath Foundation](https://signpath.org/terms.html) y conectarla a la publicación. **Estado: sin solicitar. Los instaladores salen sin firmar.**
+Guía para pedir la firma gratuita de [SignPath Foundation](https://signpath.org/terms.html) y conectarla a la publicación. **Estado: solicitud sin confirmar como enviada. Los instaladores salen sin firmar.**
 
 Condiciones consultadas el 25 de noviembre de 2026; pueden cambiar. Hay que revisarlas antes de enviar la solicitud.
 
@@ -12,8 +12,8 @@ Condiciones consultadas el 25 de noviembre de 2026; pueden cambiar. Hay que revi
 | Sin componentes propietarios | Vistas las licencias de npm y Cargo; falta revisar todo lo que entra en el instalador | Falta revisar sus dependencias |
 | Repositorio público | Sí, desde el 25 de noviembre de 2026 | Sí |
 | Ya publicado y con mantenimiento | Sí | Sí |
-| Funciones documentadas en la página de descarga | **Falta** en `Pulso-Editor-releases` | Revisar la página de sus releases |
-| «Code signing policy» en la página principal y en la de descargas | README; **falta** en las descargas | README; **falta** en el texto de las releases |
+| Funciones documentadas en la página de descarga | Sí, en `Pulso-Editor-releases` | Revisar la página de sus releases |
+| «Code signing policy» en la página principal y en la de descargas | README y `Pulso-Editor-releases` | README; **falta** en el texto de las releases |
 | Política de privacidad | `PRIVACY.md` | `PRIVACY.md` |
 | Verificación en dos pasos en GitHub y en SignPath | **Falta confirmarlo** | **Falta confirmarlo** |
 | Instalador con desinstalador | Sí (NSIS) | Sí (NSIS) |
@@ -22,7 +22,7 @@ Tres riesgos que decide SignPath y que no se resuelven con documentos:
 
 - **Reputación.** Para programas piden una reputación verificable y no publican una cifra. La aceptación queda a su criterio; un proyecto nuevo puede ser rechazado.
 - **Envíos automáticos.** Si consideran que un programa envía datos a sitios que la persona no indicó, exigen mostrar la política durante la instalación y poder desactivar el envío. Las dos aplicaciones consultan actualizaciones al arrancar y no tienen un ajuste para desactivarlo. Esa consulta no incluye datos del proyecto, pero pueden pedir el ajuste.
-- **Historial entre proveedores.** El Editor pide permiso antes de compartirlo desde la 0.2.3 (issues 93 y 95, corregidas); la 0.2.2 publicada todavía no. El Desktop lo envía sin preguntar cuando llama a una API; está descrito en su política y conviene corregirlo antes de solicitar la firma para él.
+- **Historial entre proveedores.** El Editor pide permiso antes de compartirlo desde la 0.2.3 (issues 93 y 95, corregidas). El Desktop lo envía sin preguntar cuando llama a una API; está descrito en su política y conviene corregirlo antes de solicitar la firma para él.
 
 ## Al hacer público el Editor
 
@@ -68,21 +68,6 @@ También hay que comprobar con SignPath si se debe firmar el ejecutable que va *
 
 Windows mostraría «SignPath Foundation» como editor. Firmar no quita de inmediato la advertencia de SmartScreen: la reputación se gana con el tiempo ([documentación de Microsoft](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation)).
 
-## Texto para la página de descargas
+## Página de descargas
 
-Para el `README.md` de `Pulso-Editor-releases`, cuando el Editor sea público:
-
-```markdown
-# Pulso Editor: descargas
-
-Pulso Editor es un editor de código de escritorio de código abierto (licencia MIT) con terminal, búsqueda, Git y GitHub, depurador y asistente de IA.
-El código está en https://github.com/santiago123-dex/Pulso-Editor
-
-## Code signing policy
-
-> **Estado:** los instaladores actuales no tienen firma de código. Esta política se aplicará si SignPath Foundation aprueba la solicitud.
-
-Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
-
-Roles y privacidad: https://github.com/santiago123-dex/Pulso-Editor#code-signing-policy
-```
+El `README.md` de `Pulso-Editor-releases` ya describe las funciones, incluye la «Code signing policy» y enlaza el código y la privacidad. Cuando SignPath responda, hay que actualizar su «Estado» allí y en el README de este repositorio.

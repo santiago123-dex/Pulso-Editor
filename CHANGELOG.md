@@ -4,6 +4,8 @@ Todos los cambios notables en Pulso Editor se documentan en este archivo.
 
 ## [Sin publicar]
 
+## [0.2.3] - 2026-11-25
+
 ### Seguridad
 - **Pulso pide permiso antes de compartir una conversación con otro proveedor** (#93). Avisa si algo hablado con Ollama saldría de tu equipo, permite continuar, empezar de nuevo o cancelar sin perder lo escrito, y en Ajustes se puede desactivar el traspaso.
 - **El historial que recibe otro asistente va citado y no puede salirse de su bloque** (#95): cada línea se marca como cita dentro de una etiqueta distinta en cada envío.
