@@ -41,6 +41,10 @@ export interface Turn {
   role: "user" | "assistant";
   blocks: Block[];
   done: boolean;
+  /** En los mensajes de la persona: proveedor al que se enviaron. */
+  provider?: AiProvider;
+  /** Qué contexto del editor acompañó al mensaje (solo nombres y líneas, nunca contenido). */
+  context?: string[];
 }
 
 export interface UsageWindow {
@@ -99,9 +103,14 @@ const obj = (v: unknown): Record<string, unknown> => (v && typeof v === "object"
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
 /** Evento propio: la persona envió este mensaje (con texto y opcionalmente imágenes adjuntas). */
-export const userEvent = (text: string, images?: readonly UserImage[]): AiEvent => ({
+export const userEvent = (
+  text: string,
+  images?: readonly UserImage[],
+  origin?: { provider: AiProvider; context?: readonly string[] },
+): AiEvent => ({
   type: "pulso_user",
   text,
+  ...(origin ? { provider: origin.provider, ...(origin.context?.length ? { context: [...origin.context] } : {}) } : {}),
   ...(images?.length ? { images: images.map((i) => ({ path: i.path, name: i.name, ...(i.preview ? { preview: i.preview } : {}) })) } : {}),
 });
 /** Evento propio: el proceso terminó. */
@@ -238,7 +247,17 @@ export function reduce(prev: Conversation, ev: AiEvent): Conversation {
       }
       return {
         ...prev,
-        messages: [...prev.messages, { id: `u${prev.messages.length}`, role: "user", blocks, done: true }],
+        messages: [
+          ...prev.messages,
+          {
+            id: `u${prev.messages.length}`,
+            role: "user",
+            blocks,
+            done: true,
+            ...(ev.provider ? { provider: ev.provider as AiProvider } : {}),
+            ...(Array.isArray(ev.context) ? { context: ev.context.map(str).filter(Boolean) } : {}),
+          },
+        ],
         running: true,
         outcome: null,
         error: "",

@@ -10,7 +10,7 @@ Condiciones consultadas el 25 de noviembre de 2026; pueden cambiar. Hay que revi
 | --- | --- | --- |
 | Licencia aprobada por la OSI, sin doble licencia comercial | MIT | MIT |
 | Sin componentes propietarios | Vistas las licencias de npm y Cargo; falta revisar todo lo que entra en el instalador | Falta revisar sus dependencias |
-| Repositorio público | **Falta** | Sí |
+| Repositorio público | Sí, desde el 25 de noviembre de 2026 | Sí |
 | Ya publicado y con mantenimiento | Sí | Sí |
 | Funciones documentadas en la página de descarga | **Falta** en `Pulso-Editor-releases` | Revisar la página de sus releases |
 | «Code signing policy» en la página principal y en la de descargas | README; **falta** en las descargas | README; **falta** en el texto de las releases |
@@ -22,11 +22,11 @@ Tres riesgos que decide SignPath y que no se resuelven con documentos:
 
 - **Reputación.** Para programas piden una reputación verificable y no publican una cifra. La aceptación queda a su criterio; un proyecto nuevo puede ser rechazado.
 - **Envíos automáticos.** Si consideran que un programa envía datos a sitios que la persona no indicó, exigen mostrar la política durante la instalación y poder desactivar el envío. Las dos aplicaciones consultan actualizaciones al arrancar y no tienen un ajuste para desactivarlo. Esa consulta no incluye datos del proyecto, pero pueden pedir el ajuste.
-- **Historial entre proveedores.** El Editor entrega el historial al cambiar de proveedor sin pedir confirmación, incluso desde un modelo local (issue 93). El Desktop también lo envía cuando llama a una API. Está descrito en las políticas; conviene corregirlo antes de solicitar.
+- **Historial entre proveedores.** El Editor pide permiso antes de compartirlo desde la 0.2.3 (issues 93 y 95, corregidas); la 0.2.2 publicada todavía no. El Desktop lo envía sin preguntar cuando llama a una API; está descrito en su política y conviene corregirlo antes de solicitar la firma para él.
 
-## Antes de hacer público el Editor
+## Al hacer público el Editor
 
-Hacerlo público no se deshace en la práctica: lo que otros copien o indexen no se recupera. Quedan visibles:
+El repositorio se hizo público el 25 de noviembre de 2026. En la práctica no se deshace: lo que otros copien o indexen no se recupera. Quedaron visibles:
 
 - El historial y las ramas. Parte de los commits llevan un correo personal.
 - Las issues, los pull requests, sus comentarios y los registros de la CI, incluidos los fallos de seguridad sin corregir.
