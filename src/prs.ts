@@ -6,6 +6,7 @@ import { hasToken, isAuthProblem } from "./github";
 import { connectButton } from "./githubConnect";
 import { agoIso } from "./historyModel";
 import { currentRepo } from "./core/repo";
+import { readStorage, writeStorage } from "./core/storage";
 import {
   branchLabel,
   checkSummary,
@@ -157,6 +158,9 @@ async function openDetail(summary: PullSummary) {
   }
 }
 
+/** Pull request cuya fusión está en curso (o por confirmar): impide lanzar una segunda petición. */
+let mergingNumber = 0;
+
 function paintDetail() {
   if (!detail || !repo) return;
   const { pr, files, base, checks, comments } = detail;
@@ -196,7 +200,10 @@ function paintDetail() {
   actionBar.append(gh);
 
   if (state === "open" && hasToken()) {
-    let method: MergeMethod = "merge";
+    // La elección se guarda por repositorio: un repintado del detalle no puede devolverla a «merge commit».
+    const methodKey = `pulso.prMergeMethod.${repo.owner}/${repo.repo}`;
+    const saved = readStorage(methodKey);
+    let method: MergeMethod = saved === "squash" || saved === "rebase" ? saved : "merge";
     const mergeOpts: Array<{ id: MergeMethod; btnLabel: string; title: string; desc: string; confirm: string }> = [
       {
         id: "merge",
@@ -246,7 +253,10 @@ function paintDetail() {
       if (!splitWrap.contains(ev.target as Node)) closeMenu();
     };
     const onEsc = (ev: KeyboardEvent) => {
-      if (ev.key === "Escape") closeMenu();
+      if (ev.key !== "Escape") return;
+      ev.stopPropagation();
+      closeMenu();
+      caretBtn.focus();
     };
 
     const renderMenu = () => {
@@ -256,14 +266,12 @@ function paintDetail() {
         item.type = "button";
         item.setAttribute("role", "menuitemradio");
         item.setAttribute("aria-checked", String(opt.id === method));
-        item.append(
-          h("span", "pr-merge-check", opt.id === method ? "✓" : ""),
-          h("span", "pr-merge-item-body", undefined),
-        );
+        item.append(h("span", "pr-merge-check", opt.id === method ? "✓" : ""), h("span", "pr-merge-item-body", undefined));
         const body = item.lastElementChild as HTMLElement;
         body.append(h("span", "pr-merge-item-title", opt.title), h("span", "pr-merge-item-desc", opt.desc));
         item.onclick = () => {
           method = opt.id;
+          writeStorage(methodKey, method);
           mergeBtn.textContent = opt.btnLabel;
           closeMenu();
         };
@@ -284,7 +292,16 @@ function paintDetail() {
       document.addEventListener("keydown", onEsc, true);
     };
 
+    mergeBtn.disabled = caretBtn.disabled = mergingNumber === pr.number;
+
     mergeBtn.onclick = async () => {
+      if (mergingNumber) return;
+      mergingNumber = pr.number;
+      mergeBtn.disabled = caretBtn.disabled = true;
+      const release = () => {
+        mergingNumber = 0;
+        mergeBtn.disabled = caretBtn.disabled = false;
+      };
       closeMenu();
       const opt = currentOpt();
       const ok = await showDialog({
@@ -295,13 +312,15 @@ function paintDetail() {
           { label: opt.confirm, value: "confirm", primary: true },
         ],
       });
-      if (ok !== "confirm") return;
+      if (ok !== "confirm") return release();
       try {
         setStatus(tr("Fusionando pull request #{number}…", { number: pr.number }), 30000);
         await mergePull(repo!.owner, repo!.repo, pr.number, method);
         setStatus(tr("Pull request #{number} fusionada", { number: pr.number }), 5000);
+        release();
         await openDetail(pr);
       } catch (e) {
+        release();
         await showDialog({
           title: tr("No se pudo fusionar"),
           message: e instanceof Error ? e.message : String(e),
