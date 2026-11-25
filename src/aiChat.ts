@@ -56,7 +56,9 @@ import {
   type AiMode,
 } from "./ai/chatState";
 import { INTERRUPTED_KEY, fromSaved, newLive, persist, saveRunningBeforeExit } from "./ai/conversations";
-import { refreshExtraUsage, refreshUsage, saveUsage } from "./ai/usageSync";
+import { USAGE_IDLE_MS, USAGE_RETURN_MS, USAGE_RUNNING_MS, USAGE_TICK_MS, usageFromEvent } from "./ai/usagePolicy";
+import { autoRefreshUsage, refreshExtraUsage, refreshUsage, refreshUsageAfterTurn, saveUsage } from "./ai/usageSync";
+import { handoffBudget, keepGoalAndRecent, moveSession, transcript, unseenTurns, withHandoff } from "./ai/handoff";
 import { buildDenialCard, dismissedDenials, proposalStatus, renderIssueBanner } from "./ai/denials";
 import { detectProviderNow, renderFoot, setupMessage, startLoginFlow } from "./ai/accountView";
 import { installAndConnect, openAccountsPopover, openModelPopover } from "./ai/popovers";
@@ -65,7 +67,7 @@ import { buildEmptyWorkbench } from "./ai/workbench";
 import { activityCard, resolveToolFile, turnNodes } from "./ai/turnView";
 import { addImageFiles, attachProjectFile, editorContext, pruneUnusedImages, renderChips } from "./ai/attachments";
 import { dismissPopover, openPopover } from "./ai/popoverBase";
-import { openQuickPromptsPopover } from "./ai/quota";
+import { openQuickPromptsPopover, syncTelemetryViews } from "./ai/quota";
 import "./aiChat.css";
 
 setLeaveFullscreenHook(() => {
@@ -77,22 +79,49 @@ setLeaveFullscreenHook(() => {
  * Pulso nunca ve ni guarda credenciales; cada herramienta administra su propia sesión.
  */
 
-function switchProvider(next: AiProvider) {
-  if (S.activeProvider === next && S.tool === tools[next]) return;
+/** Deja `next` como proveedor elegido, sin tocar la conversación (para abrir una ya guardada). */
+function selectProvider(next: AiProvider) {
   S.activeProvider = next;
   writeStorage("pulso.ai.provider", next);
   S.model = readStorage(PROVIDERS[next].modelKey) ?? "";
   S.tool = tools[next];
-  if (S.current) {
-    if (!S.current.convo.messages.length) {
-      S.current.provider = next;
-      S.current.normalize = createProviderNormalizer(next, S.model);
-    } else if (S.current.provider !== next) {
-      S.current = newLive();
-    }
-  }
   if (!S.tool) void detect(true);
+}
+
+/** La persona elige otro proveedor: la conversación abierta sigue con él. */
+function switchProvider(next: AiProvider) {
+  const live = S.current;
+  const moving = !!live?.convo.messages.length && live.provider !== next;
+  if (S.activeProvider === next && S.tool === tools[next] && !moving) return;
+  if (moving && live.convo.running) {
+    setStatus(tr("Espera a que termine la respuesta para cambiar de proveedor."), 5000);
+    return;
+  }
+  selectProvider(next);
+  if (live && moving) {
+    continueWith(live, next);
+  } else if (live && !live.convo.messages.length) {
+    live.provider = next;
+    live.normalize = createProviderNormalizer(next, S.model);
+  }
   if (S.shown) renderBody();
+}
+
+function continueWith(live: Live, next: AiProvider) {
+  const moved = moveSession(live.sessions, live.provider, live.convo.sessionId, live.convo.messages.length, next);
+  live.sessions = moved.sessions;
+  live.provider = next;
+  live.normalize = createProviderNormalizer(next, S.model);
+  live.convo = {
+    ...live.convo,
+    sessionId: moved.sessionId,
+    model: "",
+    usage: next === "claude" ? S.usage : {},
+    outcome: null,
+    error: "",
+  };
+  persist(live);
+  setStatus(tr("La conversación sigue con {provider}, que recibirá lo hablado hasta ahora.", { provider: PROVIDERS[next].title }), 6000);
 }
 
 // ---------- Eventos de la herramienta ----------
@@ -120,19 +149,29 @@ let lastPersistAt = 0;
 
 function apply(live: Live, ev: AiEvent) {
   const before = live.convo.touched;
+  const usageBefore = live.convo.usage;
   live.convo = reduce(live.convo, ev);
-  if (live.convo.usage.fiveHour || live.convo.usage.sevenDay) {
-    if (live.provider === "claude") saveUsage(live.convo.usage);
-    else if (live.provider === "codex") S.codexUsage = pruneUsage(live.convo.usage);
+  if (live.provider === "claude" || live.provider === "codex") {
+    const shown = live.provider === "claude" ? S.usage : S.codexUsage;
+    const next = usageFromEvent(shown, usageBefore, live.convo.usage);
+    if (next) {
+      if (live.provider === "claude") saveUsage(next);
+      else S.codexUsage = pruneUsage(next);
+      if (S.shown) syncTelemetryViews();
+    }
   }
   if (live.convo.touched > before) refreshDisk();
   const now = Date.now();
   if (ev.type === "result" || ev.type === "pulso_exit") {
     lastPersistAt = now;
+    if (ev.type === "pulso_exit" && live.convo.sessionId) {
+      live.sessions = { ...live.sessions, [live.provider]: { id: live.convo.sessionId, seen: live.convo.messages.length } };
+    }
     persist(live, true);
     removeStorage(INTERRUPTED_KEY);
     if (live.convo.touched) refreshDisk();
-    if (live.provider === "codex" || live.provider === "antigravity") void refreshExtraUsage();
+    // Un turno emite `result` y luego `pulso_exit`: basta consultar al cerrarse el proceso.
+    if (ev.type === "pulso_exit") void refreshUsageAfterTurn(live.provider);
   } else if (ev.type === "pulso_user" || ev.type === "system" || now - lastPersistAt >= 1200) {
     lastPersistAt = now;
     persist(live);
@@ -526,7 +565,7 @@ function renderHistory(body: HTMLElement) {
           lives.set(l.id, l);
           return l;
         })();
-      switchProvider(opened.provider);
+      selectProvider(opened.provider);
       S.current = opened;
       S.historyOpen = false;
       renderBody();
@@ -626,7 +665,7 @@ function autosize() {
 
 /** Mensajes anteriores en texto para el agente local (sin el último, que es el que se envía ahora). */
 function localHistory(live: Live): { role: string; content: string }[] {
-  return live.convo.messages
+  const history = live.convo.messages
     .slice(0, -1)
     .map((m) => ({
       role: m.role,
@@ -638,8 +677,8 @@ function localHistory(live: Live): { role: string; content: string }[] {
               .map((b) => b.text)
               .join("\n"),
     }))
-    .filter((m) => m.content.trim())
-    .slice(-30);
+    .filter((m) => m.content.trim());
+  return keepGoalAndRecent(history, 30);
 }
 
 async function dispatchPrompt(live: Live, displayText: string, prompt: string, effectiveMode: AiMode, images: readonly UserImage[] = []) {
@@ -651,6 +690,8 @@ async function dispatchPrompt(live: Live, displayText: string, prompt: string, e
     live.normalize = createProviderNormalizer(live.provider, S.model || "");
   }
   const useEffort = PROVIDERS[live.provider].supportsEffort && !(live.provider === "antigravity" && S.model) ? S.effort || null : null;
+  // Se calcula antes de añadir el mensaje nuevo: es lo que la herramienta todavía no ha visto.
+  const unseen = unseenTurns(live.sessions, live.provider, live.convo.sessionId, live.convo.messages);
   apply(live, userEvent(displayText, images));
   try {
     // El agente local no guarda sesiones: recibe la conversación anterior (solo el texto) desde aquí.
@@ -662,10 +703,12 @@ async function dispatchPrompt(live: Live, displayText: string, prompt: string, e
           : S.model || null;
     const history = live.provider === "local" || live.provider === "cloud" ? localHistory(live) : null;
     const imagePaths = images.length ? images.map((i) => i.path) : null;
+    // Con `history` la conversación ya viaja aparte; las demás herramientas la reciben junto al mensaje.
+    const fullPrompt = history ? prompt : withHandoff(prompt, transcript(unseen, handoffBudget(live.provider, prompt.length)));
     await invoke("ai_send", {
       id: live.id,
       cwd: ws.root,
-      prompt,
+      prompt: fullPrompt,
       session: live.convo.sessionId || null,
       model: sendModel,
       effort: useEffort,
@@ -1065,8 +1108,18 @@ function build() {
   autosize();
 }
 
+/** Mientras el panel está a la vista, el uso y su cuenta atrás se mueven solos. */
+function startLiveUsage() {
+  window.setInterval(() => {
+    if (!S.shown || document.visibilityState !== "visible") return;
+    syncTelemetryViews();
+    const running = [...lives.values()].some((l) => l.convo.running);
+    autoRefreshUsage(running ? USAGE_RUNNING_MS : USAGE_IDLE_MS);
+  }, USAGE_TICK_MS);
+}
+
 /** Lo que los demás módulos del panel (`src/ai/`) necesitan llamar de este controlador: se registra aquí para que no tengan que importarlo. */
-const controller = { autosize, build, detect, dispatchPrompt, renderBody, setFull, switchProvider };
+const controller = { autosize, build, detect, dispatchPrompt, renderBody, selectProvider, setFull, switchProvider };
 export type Controller = typeof controller;
 Object.assign(ctl, controller);
 
@@ -1079,6 +1132,7 @@ export function setAiVisible(visible: boolean) {
     return;
   }
   window.addEventListener("keydown", onKey, true);
+  autoRefreshUsage(USAGE_RETURN_MS);
   if (isFull()) bus.emit("overlay", "ai");
   if (!q(".ai-shell")) build();
   else {
@@ -1103,7 +1157,7 @@ export function initAi() {
         if (saved && (!ws.root || sameDir(saved.cwd, ws.root))) {
           const l = fromSaved(saved);
           lives.set(l.id, l);
-          switchProvider(l.provider);
+          selectProvider(l.provider);
           S.current = l;
         }
       }
@@ -1120,7 +1174,9 @@ export function initAi() {
   });
   // Reconoce Claude Code y su plan al instante al iniciar la aplicación.
   void detect(true);
+  startLiveUsage();
   window.addEventListener("focus", () => {
+    if (S.shown) autoRefreshUsage(USAGE_RETURN_MS);
     if (S.awaitingLogin) void detectProviderNow(S.loginProvider);
     else if (S.shown && !S.tool?.logged_in) void detect(true);
   });

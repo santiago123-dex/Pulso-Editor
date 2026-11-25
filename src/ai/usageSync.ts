@@ -6,6 +6,7 @@ import { t as tr } from "../i18n";
 import { type AntigravityBucket, type ExtraUsage } from "./catalog";
 import { S, USAGE_KEY, USAGE_SIG_KEY, tools } from "./chatState";
 import { syncTelemetryViews } from "./quota";
+import { usageIsDue } from "./usagePolicy";
 import { invoke } from "@tauri-apps/api/core";
 
 export function agyWindowFromBucket(b: AntigravityBucket): UsageWindow {
@@ -23,8 +24,12 @@ export function agyPrimaryUsage(): Conversation["usage"] {
   });
 }
 
+let claudeAttemptedAt = 0;
+let extraAttemptedAt = 0;
+
 export function refreshExtraUsage(): Promise<boolean> {
   if (S.extraUsageInFlight) return S.extraUsageInFlight;
+  extraAttemptedAt = Date.now();
   S.extraUsageInFlight = (async () => {
     try {
       const res = await invoke<ExtraUsage>("ai_extra_usage");
@@ -75,13 +80,19 @@ export function saveUsage(u: Conversation["usage"]) {
   if (claudeTool) writeStorage(USAGE_SIG_KEY, `${claudeTool.auth_method}:${claudeTool.plan}`);
 }
 
-/** Pide a Claude Code el uso real del plan (`/usage`): no gasta cuota ni toca credenciales. */
-export function refreshUsage(): Promise<boolean> {
-  if (S.activeProvider !== "claude") return Promise.resolve(false);
+/**
+ * Pide a Claude Code el uso real del plan (`/usage`): no gasta cuota ni toca credenciales.
+ * Con `quiet` no muestra «Actualizando…»: es la consulta de fondo.
+ */
+export function refreshUsage(quiet = false): Promise<boolean> {
+  if (S.activeProvider !== "claude" && !tools.claude?.logged_in) return Promise.resolve(false);
   if (S.usageInFlight) return S.usageInFlight;
-  S.usageSyncing = true;
-  S.usageError = "";
-  if (S.shown) syncTelemetryViews();
+  claudeAttemptedAt = Date.now();
+  if (!quiet) {
+    S.usageSyncing = true;
+    S.usageError = "";
+    if (S.shown) syncTelemetryViews();
+  }
   S.usageInFlight = (async () => {
     try {
       const next = parseUsageText(await invoke<string>("ai_usage"));
@@ -101,4 +112,24 @@ export function refreshUsage(): Promise<boolean> {
     }
   })();
   return S.usageInFlight;
+}
+
+/** Consulta de fondo: solo las cuentas conectadas cuyo último intento ya tenga `maxAgeMs`. */
+export function autoRefreshUsage(maxAgeMs: number): void {
+  const now = Date.now();
+  if (tools.claude?.logged_in && usageIsDue(claudeAttemptedAt, maxAgeMs, now)) void refreshUsage(true);
+  if ((tools.codex?.logged_in || tools.antigravity?.logged_in) && usageIsDue(extraAttemptedAt, maxAgeMs, now)) {
+    void refreshExtraUsage();
+  }
+}
+
+/** Al terminar un turno. Si ya había una consulta en marcha, empezó antes del final: se repite. */
+export async function refreshUsageAfterTurn(prov: AiProvider): Promise<void> {
+  if (prov === "claude") {
+    await S.usageInFlight;
+    await refreshUsage(true);
+  } else if (prov === "codex" || prov === "antigravity") {
+    await S.extraUsageInFlight;
+    await refreshExtraUsage();
+  }
 }
