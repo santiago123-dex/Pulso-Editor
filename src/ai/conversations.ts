@@ -5,6 +5,7 @@ import { type SavedChat, flushHistoryNow, newChatId, saveChat, titleFrom } from 
 import { removeStorage, writeJsonStorage } from "../core/storage";
 import { t as tr } from "../i18n";
 import { ws } from "../workspace";
+import { tagOrigins } from "./handoff";
 import { type Live, S, lives } from "./chatState";
 
 // ---------- Conversaciones ----------
@@ -29,7 +30,8 @@ export function fromSaved(c: SavedChat): Live {
     title: c.title,
     convo: {
       ...emptyConversation(),
-      messages: c.messages,
+      // Las conversaciones antiguas no anotaban el proveedor. Si pasaron por Ollama, se trata todo como local.
+      messages: tagOrigins(c.messages, c.sessions?.local ? "local" : prov),
       sessionId: c.sessionId,
       model: c.model,
       usage: prov === "claude" ? S.usage : {},

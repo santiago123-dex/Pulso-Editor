@@ -7,7 +7,7 @@ import { readStorage, removeStorage, writeStorage } from "./core/storage";
 import { PROVIDERS, type AiTool, type AllAiTools } from "./ai/catalog";
 import { addRequest, buildPermissionCard, clearConversation, parsePermissionEvent, pendingFor, resolveRequest } from "./ai/permissions";
 import { applyAiAppearance, buildAppearancePopover } from "./ai/appearance";
-import { buildPrompt, fileMentionAt, filterProjectFiles } from "./aiContext";
+import { buildPrompt, contextSummary, fileMentionAt, filterProjectFiles } from "./aiContext";
 import {
   createProviderNormalizer,
   exitEvent,
@@ -28,6 +28,7 @@ import {
 } from "./aiModel";
 import { chatsFor, deleteChat, initHistory, loadChats, sameDir, titleFrom } from "./aiStore";
 import { checkExternal } from "./docs";
+import { state } from "./settings";
 import { refreshTree } from "./explorer";
 import { activePath, focusedEditor, openFile } from "./groups";
 import { agoFrom } from "./historyModel";
@@ -58,7 +59,16 @@ import {
 import { INTERRUPTED_KEY, fromSaved, newLive, persist, saveRunningBeforeExit } from "./ai/conversations";
 import { USAGE_IDLE_MS, USAGE_RETURN_MS, USAGE_RUNNING_MS, USAGE_TICK_MS, usageFromEvent } from "./ai/usagePolicy";
 import { autoRefreshUsage, refreshExtraUsage, refreshUsage, refreshUsageAfterTurn, saveUsage } from "./ai/usageSync";
-import { handoffBudget, keepGoalAndRecent, moveSession, transcript, unseenTurns, withHandoff } from "./ai/handoff";
+import {
+  foreignOrigins,
+  handoffBudget,
+  keepGoalAndRecent,
+  moveSession,
+  tagOrigins,
+  transcript,
+  unseenTurns,
+  withHandoff,
+} from "./ai/handoff";
 import { buildDenialCard, dismissedDenials, proposalStatus, renderIssueBanner } from "./ai/denials";
 import { detectProviderNow, renderFoot, setupMessage, startLoginFlow } from "./ai/accountView";
 import { installAndConnect, openAccountsPopover, openModelPopover } from "./ai/popovers";
@@ -98,7 +108,9 @@ function switchProvider(next: AiProvider) {
     return;
   }
   selectProvider(next);
-  if (live && moving) {
+  if (moving && !state.settings.aiHandoff) {
+    S.current = newLive();
+  } else if (live && moving) {
     continueWith(live, next);
   } else if (live && !live.convo.messages.length) {
     live.provider = next;
@@ -109,11 +121,14 @@ function switchProvider(next: AiProvider) {
 
 function continueWith(live: Live, next: AiProvider) {
   const moved = moveSession(live.sessions, live.provider, live.convo.sessionId, live.convo.messages.length, next);
+  // Antes de cambiarlo, los mensajes sin proveedor anotado quedan marcados con el que los recibió.
+  const messages = tagOrigins(live.convo.messages, live.sessions.local ? "local" : live.provider);
   live.sessions = moved.sessions;
   live.provider = next;
   live.normalize = createProviderNormalizer(next, S.model);
   live.convo = {
     ...live.convo,
+    messages,
     sessionId: moved.sessionId,
     model: "",
     usage: next === "claude" ? S.usage : {},
@@ -121,7 +136,35 @@ function continueWith(live: Live, next: AiProvider) {
     error: "",
   };
   persist(live);
-  setStatus(tr("La conversación sigue con {provider}, que recibirá lo hablado hasta ahora.", { provider: PROVIDERS[next].title }), 6000);
+  const provider = PROVIDERS[next].title;
+  setStatus(
+    next === "local"
+      ? tr("La conversación sigue con {provider}, que recibirá lo hablado hasta ahora.", { provider })
+      : tr("La conversación sigue con {provider}. Antes de enviarle lo anterior te pediré permiso.", { provider }),
+    6000,
+  );
+}
+
+/** Lo hablado en otros proveedores no sale hacia uno nuevo sin que la persona lo diga. */
+async function askToShare(to: AiProvider, from: readonly AiProvider[]): Promise<string> {
+  const provider = PROVIDERS[to].title;
+  const leavesMachine = from.includes("local");
+  const message = tr(
+    "Esta conversación incluye mensajes hablados con {from}. Si continúas, {provider} recibirá su texto, un resumen de las acciones y los nombres de lo que adjuntaste.",
+    { from: from.map((p) => PROVIDERS[p].title).join(", "), provider },
+  );
+  return showDialog({
+    title: tr("¿Compartir la conversación con {provider}?", { provider }),
+    message: leavesMachine
+      ? `${message}\n\n${tr("Parte se habló con un modelo local de Ollama: al continuar, saldrá de tu equipo.")}`
+      : message,
+    buttons: [
+      { label: tr("Cancelar"), value: "cancel" },
+      { label: tr("Empezar conversación nueva"), value: "new" },
+      // Si algo saldría del equipo, Intro no debe aceptarlo: ningún botón es el principal y el foco queda en «Cancelar».
+      { label: tr("Continuar con el historial"), value: "share", primary: !leavesMachine },
+    ],
+  });
 }
 
 // ---------- Eventos de la herramienta ----------
@@ -681,8 +724,16 @@ function localHistory(live: Live): { role: string; content: string }[] {
   return keepGoalAndRecent(history, 30);
 }
 
-async function dispatchPrompt(live: Live, displayText: string, prompt: string, effectiveMode: AiMode, images: readonly UserImage[] = []) {
-  if (!ws.root || live.convo.running) return;
+/** Devuelve `false` si no se envió nada (para que lo escrito no se pierda). */
+async function dispatchPrompt(
+  live: Live,
+  displayText: string,
+  prompt: string,
+  effectiveMode: AiMode,
+  images: readonly UserImage[] = [],
+  context: readonly string[] = [],
+): Promise<boolean> {
+  if (!ws.root || live.convo.running || live.confirming) return false;
   live.cwd = ws.root;
   live.stopping = false;
   if (!live.convo.messages.length) {
@@ -692,7 +743,26 @@ async function dispatchPrompt(live: Live, displayText: string, prompt: string, e
   const useEffort = PROVIDERS[live.provider].supportsEffort && !(live.provider === "antigravity" && S.model) ? S.effort || null : null;
   // Se calcula antes de añadir el mensaje nuevo: es lo que la herramienta todavía no ha visto.
   const unseen = unseenTurns(live.sessions, live.provider, live.convo.sessionId, live.convo.messages);
-  apply(live, userEvent(displayText, images));
+  const to = live.provider;
+  const earlier = live.convo.messages.length;
+  // Hacia Ollama nada sale del equipo; hacia los demás se pregunta por lo que aún no han recibido ni se ha permitido.
+  const from = to === "local" ? [] : foreignOrigins(live.convo.messages, Math.max(earlier - unseen.length, live.approved?.[to] ?? 0), to);
+  if (from.length) {
+    live.confirming = true;
+    const choice = state.settings.aiHandoff ? await askToShare(to, from).finally(() => (live.confirming = false)) : "new";
+    live.confirming = false;
+    // Mientras la pregunta estaba abierta pudo cambiar algo: en ese caso no se envía.
+    if (live.provider !== to || live.convo.messages.length !== earlier || live.convo.running) return false;
+    if (choice === "new") {
+      if (S.activeProvider !== to) return false;
+      S.current = newLive();
+      renderBody();
+      return dispatchPrompt(S.current, displayText, prompt, effectiveMode, images, context);
+    }
+    if (choice !== "share") return false;
+    live.approved = { ...live.approved, [to]: earlier };
+  }
+  apply(live, userEvent(displayText, images, { provider: to, context }));
   try {
     // El agente local no guarda sesiones: recibe la conversación anterior (solo el texto) desde aquí.
     const sendModel =
@@ -720,6 +790,7 @@ async function dispatchPrompt(live: Live, displayText: string, prompt: string, e
   } catch (e) {
     apply(live, exitEvent(1, String(e)));
   }
+  return true;
 }
 
 async function send() {
@@ -732,16 +803,25 @@ async function send() {
     return;
   }
   const text = input.value.trim();
-  if (!text && !S.attachedImages.length) return;
+  if (live.confirming || (!text && !S.attachedImages.length)) return;
   const imgs = [...S.attachedImages];
+  const notes = [...S.extraNotes];
+  const ctx = editorContext();
   const promptText = text || (imgs.length === 1 ? tr("Analiza la imagen adjunta.") : tr("Analiza las imágenes adjuntas."));
-  const prompt = buildPrompt(promptText, editorContext());
+  const prompt = buildPrompt(promptText, ctx);
   input.value = "";
   autosize();
   S.attachedImages = [];
   S.extraNotes = [];
   renderChips();
-  await dispatchPrompt(live, text, prompt, S.mode, imgs);
+  if (await dispatchPrompt(live, text, prompt, S.mode, imgs, contextSummary(ctx))) return;
+  // No se envió: lo escrito y lo adjunto vuelven a su sitio.
+  const box = q<HTMLTextAreaElement>(".ai-input");
+  if (box && !box.value) box.value = text;
+  S.attachedImages = imgs;
+  S.extraNotes = notes;
+  autosize();
+  renderChips();
 }
 
 function newConversation() {

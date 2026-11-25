@@ -19,5 +19,15 @@ Pulso Editor es un editor local. No incluye telemetría, analítica ni servidore
 - **Proveedores de IA:**
   - **Claude Code, Codex (ChatGPT) y Antigravity:** Pulso ejecuta las herramientas oficiales instaladas en tu equipo con tu propia sesión; nunca lee ni almacena tus credenciales. El texto del mensaje, el contexto que adjuntes y las imágenes que subas se envían al proveedor que elijas según su política de privacidad.
   - **Agente propio (OpenAI, Anthropic, Google, Groq y otros):** con tu propia clave, Pulso envía directamente al proveedor que elijas el mensaje, los archivos que el agente lea y el resultado de sus herramientas. No pasa por servidores de Pulso. El catálogo de proveedores y modelos se descarga de `models.dev`, sin enviar datos tuyos.
-  - **Ollama (modelo local):** la conversación, lo que el agente lea y las imágenes permanecen en `127.0.0.1` en tu propio equipo. Como el agente es el mismo que con la nube, si le dejas usar herramientas que salen del equipo (leer páginas web, comandos, servidores MCP), esas sí pueden hacerlo, y siempre con tu aprobación.
-- **Actualizaciones:** al comprobar actualizaciones, Pulso consulta `latest.json` en GitHub Releases.
+  - **Ollama (modelo local):** mientras la conversación siga con Ollama, lo que se habla, lo que el agente lea y las imágenes permanecen en `127.0.0.1` en tu propio equipo (ver abajo qué pasa al cambiar de proveedor). Como el agente es el mismo que con la nube, si le dejas usar herramientas que salen del equipo (leer páginas web, comandos, servidores MCP), esas sí pueden hacerlo, y siempre con tu aprobación.
+  - **Al cambiar de proveedor dentro de una conversación:** desde la versión 0.2.3, antes de entregar a otro proveedor algo que todavía no recibió, Pulso **pide permiso** y permite continuar, empezar una conversación nueva o cancelar. Se entrega el texto de lo hablado, un resumen de las acciones y los nombres de lo que adjuntaste (no su contenido). Si alguna parte se habló con Ollama, la pregunta avisa de que saldrá de tu equipo. Al pasar **hacia** Ollama no se pregunta. En Ajustes puedes desactivar el traspaso: cambiar de proveedor abrirá entonces una conversación nueva. **La versión 0.2.2 lo entrega sin preguntar:** con ella, si una conversación no debe salir de tu equipo, abre una nueva en vez de cambiar de proveedor.
+  - **Dentro de «Modelos en la nube»**, cambiar de modelo puede cambiar de empresa: el modelo nuevo recibe los mensajes anteriores de la conversación sin otra pregunta.
+- **Actualizaciones:** unos segundos después de abrirse, y cuando lo pides, Pulso consulta `latest.json` en GitHub Releases. No instala nada sin que lo aceptes. Hoy no hay un ajuste para desactivar la consulta del arranque.
+
+## Qué se consulta automáticamente
+
+Pulso ejecuta las herramientas oficiales instaladas (Claude Code, Codex y Antigravity) para saber si hay una sesión iniciada y cuánto queda de tu plan. El uso del plan se consulta al detectar las cuentas, al terminar cada respuesta y, con el panel de IA a la vista, cada 45 segundos durante una respuesta, cada 2 minutos en reposo y al volver a la ventana. Para responder, cada herramienta puede comunicarse con su proveedor usando tu sesión.
+
+## Políticas de terceros
+
+[GitHub](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement), [OpenAI](https://openai.com/policies/privacy-policy/), [Anthropic](https://www.anthropic.com/legal/privacy) y [Google](https://policies.google.com/privacy). Con otros proveedores se aplica la política de cada uno.

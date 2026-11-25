@@ -21,6 +21,10 @@ export interface Live {
   title: string;
   stopping?: boolean;
   sessions: Sessions;
+  /** Cuántos mensajes ha permitido la persona entregar a cada proveedor (solo mientras la app está abierta). */
+  approved?: Partial<Record<AiProvider, number>>;
+  /** Hay una pregunta abierta sobre compartir la conversación. */
+  confirming?: boolean;
 }
 
 export type AiMode = "read" | "edit" | "full";
