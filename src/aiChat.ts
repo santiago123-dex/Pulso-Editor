@@ -56,7 +56,8 @@ import {
   type AiMode,
 } from "./ai/chatState";
 import { INTERRUPTED_KEY, fromSaved, newLive, persist, saveRunningBeforeExit } from "./ai/conversations";
-import { refreshExtraUsage, refreshUsage, saveUsage } from "./ai/usageSync";
+import { USAGE_IDLE_MS, USAGE_RETURN_MS, USAGE_RUNNING_MS, USAGE_TICK_MS, usageFromEvent } from "./ai/usagePolicy";
+import { autoRefreshUsage, refreshExtraUsage, refreshUsage, refreshUsageAfterTurn, saveUsage } from "./ai/usageSync";
 import { buildDenialCard, dismissedDenials, proposalStatus, renderIssueBanner } from "./ai/denials";
 import { detectProviderNow, renderFoot, setupMessage, startLoginFlow } from "./ai/accountView";
 import { installAndConnect, openAccountsPopover, openModelPopover } from "./ai/popovers";
@@ -65,7 +66,7 @@ import { buildEmptyWorkbench } from "./ai/workbench";
 import { activityCard, resolveToolFile, turnNodes } from "./ai/turnView";
 import { addImageFiles, attachProjectFile, editorContext, pruneUnusedImages, renderChips } from "./ai/attachments";
 import { dismissPopover, openPopover } from "./ai/popoverBase";
-import { openQuickPromptsPopover } from "./ai/quota";
+import { openQuickPromptsPopover, syncTelemetryViews } from "./ai/quota";
 import "./aiChat.css";
 
 setLeaveFullscreenHook(() => {
@@ -120,10 +121,16 @@ let lastPersistAt = 0;
 
 function apply(live: Live, ev: AiEvent) {
   const before = live.convo.touched;
+  const usageBefore = live.convo.usage;
   live.convo = reduce(live.convo, ev);
-  if (live.convo.usage.fiveHour || live.convo.usage.sevenDay) {
-    if (live.provider === "claude") saveUsage(live.convo.usage);
-    else if (live.provider === "codex") S.codexUsage = pruneUsage(live.convo.usage);
+  if (live.provider === "claude" || live.provider === "codex") {
+    const shown = live.provider === "claude" ? S.usage : S.codexUsage;
+    const next = usageFromEvent(shown, usageBefore, live.convo.usage);
+    if (next) {
+      if (live.provider === "claude") saveUsage(next);
+      else S.codexUsage = pruneUsage(next);
+      if (S.shown) syncTelemetryViews();
+    }
   }
   if (live.convo.touched > before) refreshDisk();
   const now = Date.now();
@@ -132,7 +139,8 @@ function apply(live: Live, ev: AiEvent) {
     persist(live, true);
     removeStorage(INTERRUPTED_KEY);
     if (live.convo.touched) refreshDisk();
-    if (live.provider === "codex" || live.provider === "antigravity") void refreshExtraUsage();
+    // Un turno emite `result` y luego `pulso_exit`: basta consultar al cerrarse el proceso.
+    if (ev.type === "pulso_exit") void refreshUsageAfterTurn(live.provider);
   } else if (ev.type === "pulso_user" || ev.type === "system" || now - lastPersistAt >= 1200) {
     lastPersistAt = now;
     persist(live);
@@ -1065,6 +1073,16 @@ function build() {
   autosize();
 }
 
+/** Mientras el panel está a la vista, el uso y su cuenta atrás se mueven solos. */
+function startLiveUsage() {
+  window.setInterval(() => {
+    if (!S.shown || document.visibilityState !== "visible") return;
+    syncTelemetryViews();
+    const running = [...lives.values()].some((l) => l.convo.running);
+    autoRefreshUsage(running ? USAGE_RUNNING_MS : USAGE_IDLE_MS);
+  }, USAGE_TICK_MS);
+}
+
 /** Lo que los demás módulos del panel (`src/ai/`) necesitan llamar de este controlador: se registra aquí para que no tengan que importarlo. */
 const controller = { autosize, build, detect, dispatchPrompt, renderBody, setFull, switchProvider };
 export type Controller = typeof controller;
@@ -1079,6 +1097,7 @@ export function setAiVisible(visible: boolean) {
     return;
   }
   window.addEventListener("keydown", onKey, true);
+  autoRefreshUsage(USAGE_RETURN_MS);
   if (isFull()) bus.emit("overlay", "ai");
   if (!q(".ai-shell")) build();
   else {
@@ -1120,7 +1139,9 @@ export function initAi() {
   });
   // Reconoce Claude Code y su plan al instante al iniciar la aplicación.
   void detect(true);
+  startLiveUsage();
   window.addEventListener("focus", () => {
+    if (S.shown) autoRefreshUsage(USAGE_RETURN_MS);
     if (S.awaitingLogin) void detectProviderNow(S.loginProvider);
     else if (S.shown && !S.tool?.logged_in) void detect(true);
   });
