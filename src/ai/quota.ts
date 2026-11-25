@@ -157,6 +157,13 @@ export function syncTelemetryViews() {
   renderFoot();
   const quota = q(".ai-inst-quota");
   if (quota) fillQuotaCard(quota);
+  // Un panel de uso abierto (flotante o junto a los modelos) también tiene que moverse solo.
+  for (const pop of document.querySelectorAll<HTMLElement>(".ai-usage-pop")) {
+    if (pop.hidden) continue;
+    const scroll = pop.scrollTop;
+    populateUsageContainer(pop, syncTelemetryViews);
+    pop.scrollTop = scroll;
+  }
 }
 
 export function usageRingRow(title: string, w: UsageWindow | undefined, emptyText: string): HTMLElement {
