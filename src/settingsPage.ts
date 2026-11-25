@@ -12,7 +12,16 @@ import { setStatus, showDialog } from "./ui";
 import { $, h } from "./util";
 
 type BoolKey =
-  "ligatures" | "minimap" | "wordWrap" | "lineNumbers" | "whitespace" | "smoothCaret" | "autoSave" | "formatOnSave" | "inlineAiEnabled";
+  | "ligatures"
+  | "minimap"
+  | "wordWrap"
+  | "lineNumbers"
+  | "whitespace"
+  | "smoothCaret"
+  | "autoSave"
+  | "formatOnSave"
+  | "inlineAiEnabled"
+  | "aiHandoff";
 
 interface Section {
   id: string;
@@ -290,6 +299,14 @@ function buildEditor() {
       t("Da formato al documento con el servidor de lenguaje (TypeScript y JavaScript) al guardar con Ctrl+S."),
       switchCtl("st-formatsave", "formatOnSave"),
       "formatear format guardar",
+    ),
+    row(
+      t("Seguir la conversación al cambiar de proveedor de IA"),
+      t(
+        "El proveedor nuevo recibe lo hablado, después de pedirte permiso. Si lo desactivas, cambiar de proveedor abre una conversación nueva.",
+      ),
+      switchCtl("st-ai-handoff", "aiHandoff"),
+      "ia proveedor historial compartir privacidad conversacion",
     ),
     row(
       t("Autocompletado de IA en línea (Ollama)"),

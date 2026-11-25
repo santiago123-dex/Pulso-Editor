@@ -27,6 +27,8 @@ export interface Settings {
   formatOnSave: boolean;
   /** Autocompletado de IA en línea (texto fantasma con Tab) usando Ollama local. */
   inlineAiEnabled: boolean;
+  /** Al cambiar de proveedor, seguir la misma conversación (pidiendo permiso antes de compartirla). */
+  aiHandoff: boolean;
   /** Modelo de Ollama para autocompletado en línea; vacío = automático. */
   inlineAiModel: string;
   /** Shell de la terminal integrada (id); vacío = la recomendada. */
@@ -66,6 +68,7 @@ export const DEFAULTS: Settings = {
   autoSave: false,
   formatOnSave: false,
   inlineAiEnabled: true,
+  aiHandoff: true,
   inlineAiModel: "",
   terminalShell: "",
   terminalFont: "",

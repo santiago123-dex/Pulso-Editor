@@ -58,6 +58,19 @@ export function buildPrompt(text: string, ctx: EditorContext): string {
   return `Contexto del editor de Pulso (lo ve la persona):\n${parts.join("\n")}\n\nMensaje:\n${text}`;
 }
 
+/** Qué se adjuntó, sin el contenido: sirve para contárselo a otro asistente si la conversación cambia de manos. */
+export function contextSummary(ctx: EditorContext): string[] {
+  const out: string[] = [];
+  if (ctx.file) out.push(`archivo abierto ${ctx.file}`);
+  for (const extra of ctx.extraFiles ?? []) if (extra && extra !== ctx.file) out.push(`archivo ${extra}`);
+  if (ctx.selection?.text.trim()) {
+    const where = ctx.file ? ` de ${ctx.file}` : "";
+    out.push(`selección de las líneas ${ctx.selection.startLine}-${ctx.selection.endLine}${where}`);
+  }
+  for (const note of ctx.notes ?? []) if (note.body.trim()) out.push(note.title);
+  return out;
+}
+
 /** Texto corto de cada chip. */
 export const chipLabels = (ctx: EditorContext): { file?: string; selection?: string } => ({
   file: ctx.file ? ctx.file.split("/").pop() : undefined,
